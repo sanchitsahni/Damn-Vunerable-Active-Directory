@@ -1,0 +1,31 @@
+---
+# ==============================================================================
+# vuln_kerberos/defaults/main.yml
+# Weak passwords for Kerberoastable service accounts (CRED-001).
+# Intentionally weak — these are the attack targets for the lab.
+# ==============================================================================
+
+kerberoast_accounts:
+  svc_printer: "Summer2024"
+  svc_dwight:  "BeetFarm1!"
+  svc_creed:   "Creed123"
+
+asrep_account: "svc_michael"
+
+# SPNs to register (CRED-001)
+spn_printer: "HTTP/print.corp.local"
+spn_dwight:  "MSSQLSvc/sql01.corp.local:1433"
+
+# Constrained delegation target (CRED-016)
+delegation_target: "HTTP/ws01.corp.local"
+
+# Computer accounts for unconstrained delegation (CRED-018)
+unconstrained_computers:
+  - FILE01
+  - WS01
+
+# RC4-only encryption type bitmask: 0x1 = RC4_HMAC_MD5 only
+rc4_only_enctype: 1
+
+ad_domain: "corp.local"
+ad_basedn:  "DC=corp,DC=local"

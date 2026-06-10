@@ -539,9 +539,9 @@ For some topics yes (e.g., a 10-minute "what is Kerberos" video before chapter 0
 
 No. DVAD is open-source, free, locally deployable, and intentionally vulnerable in a *taught* way — every vulnerability is documented and tied to a chapter. HTB labs are excellent but they're more "find what's exploitable" and less "learn why."
 
-### Q: What about Game-Of-Active-Directory (GOAD)?
+### Q: What other AD labs should I try after this?
 
-GOAD is fantastic — same spirit as DVAD. Once you finish this curriculum, GOAD makes a great next stop. GOAD has more flavour (cross-forest French/English themes, more hosts) but doesn't have a documented learning path attached.
+Forge (DVAD) is deep on documented attack chains. Once you finish this curriculum, check out HTB Pro Labs (Offshore, RastaLabs), TryHackMe enterprise paths, or PentesterLab for varied environments. The more labs you run, the better your mental model of what "normal" AD looks like vs. what defenders miss.
 
 ### Q: How do I avoid getting bored in the early chapters?
 
@@ -557,7 +557,7 @@ No. Memorize the *concept* and the *first 1-2 letters* of the flag (`-u`, `-p`, 
 
 ### Q: How do I know if I'm "done"?
 
-You've finished the curriculum when the self-assessment in §14.15 of the capstone is all checked. Most people are not "done" after one pass; pass two and pass three on a different lab (GOAD, HTB pro labs) is normal.
+You've finished the curriculum when the self-assessment in §14.15 of the capstone is all checked. Most people are not "done" after one pass; pass two and pass three on a different lab (HTB pro labs, TryHackMe enterprise) is normal.
 
 ### Q: I don't have a Windows VM client. Can I do everything from Linux?
 

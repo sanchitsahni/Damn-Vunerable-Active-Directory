@@ -1,4 +1,4 @@
-# Damn Vulnerable Active Directory (DVAD)
+# DUNDER — Dunder Mifflin Vulnerable Active Directory
 
 A reproducible, multi-forest Windows Active Directory lab that is **intentionally misconfigured** for offensive-security training, CTFs, and red-team practice. DVAD spins up 1–8 Windows Server 2022 VMs on QEMU/KVM with the full attack-matrix surface from `PLAN.md` already wired up: Kerberoasting, AS-REP roasting, ADCS ESC1–ESC16, ACL abuse, delegation chains, ZeroLogon, noPac, Certifried, Golden/Silver/Diamond/Sapphire tickets, SID-history injection, and more.
 
@@ -14,7 +14,7 @@ Three forests, eight VMs, three isolated L2 segments, full PLAN.md attack matrix
 
 ### Lab wire diagram
 
-Three Linux bridges, one bridge per forest. The host runs `dnsmasq` on all three (static DHCP leases keyed by MAC) and an optional `dvad-nat` masquerade bridge that only exists during Windows install for ISO + activation fetch.
+One Linux bridge (`dvad-ctf`) hosts all 8 VMs on a single `10.10.0.0/16` network. All forests share the same L2 segment — routing between forests is done at the AD/DNS layer, not the network layer. An optional `dvad-nat` bridge exists only during Windows install (ISO + activation fetch).
 
 **Network (L2 / IP):**
 
@@ -24,31 +24,26 @@ graph TD
     classDef bridge fill:#333,stroke:#fff,stroke-width:1px,color:#fff;
     classDef vm fill:#1d2b38,stroke:#00d2ff,stroke-width:2px,color:#fff;
     classDef nat fill:#4a1e1e,stroke:#ff5500,stroke-width:2px,color:#fff;
-    
-    Host["Linux Host<br/>runs ./deploy.sh<br/>QEMU/KVM • Ansible • dnsmasq • nftables NAT"]:::host
-    
-    CTF{"dvad-ctf<br/>10.10.0.1/24<br/>(CORP + EU)"}:::bridge
-    FIN{"dvad-finance<br/>10.20.0.1/24<br/>(FINANCE)"}:::bridge
-    ROOT{"dvad-root<br/>10.30.0.1/24<br/>(ROOT)"}:::bridge
+
+    Host["Linux Host<br/>runs python3 deploy.py<br/>QEMU/KVM · Ansible · dnsmasq · nftables NAT"]:::host
+
+    CTF{"dvad-ctf<br/>10.10.0.1/16<br/>(ALL forests)"}:::bridge
     NAT{"dvad-nat<br/>10.0.2.1/24<br/>(install only)"}:::nat
-    
+
     Host --> CTF
-    Host --> FIN
-    Host --> ROOT
     Host --> NAT
-    
-    CTF --- DC01["dc01.corp.local (.10)"]:::vm
-    CTF --- DC01EU["dc01.eu.corp.local (.11)"]:::vm
-    CTF --- CA01["ca01.corp.local (.12)"]:::vm
-    CTF --- FILE01["file01.corp.local (.13)"]:::vm
-    CTF --- SQL01["sql01.corp.local (.14)"]:::vm
-    CTF --- WS01["ws01.corp.local (.100)"]:::vm
-    
-    FIN --- DC01FIN["dc01.finance.local (.10)"]:::vm
-    ROOT --- DC01ROOT["dc01.root.corp (.10)"]:::vm
+
+    CTF --- DC01["dc01.corp.local<br/>10.10.0.10"]:::vm
+    CTF --- DC01EU["dc01.eu.corp.local<br/>10.10.0.11"]:::vm
+    CTF --- CA01["ca01.corp.local<br/>10.10.0.12"]:::vm
+    CTF --- FILE01["file01.corp.local<br/>10.10.0.13"]:::vm
+    CTF --- SQL01["sql01.corp.local<br/>10.10.0.14"]:::vm
+    CTF --- WS01["ws01.corp.local<br/>10.10.0.100"]:::vm
+    CTF --- DC01FIN["dc01.finance.local<br/>10.10.20.10"]:::vm
+    CTF --- DC01ROOT["dc01.root.corp<br/>10.10.30.10"]:::vm
 ```
 
-The three forest bridges are L2-isolated from each other; the only thing that routes between them is the Linux host. That makes the host (and, on a VPS, the WireGuard gateway in `scripts/vps-wg-gateway.sh`) the single ingress point for an attacker reaching all three subnets.
+All VMs share `dvad-ctf` — the host is the single dnsmasq/NAT gateway. Finance and root.corp VMs sit in different /24 slices of the /16 (`10.10.20.x`, `10.10.30.x`) which keeps IPs unique and cross-forest reachable without extra routing.
 
 **Active Directory (forests + trusts):**
 
@@ -76,14 +71,12 @@ graph TD
 
 Trusts are created by `ansible/tasks/trust-setup.yml` (`TrustType=External` for CORP↔FINANCE, `TrustType=Forest` for CORP↔ROOT, both `Direction=BiDirectional`). The TDO passwords are then reset to `TrustKey2024!` by `vuln-forest-compromise.yml` (DF-006) so trust-ticket forgery works without first DCSyncing. Cross-forest name resolution is via conditional forwarders on `dc01.corp.local`.
 
-| Domain | Forest | Subnet (bridge) | DC | Relationship to corp.local |
+| Domain | Forest | IP range | DC | Relationship to corp.local |
 |---|---|---|---|---|
-| `corp.local` | CORP (root) | `10.10.0.0/24` · `dvad-ctf` | `dc01.corp.local` | — |
-| `eu.corp.local` | CORP (child) | `10.10.0.0/24` · `dvad-ctf` | `dc01.eu.corp.local` | Parent/child, same forest |
-| `finance.local` | FINANCE (root) | `10.20.0.0/24` · `dvad-finance` | `dc01.finance.local` | External, bidirectional |
-| `root.corp` | ROOT (root) | `10.30.0.0/24` · `dvad-root` | `dc01.root.corp` | Forest, bidirectional |
-
-> The Ansible inventory labels `corp.local` as `10.10.0.0/21`, but the actual bridge created by `qemu/network/setup-network.sh` is `/24`. The `/21` label is unused by any code path — treat the bridge as the truth.
+| `corp.local` | CORP (root) | `10.10.0.x` · `dvad-ctf /16` | `dc01.corp.local` | — |
+| `eu.corp.local` | CORP (child) | `10.10.0.x` · `dvad-ctf /16` | `dc01.eu.corp.local` | Parent/child, same forest |
+| `finance.local` | FINANCE (root) | `10.10.20.x` · `dvad-ctf /16` | `dc01.finance.local` | External, bidirectional |
+| `root.corp` | ROOT (root) | `10.10.30.x` · `dvad-ctf /16` | `dc01.root.corp` | Forest, bidirectional |
 
 **Lab password (everywhere): `DVADlab2024!`** — not a secret, intentionally weak.
 
@@ -99,10 +92,56 @@ Per-VM sizing, MAC, and VNC port — all hardcoded in `qemu/vm-create.sh` (`VM_D
 | `file01.corp.local` | 10.10.0.13 | `dvad-ctf` | 1.5 GB | 1 | :5904 |
 | `sql01.corp.local` | 10.10.0.14 | `dvad-ctf` | 2 GB | 1 | :5905 |
 | `ws01.corp.local` | 10.10.0.100 | `dvad-ctf` | 3 GB | 2 | :5906 |
-| `dc01.finance.local` | 10.20.0.10 | `dvad-finance` | 2 GB | 1 | :5907 |
-| `dc01.root.corp` | 10.30.0.10 | `dvad-root` | 2 GB | 1 | :5908 |
+| `dc01.finance.local` | 10.10.20.10 | `dvad-ctf` | 2 GB | 1 | :5907 |
+| `dc01.root.corp` | 10.10.30.10 | `dvad-ctf` | 2 GB | 1 | :5908 |
 
 `--minimal` drops the `finance.local` and `root.corp` DCs (5 corp VMs only). `--single-dc` brings up `dc01.corp.local` alone. `--memory` / `--cpus` scale the table proportionally to fit a host budget.
+
+### Repository layout
+
+```
+DUNDER
+├── deploy.sh                   # Master deploy script (entry point)
+├── deploy.py                     # Interactive installer wizard
+├── qemu/
+│   ├── vm-create.sh            # VM definitions, autounattend generation, QCOW2 clone
+│   └── network/
+│       └── setup-network.sh    # Bridge + dnsmasq + NAT (single dvad-ctf /16)
+├── ansible/                    # Canonical Ansible (used by deploy.sh via profiles)
+│   ├── inventory.yml           # 8 hosts, groups: all_dcs, member_servers, …
+│   └── playbooks/
+│       └── site.yml            # 16-play master playbook (phases 1–16)
+├── ansible/roles/              # 19 Ansible roles
+│   ├── ad_domain               # Forest promotion
+│   ├── child_domain            # Child domain (eu.corp.local)
+│   ├── ad_trust                # Cross-forest trusts + SID-filter disable
+│   ├── dns                     # Conditional forwarders
+│   ├── domain_join             # Member server domain join
+│   ├── vuln_cred_access        # CRED-001..065: Kerberoast, ASREP, spray, DPAPI…
+│   ├── vuln_kerberos           # Delegation misconfigs, RC4, RBCD, shadow creds
+│   ├── vuln_adcs               # ESC1–15 cert templates + CA misconfigs
+│   ├── vuln_forest             # DCSync rights, ExtraSID, SID-filter off, FSP
+│   ├── vuln_ia_surface         # IA-001..119: RDP, WebDAV, LLMNR, null sessions…
+│   ├── vuln_lateral            # LAT-001..035: RBCD, relay, DCOM/WMI, coerce…
+│   ├── vuln_persistence        # PER-001..037: Registry, AdminSDHolder, GPO…
+│   ├── vuln_privesc            # PE-001..060: Token abuse, DLL hijack, CVEs…
+│   ├── vuln_recon              # REC-001..015: SMB signing, LDAP, DNS AXFR…
+│   ├── vuln_cve                # 2025/2026 CVEs: ZeroLogon, noPac, PrintNightmare…
+│   ├── vuln_exchange           # SRV: SQL (DunderMifflin DB), SCCM, WSUS…
+│   ├── vuln_cloud_entra        # CLO: Entra Connect sync, MSOL hash, AzureAD SSO…
+│   ├── vuln_defense_evasion    # DEF: ETW patch, AMSI bypass, CLM bypass…
+│   └── vuln_web_apps           # WEB: SQLi, file upload, path traversal, SSRF…
+├── scripts/
+│   ├── exploit_graph.py        # Graph-based attack chain validator (171 chains)
+│   ├── verify_exploits.sh      # Layer-2 attacker-side exploit verification
+│   └── verify_vulns.py         # Layer-1 passive config check
+├── wordlists/
+│   ├── dvad_passwords.txt      # 34 unique lab passwords
+│   └── dvad_usernames.txt      # 35 usernames
+├── ATTACK_PATTERNS.md          # 14 named kill chains + attack surface tables
+├── PLAN.md                     # Attack-vector spec (all IDs)
+└── WALKTHROUGH.md              # Full operator walkthrough
+```
 
 ---
 
@@ -138,22 +177,22 @@ mkdir -p media
 
 # 2. Deploy the Lab
 # Full lab (8 VMs, ~18 GB RAM):
-./deploy.sh
+python3 deploy.py
 
 # Smaller deployments:
-./deploy.sh --minimal      # corp.local only (5 VMs, ~12 GB)
-./deploy.sh --single-dc    # one DC for a smoke test (1 VM, ~3 GB)
+python3 deploy.py --profile minimal      # corp.local only (5 VMs, ~12 GB)
+python3 deploy.py --profile single-dc    # one DC for a smoke test (1 VM, ~3 GB)
 
 # Resource caps:
-./deploy.sh --memory 24 --cpus 12 --disk-path /mnt/vms
+python3 deploy.py --ram 24 --cpus 12 --disk-path /mnt/vms
 
 # Headless VPS profile (VNC on loopback, no GUI):
-./deploy.sh --vps --vnc-bind 127.0.0.1
+python3 deploy.py --vps --vnc-bind 127.0.0.1
 
 # Lifecycle Management:
-./deploy.sh suspend     # Stop all VMs
-./deploy.sh restart ws01  # Restart a specific VM
-./deploy.sh destroy     # Tear down everything
+python3 deploy.py suspend     # Stop all VMs
+python3 deploy.py restart ws01  # Restart a specific VM
+python3 deploy.py destroy     # Tear down everything
 ```
 
 > The upstream repo URL has a typo (`Vunerable` instead of `Vulnerable`); that's the real name on GitHub. Clone-paste it as-is.
@@ -200,7 +239,7 @@ Victim workstation `ws01.corp.local` (`10.10.0.100`) ships with tool path stubs 
 
 ---
 
-## Deployment flags (`./deploy.sh --help`)
+## Deployment flags (`python3 deploy.py --help`)
 
 | Flag | Effect |
 |---|---|
@@ -213,7 +252,7 @@ Victim workstation `ws01.corp.local` (`10.10.0.100`) ships with tool path stubs 
 | `--vnc-bind ADDR` | Bind VNC to `ADDR` (default `127.0.0.1`; `0.0.0.0` exposes all interfaces — only safe behind a firewall/VPN) |
 | `destroy` | Destroy and clean all VMs and networks, leaving the environment fresh |
 | `suspend` | Stop all running VMs without deleting virtual disks or networks |
-| `restart <id>` | Safely restart specific VMs (e.g. `./deploy.sh restart dc01-corp file01`) |
+| `restart <id>` | Safely restart specific VMs (e.g. `python3 deploy.py restart dc01-corp file01`) |
 
 ---
 
@@ -336,7 +375,7 @@ bash qemu/vm-create.sh destroy
 bash qemu/network/setup-network.sh destroy
 
 # Re-run cleanly:
-./deploy.sh
+python3 deploy.py
 ```
 
 The `vms/` and `media/` directories survive a destroy of bridges; remove them manually if you want to reclaim disk.
@@ -361,7 +400,7 @@ The DVAD repo lives at <https://github.com/sanchitsahni/Damn-Vunerable-Active-Di
 
 **Open an issue if:**
 - A VM fails to boot, install, or join its forest on a supported distro
-- A flag listed in `PLAN.md` is missing or unreachable after a clean `./deploy.sh`
+- A flag listed in `PLAN.md` is missing or unreachable after a clean `python3 deploy.py`
 - A vulnerability you expected from the spec turns out to be unreachable or differently-scoped
 - A doc page in `docs/` or `STUDY/` contradicts the actual lab state
 
@@ -384,11 +423,11 @@ DVAD is a research and training tool. It deliberately produces a Windows AD envi
 
 ## Running on a VPS (remote access via WireGuard)
 
-The lab is happy on a VPS — you SSH in, run `./deploy.sh --vps`, and your laptop's Kali joins the lab subnets over a WireGuard tunnel. No port-forwarding individual services; the attacker peer routes the whole `10.10.0.0/24 + 10.20.0.0/24 + 10.30.0.0/24` block.
+The lab is happy on a VPS — you SSH in, run `python3 deploy.py --vps`, and your laptop's Kali joins the lab subnets over a WireGuard tunnel. No port-forwarding individual services; the attacker peer routes the whole `10.10.0.0/24 + 10.20.0.0/24 + 10.30.0.0/24` block.
 
 ```bash
 # On the VPS (≥ 24 GB RAM recommended for full lab):
-./deploy.sh --vps                              # builds the lab, headless
+python3 deploy.py --vps                              # builds the lab, headless
 sudo bash scripts/vps-wg-gateway.sh up         # spins up a WG server, prints client conf
 
 # On your Kali / BlackArch laptop:

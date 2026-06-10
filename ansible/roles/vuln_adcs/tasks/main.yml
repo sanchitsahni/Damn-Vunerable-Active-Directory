@@ -1,0 +1,30 @@
+---
+# ==============================================================================
+# vuln_adcs/tasks/main.yml
+# Target: ca01.corp.local
+#
+# Imports sub-task files in dependency order:
+#   1. templates.yml  — ESC1-5, ESC13, ESC15 template objects in AD
+#   2. ca-flags.yml   — ESC6/7/8/11 CA-level registry flags and IIS config
+# ==============================================================================
+
+- name: Ensure ADCS Certificate Services is running before configuring
+  ansible.windows.win_service:
+    name: certsvc
+    state: started
+    start_mode: auto
+
+- name: Ensure IIS web enrollment services are running
+  ansible.windows.win_service:
+    name: "{{ item }}"
+    state: started
+    start_mode: auto
+  loop:
+    - IISADMIN
+    - W3SVC
+
+- name: Import ADCS template tasks (ESC1-5, ESC13, ESC15)
+  ansible.builtin.import_tasks: templates.yml
+
+- name: Import ADCS CA-flag tasks (ESC6, ESC7, ESC8, ESC11)
+  ansible.builtin.import_tasks: ca-flags.yml

@@ -1,0 +1,112 @@
+---
+# ==============================================================================
+# vuln_exchange/tasks/sccm.yml — SRV-021..040
+# Target: file01.corp.local
+#
+# SRV-021  SCCM client installed with NAA credentials
+# SRV-022  SCCM admin service accessible (REST API on 10122/tcp)
+# SRV-023  SCCM PXE enabled with no password (PXE boot attack)
+# SRV-024  SCCM distribution point HTTP (no HTTPS)
+# SRV-025  SCCM policy retrieval as domain user
+# SRV-026  SCCM credential relay (NTLM relay via NAA trigger)
+# SRV-027  SCCM site server admin override
+# SRV-028  SCCM device collection with script deployment
+# SRV-029  SCCM WMI namespace enumerable by domain users
+# SRV-030  SCCM hierarchy admin account (svc_sccm) in domain admins
+# SRV-031  SCCM network access account in DPAPI master secret
+# SRV-032  SCCM task sequence with embedded credentials
+# SRV-033  SCCM MP HTTP endpoint open
+# SRV-034..040: stub notes for additional SCCM/ConfigMgr vectors
+# ==============================================================================
+
+# SRV-030: SCCM service account in high-priv group
+- name: SRV-030 - Check if svc_sccm user exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $u = Get-ADUser -Filter "SamAccountName -eq 'svc_sccm'" -ErrorAction SilentlyContinue
+    if ($u) { Write-Output "present" } else { Write-Output "absent" }
+  register: srv030_check
+  changed_when: false
+  failed_when: srv030_check.rc != 0
+
+- name: SRV-030 - Create svc_sccm and add to Domain Admins (over-privileged)
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $p = ConvertTo-SecureString 'SccmSvc2024!' -AsPlainText -Force
+    New-ADUser -Name 'svc_sccm' -SamAccountName 'svc_sccm' `
+      -AccountPassword $p -Enabled $true -PasswordNeverExpires $true `
+      -Path "CN=Users,{{ ad_domain_dn }}" `
+      -Description "SRV-030: SCCM service account — over-privileged DA member"
+    Add-ADGroupMember -Identity 'Domain Admins' -Members 'svc_sccm'
+    Write-Output "changed: svc_sccm created and added to Domain Admins"
+  register: srv030_set
+  changed_when: "'changed:' in srv030_set.stdout"
+  failed_when: srv030_set.rc != 0
+  when: "'absent' in srv030_check.stdout"
+
+# SRV-021..034: SCCM surface notes and stubs
+- name: SRV-021..034 - Drop SCCM attack surface notes
+  ansible.windows.win_copy:
+    dest: "{{ item.path }}"
+    content: "{{ item.content }}"
+  loop:
+    - path: 'C:\Flags\FLAG-SRV-021-SCCM-NAA.txt'
+      content: |
+        SRV-021: SCCM Network Access Account (NAA) Credential Extraction
+        ==================================================================
+        The SCCM NAA is used by non-domain computers to access SCCM content.
+        Credential is stored encrypted in WMI on the site server.
+
+        Extraction:
+          SharpSCCM.exe get naa
+          Get-WmiObject -Namespace root/ccm/Policy/Machine/ActualConfig \
+            -Class CCM_NetworkAccessAccount
+
+          Decrypt with:
+          mimikatz# lsadump::dpapi /unprotect /guid:<GUID>
+
+        Account: {{ sccm_naa_account }} / DVADlab2024!
+        See also: FLAG-CRED-060 (NAA blob stub in C:\Flags\)
+
+    - path: 'C:\Flags\FLAG-SRV-023-SCCM-PXE.txt'
+      content: |
+        SRV-023: SCCM PXE Boot Attack (No Password)
+        =============================================
+        PXE boot is configured without a PXE boot password.
+        An attacker on the same network can request a PXE boot, capture the
+        task sequence, and extract embedded credentials.
+
+        Tools: pxethief.py, PXEThief-PowerShell
+        Attack:
+          python3 pxethief.py -i 10.10.0.0/21 -s file01.corp.local
+          → Captures encrypted task sequence variables
+          → Decrypts embedded admin credentials
+
+    - path: 'C:\Flags\FLAG-SRV-026-SCCM-Relay.txt'
+      content: |
+        SRV-026: SCCM NTLM Relay via NAA Trigger
+        ==========================================
+        Trigger the site server to authenticate via NTLM by manipulating
+        the NAA policy endpoint via a rogue distribution point.
+
+        Chain:
+          1. Register rogue DP (SharpSCCM: add distributionpoint)
+          2. SCCM site server authenticates to rogue DP via NTLM
+          3. Relay auth to LDAP → escalate
+
+        Tools: SharpSCCM, sccmhunter
+        sccmhunter smb -u jim.halpert -p Password123! -d corp.local -dc-ip 10.10.0.10
+
+    - path: 'C:\Flags\FLAG-SRV-032-SCCM-TaskSeq.txt'
+      content: |
+        SRV-032: SCCM Task Sequence with Embedded Credentials
+        ======================================================
+        Task sequences often contain local admin passwords, domain join credentials,
+        and service account passwords in cleartext or base64-encoded variables.
+
+        Extraction:
+          SharpSCCM.exe get tasksequence
+          sccmhunter tasksequence -u jim.halpert -p Password123!
+
+        Common credential variables:
+          OSDLocalAdminPassword, OSDDomainAdminPassword, SMSTSRunCommandLineUserName

@@ -1,0 +1,19 @@
+---
+# ==============================================================================
+# vuln_cve_modern/tasks/main.yml
+# 2025-2026 CVE surface configuration
+#
+# cve_2025.yml — Windows/AD CVEs patched in 2025 Q1-Q2
+# cve_2026.yml — Windows/AD CVEs identified/exploited in 2026
+#
+# Host targeting:
+#   ws01 — desktop CVEs (NTLMv2 leak, DWM, Win32k, explorer RCE)
+#   dc01 — AD/LDAP CVEs (heap overflow, LDAP relay, PAC bypass)
+#   all hosts — CLFS driver LPE (kernel-level, unpatched lab)
+# ==============================================================================
+
+- name: Import 2025 CVE surface tasks
+  ansible.builtin.import_tasks: cve_2025.yml
+
+- name: Import 2026 CVE surface tasks
+  ansible.builtin.import_tasks: cve_2026.yml

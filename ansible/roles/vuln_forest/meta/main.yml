@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  role_name: vuln_forest
+  author: DVAD
+  description: >
+    Injects forest-compromise misconfigurations on dc01.corp.local
+    (DF-003 DCSync, DF-007 ExtraSID, DF-009 FSP Domain Admins,
+    DF-010 cross-forest Kerberoasting, DF-008 SID filtering off).
+    Runs after ad_trust establishes cross-forest trusts.
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Windows
+      versions:
+        - 2019
+        - 2022
+
+dependencies:
+  - role: ad_trust

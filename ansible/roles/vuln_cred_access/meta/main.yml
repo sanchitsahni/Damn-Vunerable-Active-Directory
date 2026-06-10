@@ -1,0 +1,13 @@
+---
+galaxy_info:
+  role_name: vuln_cred_access
+  author: DVAD
+  description: Configures credential-access prerequisites (LSA/WDigest, NTLMv1, EFSRPC, Spooler, LDAP signing)
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Windows
+      versions:
+        - 2019
+        - 2022
+
+dependencies: []

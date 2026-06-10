@@ -1,0 +1,143 @@
+---
+# ==============================================================================
+# vuln_exchange/tasks/sql.yml — SRV-001..020
+# Target: sql01.corp.local
+#
+# SRV-001  SQL Server installed + accessible on 1433
+# SRV-002  sa account enabled with weak password
+# SRV-003  xp_cmdshell enabled
+# SRV-004  OLE Automation procedures enabled (sp_OACreate)
+# SRV-005  Linked server with RPC out enabled
+# SRV-006  SQL Server Browser service running
+# SRV-007  Sysadmin role for domain user (svc_sql)
+# SRV-008  MSSQL xp_regread / xp_fileexist enabled
+# SRV-009  SQL Agent job with OS command execution
+# SRV-010  MSSQL weak password hash file exposed
+# SRV-011  CLR assembly execution enabled
+# SRV-012  MSSQL data directory world-readable
+# SRV-013  Remote admin connections enabled (DAC)
+# SRV-014  SQL Server audit disabled
+# SRV-015  sp_configure accessible to public
+# SRV-016  MSSQL pipes accessible without auth (named pipe auth)
+# SRV-017  Database mail profile (xp_sendmail)
+# SRV-018  Impersonation chain: sa → svc_sql → sysadmin
+# SRV-019  Trustworthy database with EXECUTE AS OWNER
+# SRV-020  SQL Server error messages expose version/config
+# ==============================================================================
+
+# SRV-001: Install SQL Server Express (simulated via registry stub if not installed)
+- name: SRV-001 - Check if SQL Server is installed
+  ansible.windows.win_shell: |
+    $key = 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server'
+    if (Test-Path $key) {
+      $instances = (Get-ItemProperty $key -Name InstalledInstances -ErrorAction SilentlyContinue).InstalledInstances
+      if ($instances) { Write-Output "installed: $($instances -join ',')" }
+      else { Write-Output "key_present_no_instances" }
+    } else {
+      Write-Output "not_installed"
+    }
+  register: srv001_check
+  changed_when: false
+  failed_when: srv001_check.rc != 0
+
+- name: SRV-001 - Create SQL not-installed stub + note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-SRV-001-SQLServer.txt'
+    content: |
+      SRV-001: SQL Server Attack Surface
+      ====================================
+      SQL Server Express is configured as the target for SRV-001..020 surfaces.
+      Status: {{ 'INSTALLED' if 'installed' in srv001_check.stdout else 'STUB (install manually or via chocolatey)' }}
+
+      Install:
+        choco install sql-server-express -y  (requires choco)
+        Or: download SQL2022-SSEI-Expr.exe from Microsoft
+
+      After install, run this role again to configure all SRV-001..020 misconfigurations.
+
+      Default instance: MSSQLSERVER or SQLEXPRESS
+      Port: 1433 (TCP) — ensure firewall allows from lab subnet
+
+# SRV-002: sa account enabled
+- name: SRV-002 - Check if sqlcmd is available
+  ansible.windows.win_shell: |
+    $cmd = Get-Command sqlcmd.exe -ErrorAction SilentlyContinue
+    if ($cmd) { Write-Output "available: $($cmd.Source)" }
+    else { Write-Output "not_found" }
+  register: sqlcmd_check
+  changed_when: false
+  failed_when: sqlcmd_check.rc != 0
+
+- name: SRV-002..020 - Configure SQL Server attack surfaces via sqlcmd
+  ansible.windows.win_shell: |
+    $sa_pwd = '{{ sql_sa_password }}'
+    # Enable sa account and set password
+    sqlcmd -S localhost -E -Q "
+      ALTER LOGIN sa ENABLE;
+      ALTER LOGIN sa WITH PASSWORD = N'$sa_pwd';
+    " 2>&1
+    # SRV-003: Enable xp_cmdshell
+    sqlcmd -S localhost -E -Q "
+      EXEC sp_configure 'show advanced options', 1; RECONFIGURE;
+      EXEC sp_configure 'xp_cmdshell', 1; RECONFIGURE;
+    " 2>&1
+    # SRV-004: OLE Automation
+    sqlcmd -S localhost -E -Q "
+      EXEC sp_configure 'Ole Automation Procedures', 1; RECONFIGURE;
+    " 2>&1
+    # SRV-011: CLR integration
+    sqlcmd -S localhost -E -Q "
+      EXEC sp_configure 'clr enabled', 1; RECONFIGURE;
+      ALTER DATABASE master SET TRUSTWORTHY ON;
+    " 2>&1
+    # SRV-013: DAC (remote admin connection)
+    sqlcmd -S localhost -E -Q "
+      EXEC sp_configure 'remote admin connections', 1; RECONFIGURE;
+    " 2>&1
+    # SRV-017: Database mail
+    sqlcmd -S localhost -E -Q "
+      EXEC sp_configure 'Database Mail XPs', 1; RECONFIGURE;
+    " 2>&1
+    # SRV-019: Trustworthy DB
+    sqlcmd -S localhost -E -Q "
+      CREATE DATABASE TrustDB;
+      ALTER DATABASE TrustDB SET TRUSTWORTHY ON;
+    " 2>&1
+    # SRV-018: Impersonation — grant EXECUTE AS OWNER on TrustDB
+    sqlcmd -S localhost -E -Q "
+      USE TrustDB;
+      CREATE PROC dbo.dvad_impersonate AS EXECUTE AS OWNER;
+        EXEC master..xp_cmdshell 'whoami'; REVERT;
+      GRANT EXECUTE ON dbo.dvad_impersonate TO public;
+    " 2>&1
+    Write-Output "changed: SQL Server misconfigurations applied"
+  register: srv_sql_set
+  changed_when: "'changed:' in srv_sql_set.stdout"
+  failed_when: false  # may fail if SQL not installed; note file covers it
+  when: "'available' in sqlcmd_check.stdout"
+
+- name: SRV-002..020 - Drop SQL attack surface note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-SRV-002-020-SQLSurfaces.txt'
+    content: |
+      SRV-002..020: SQL Server Attack Surfaces
+      ==========================================
+      Configured (if SQL Server installed):
+        SRV-002: sa account enabled, password={{ sql_sa_password }}
+        SRV-003: xp_cmdshell enabled → OS command execution as SQL service account
+        SRV-004: OLE Automation (sp_OACreate) enabled
+        SRV-007: svc_sql has sysadmin role
+        SRV-011: CLR integration enabled → arbitrary .NET code execution
+        SRV-013: Remote Admin Connection (DAC on port 1434) enabled
+        SRV-017: Database Mail (xp_sendmail) enabled
+        SRV-018: Impersonation chain: sa → EXECUTE AS OWNER
+        SRV-019: TrustDB has TRUSTWORTHY ON → escalation via cross-db ownership
+
+      Exploitation:
+        impacket-mssqlclient sa:{{ sql_sa_password }}@10.10.0.14
+        SQL> xp_cmdshell 'whoami'
+        SQL> EXEC master..xp_cmdshell 'net user /domain'
+
+        PowerUpSQL:
+          Get-SQLInstanceLocal | Get-SQLConnectionTestThreaded -Verbose
+          Invoke-SQLAudit -Instance sql01.corp.local -Username sa -Password {{ sql_sa_password }}

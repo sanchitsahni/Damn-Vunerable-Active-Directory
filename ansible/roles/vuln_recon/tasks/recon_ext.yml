@@ -1,0 +1,147 @@
+---
+# ==============================================================================
+# vuln_rec_enum/tasks/recon.yml
+# Target: all_dcs group
+#
+# REC-001  Anonymous LDAP bind (see IA-003 — verified here for completeness)
+# REC-002  WMI unauthenticated namespace access
+# REC-004  DNS AXFR open (see IA-004 — verified)
+# REC-005  SNMP v1/v2c public community string
+# REC-006  NBT-NS/NetBIOS enumeration
+# REC-007  SMB null session (RestrictAnonymous=0)
+# REC-008  RPC endpoint mapper + named pipes
+# REC-010  SAMR anonymous enumeration
+# ==============================================================================
+
+# REC-001: Anonymous LDAP bind — verify dsHeuristics already set by IA-003
+- name: REC-001 - Verify dsHeuristics anonymous LDAP bind is configured
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $dn = "CN=Directory Service,CN=Windows NT,CN=Services,CN=Configuration,DC=corp,DC=local"
+    $obj = Get-ADObject -Identity $dn -Properties dSHeuristics -ErrorAction SilentlyContinue
+    if ($obj -and $obj.dSHeuristics) {
+      Write-Output "dSHeuristics=$($obj.dSHeuristics)"
+    } else {
+      Write-Output "not_set"
+    }
+  register: rec001_check
+  changed_when: false
+  failed_when: rec001_check.rc != 0
+  when: inventory_hostname == 'dc01.corp.local'
+
+# REC-002: WMI namespace — verify root\cimv2 is accessible.
+# The WMI service should already be running; ensure no authentication filter.
+- name: REC-002 - Verify WMI service is running and accessible
+  ansible.windows.win_shell: |
+    $s = Get-Service winmgmt -ErrorAction SilentlyContinue
+    if ($s -and $s.Status -eq 'Running') { Write-Output "running" }
+    else { Write-Output "not_running" }
+  register: rec002_check
+  changed_when: false
+  failed_when: rec002_check.rc != 0
+
+- name: REC-002 - Ensure WMI service is automatic and running
+  ansible.windows.win_shell: |
+    Set-Service winmgmt -StartupType Automatic -ErrorAction SilentlyContinue
+    Start-Service winmgmt -ErrorAction SilentlyContinue
+    Write-Output "changed: WMI running"
+  register: rec002_set
+  changed_when: "'changed:' in rec002_set.stdout"
+  failed_when: rec002_set.rc != 0
+  when: "'not_running' in rec002_check.stdout"
+
+# REC-005: SNMP v1/v2c with public community string
+- name: REC-005 - Check SNMP service state
+  ansible.windows.win_shell: |
+    $s = Get-Service SNMP -ErrorAction SilentlyContinue
+    if ($s) { Write-Output "status=$($s.Status) start=$($s.StartType)" }
+    else { Write-Output "not_installed" }
+  register: rec005_snmp_check
+  changed_when: false
+  failed_when: rec005_snmp_check.rc != 0
+
+- name: REC-005 - Install SNMP feature
+  ansible.windows.win_feature:
+    name: SNMP-Service
+    state: present
+  when: "'not_installed' in rec005_snmp_check.stdout"
+  register: rec005_install
+
+- name: REC-005 - Configure SNMP public community string
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\SNMP\Parameters\ValidCommunities'
+    name: "{{ item.name }}"
+    data: "{{ item.data }}"
+    type: dword
+  loop:
+    - { name: "{{ snmp_read_community }}",  data: 4 }
+    - { name: "{{ snmp_write_community }}", data: 2 }
+  when: "'not_installed' not in rec005_snmp_check.stdout or rec005_install.changed"
+
+- name: REC-005 - Allow SNMP from any host (no source restriction)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\SNMP\Parameters\PermittedManagers'
+    name: '1'
+    data: 'any'
+    type: string
+  when: "'not_installed' not in rec005_snmp_check.stdout or rec005_install.changed"
+
+- name: REC-005 - Start SNMP service
+  ansible.windows.win_service:
+    name: SNMP
+    state: started
+    start_mode: auto
+  when: "'not_installed' not in rec005_snmp_check.stdout or rec005_install.changed"
+
+# REC-007: SMB null session — RestrictAnonymous=0 (also set by vuln_recon).
+# Verify the setting is present on DCs.
+- name: REC-007 - Verify RestrictAnonymous=0 on DC
+  ansible.windows.win_shell: |
+    $v = (Get-ItemProperty `
+            -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' `
+            -Name 'RestrictAnonymous' -ErrorAction SilentlyContinue).RestrictAnonymous
+    if ($null -eq $v) { Write-Output "not_set" } else { Write-Output "value=$v" }
+  register: rec007_check
+  changed_when: false
+  failed_when: rec007_check.rc != 0
+
+- name: REC-007 - Set RestrictAnonymous=0 (null session allowed)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'
+    name: RestrictAnonymous
+    data: 0
+    type: dword
+  when: >
+    'not_set' in (rec007_check.stdout | default('')) or
+    'value=0' not in (rec007_check.stdout | default(''))
+
+# REC-008: RPC endpoint mapper — ensure RpcSs is running.
+- name: REC-008 - Verify RPC Endpoint Mapper is running
+  ansible.windows.win_shell: |
+    $s = Get-Service RpcSs -ErrorAction SilentlyContinue
+    if ($s -and $s.Status -eq 'Running') { Write-Output "running" }
+    else { Write-Output "not_running" }
+  register: rec008_check
+  changed_when: false
+  failed_when: rec008_check.rc != 0
+
+# REC-010: SAMR anonymous enumeration — RestrictAnonymousSAM=0
+- name: REC-010 - Check RestrictAnonymousSAM
+  ansible.windows.win_shell: |
+    $v = (Get-ItemProperty `
+            -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' `
+            -Name 'RestrictAnonymousSAM' -ErrorAction SilentlyContinue).RestrictAnonymousSAM
+    if ($null -eq $v) { Write-Output "not_set" } else { Write-Output "value=$v" }
+  register: rec010_check
+  changed_when: false
+  failed_when: rec010_check.rc != 0
+
+- name: REC-010 - Set RestrictAnonymousSAM=0 (SAMR anonymous enumeration)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'
+    name: RestrictAnonymousSAM
+    data: 0
+    type: dword
+  when: >
+    'not_set' in (rec010_check.stdout | default('')) or
+    'value=0' not in (rec010_check.stdout | default(''))

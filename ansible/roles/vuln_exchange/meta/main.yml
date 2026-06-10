@@ -1,0 +1,6 @@
+---
+galaxy_info:
+  role_name: vuln_exchange
+  description: "DVAD — Exchange/SCCM/WSUS/SQL attack surfaces: SRV-001..080"
+  min_ansible_version: "2.12"
+dependencies: []

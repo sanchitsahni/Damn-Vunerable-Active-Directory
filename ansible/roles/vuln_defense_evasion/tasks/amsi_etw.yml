@@ -1,0 +1,87 @@
+---
+# ==============================================================================
+# vuln_defense_evasion/tasks/amsi_etw.yml — DEF-001..020
+# Target: all hosts
+#
+# DEF-001  Windows Defender exclusions for C:\Tools + C:\Temp
+# DEF-002  AMSI bypass via registry (AmsiEnable=0)
+# DEF-003  PowerShell AMSI bypass surface note
+# DEF-004  ETW session disable (TI provider + Security Auditing)
+# DEF-005  Defender real-time protection disabled
+# DEF-006  Defender cloud protection disabled
+# DEF-007  ScriptBlockLogging disabled
+# DEF-008  AntiMalwareScanInterface disabled via registry
+# DEF-009  Disable Windows Error Reporting (WER)
+# DEF-010  Disable automatic sample submission
+# ==============================================================================
+
+# DEF-001: Add Defender exclusions for C:\Tools, C:\Temp
+- name: DEF-001 - Check Defender exclusion paths
+  ansible.windows.win_shell: |
+    $prefs = Get-MpPreference -ErrorAction SilentlyContinue
+    $excl  = $prefs.ExclusionPath
+    if ($excl -contains 'C:\Tools') { Write-Output "present" }
+    else { Write-Output "absent" }
+  register: def001_check
+  changed_when: false
+  failed_when: def001_check.rc != 0
+
+- name: DEF-001 - Add Defender exclusion paths (evasion surface)
+  ansible.windows.win_shell: |
+    foreach ($path in @('C:\Tools', 'C:\Temp', 'C:\CTF')) {
+      try {
+        Add-MpPreference -ExclusionPath $path -ErrorAction SilentlyContinue
+      } catch {}
+    }
+    # Also exclude common tool names
+    foreach ($ext in @('*.exe','*.ps1','*.dll','*.bat')) {
+      Add-MpPreference -ExclusionExtension $ext -ErrorAction SilentlyContinue
+    }
+    Write-Output "changed: Defender exclusions added"
+  register: def001_set
+  changed_when: "'changed:' in def001_set.stdout"
+  failed_when: def001_set.rc != 0
+  when: "'absent' in def001_check.stdout"
+
+# DEF-002: AMSI bypass via registry
+- name: DEF-002 - Check AMSI registry disable key
+  ansible.windows.win_shell: |
+    $v = (Get-ItemProperty `
+            -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection' `
+            -Name 'DisableScriptScanning' -ErrorAction SilentlyContinue).DisableScriptScanning
+    if ($null -eq $v) { Write-Output "not_set" } else { Write-Output "value=$v" }
+  register: def002_check
+  changed_when: false
+  failed_when: def002_check.rc != 0
+
+- name: DEF-002 - Disable script scanning (AMSI bypass surface)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection'
+    name: DisableScriptScanning
+    data: 1
+    type: dword
+  when: "'not_set' in def002_check.stdout or 'value=0' in def002_check.stdout"
+
+# DEF-005: Defender real-time protection disabled
+- name: DEF-005 - Disable Windows Defender real-time protection
+  ansible.windows.win_shell: |
+    try {
+      Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+      Set-MpPreference -DisableBehaviorMonitoring $true -ErrorAction SilentlyContinue
+      Set-MpPreference -DisableBlockAtFirstSeen $true -ErrorAction SilentlyContinue
+      Set-MpPreference -DisableIOAVProtection $true -ErrorAction SilentlyContinue
+      Write-Output "changed: Defender real-time monitoring disabled"
+    } catch {
+      Write-Output "WARN: $($_.Exception.Message)"
+    }
+  register: def005_set
+  changed_when: "'changed:' in def005_set.stdout"
+  failed_when: def005_set.rc != 0
+
+# DEF-009: Disable WER (stops crash reports to Microsoft)
+- name: DEF-009 - Disable Windows Error Reporting
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Error Reporting'
+    name: Disabled
+    data: 1
+    type: dword

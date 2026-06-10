@@ -1,0 +1,239 @@
+---
+# ==============================================================================
+# vuln_cred_gaps/tasks/services.yml
+# Target: dc01.corp.local (all_dcs guard via main.yml)
+#
+# CRED-006  SAM access via recovery console — RecoveryConsole\SecurityLevel reg
+# CRED-007  DVADVSSBackup scheduled task (daily VSS shadow copy on C:)
+# CRED-015  DCShadow surface — michael.scott in Schema Admins + DC OU write
+# CRED-019  PrintNightmare spool driver dir writable by Authenticated Users
+# CRED-021  DFS Namespace + DFSR features installed; Dfs + DFSR services running
+# CRED-053  DFSR service running (ShadowCoerce FSRVP endpoint)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# CRED-006: Recovery Console SecurityLevel — allows SAM access
+# HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Setup\RecoveryConsole\
+#   SecurityLevel = 1 (allow any local admin to use recovery console freely,
+#   enabling SAM/SYSTEM hive extraction at console).
+# Check registry value before setting.
+# ------------------------------------------------------------------------------
+- name: CRED-006 - Check RecoveryConsole SecurityLevel registry value
+  ansible.windows.win_shell: |
+    $val = (Get-ItemProperty `
+      -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Setup\RecoveryConsole" `
+      -Name "SecurityLevel" -ErrorAction SilentlyContinue).SecurityLevel
+    if ($null -eq $val) { Write-Output "not_set" } else { Write-Output $val }
+  register: result_rc_sec_check
+  changed_when: false
+  failed_when: result_rc_sec_check.rc != 0
+
+- name: CRED-006 - Set RecoveryConsole SecurityLevel=1 (SAM access from recovery console)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Setup\RecoveryConsole'
+    name: SecurityLevel
+    data: 1
+    type: dword
+  when: result_rc_sec_check.stdout | trim != "1"
+
+# ------------------------------------------------------------------------------
+# CRED-007: DVADVSSBackup scheduled task — daily shadow copy on C:
+# Ensures a VSS snapshot exists on dc01 so NTDS.dit can be extracted via shadow.
+# Check task existence before creating.
+# ------------------------------------------------------------------------------
+- name: CRED-007 - Check DVADVSSBackup scheduled task existence
+  ansible.windows.win_shell: |
+    $t = Get-ScheduledTask -TaskName "DVADVSSBackup" -ErrorAction SilentlyContinue
+    if ($t) { Write-Output "present" } else { Write-Output "absent" }
+  register: result_vss_task_check
+  changed_when: false
+  failed_when: result_vss_task_check.rc != 0
+
+- name: CRED-007 - Create DVADVSSBackup daily shadow copy task on dc01
+  ansible.windows.win_shell: |
+    $action  = New-ScheduledTaskAction `
+      -Execute "vssadmin.exe" `
+      -Argument "create shadow /for=C:"
+    $trigger = New-ScheduledTaskTrigger -Daily -At "02:00"
+    $settings = New-ScheduledTaskSettingsSet `
+      -ExecutionTimeLimit (New-TimeSpan -Minutes 30) `
+      -StartWhenAvailable
+    Register-ScheduledTask `
+      -TaskName "DVADVSSBackup" `
+      -Action $action `
+      -Trigger $trigger `
+      -Settings $settings `
+      -RunLevel Highest `
+      -User "SYSTEM" `
+      -Force -ErrorAction Stop | Out-Null
+  when: result_vss_task_check.stdout | trim == "absent"
+  register: result_vss_task_create
+  failed_when: result_vss_task_create.rc != 0
+
+# ------------------------------------------------------------------------------
+# CRED-015: DCShadow surface
+# 1) Ensure michael.scott is member of Schema Admins (required to register
+#    a rogue DC in the Configuration NC).
+# 2) Grant michael.scott WriteProperty on the Domain Controllers OU so a
+#    rogue DC computer object can be registered there.
+# Check both membership and ACE before acting.
+# ------------------------------------------------------------------------------
+- name: CRED-015 - Check michael.scott Schema Admins membership
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $user = Get-ADUser -Identity "michael.scott" -ErrorAction SilentlyContinue
+    if (-not $user) { Write-Output "no_user"; exit 0 }
+    $members = Get-ADGroupMember -Identity "Schema Admins" -ErrorAction SilentlyContinue
+    if ($members | Where-Object { $_.SamAccountName -eq "michael.scott" }) {
+      Write-Output "present"
+    } else {
+      Write-Output "absent"
+    }
+  register: result_ds_schema_check
+  changed_when: false
+  failed_when: result_ds_schema_check.rc != 0
+
+- name: CRED-015 - Add michael.scott to Schema Admins
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    Add-ADGroupMember -Identity "Schema Admins" -Members "michael.scott" -ErrorAction Stop
+  when: result_ds_schema_check.stdout | trim == "absent"
+  register: result_ds_schema_add
+  failed_when: >
+    result_ds_schema_add.rc != 0 and
+    "already" not in (result_ds_schema_add.stderr | default("") | lower)
+
+- name: CRED-015 - Check michael.scott WriteProperty ACE on Domain Controllers OU
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $user = Get-ADUser -Identity "michael.scott" -ErrorAction SilentlyContinue
+    if (-not $user) { Write-Output "no_user"; exit 0 }
+    $sid  = New-Object System.Security.Principal.SecurityIdentifier ($user.SID)
+    $ouDN = "OU=Domain Controllers,{{ ad_domain_dn }}"
+    $acl  = Get-ACL "AD:\$ouDN"
+    $match = $acl.Access | Where-Object {
+      try {
+        $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value -eq $sid.Value -and
+        ($_.ActiveDirectoryRights -band [System.DirectoryServices.ActiveDirectoryRights]::WriteProperty)
+      } catch { $false }
+    }
+    if ($match) { Write-Output "present" } else { Write-Output "absent" }
+  register: result_ds_dcou_check
+  changed_when: false
+  failed_when: result_ds_dcou_check.rc != 0
+
+- name: CRED-015 - Grant michael.scott WriteProperty on Domain Controllers OU
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $user = Get-ADUser -Identity "michael.scott"
+    $sid  = New-Object System.Security.Principal.SecurityIdentifier ($user.SID)
+    $ouDN = "OU=Domain Controllers,{{ ad_domain_dn }}"
+    $acl  = Get-ACL "AD:\$ouDN"
+    $rule = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+      $sid, "WriteProperty", "Allow",
+      [System.DirectoryServices.ActiveDirectorySecurityInheritance]::All
+    )
+    $acl.AddAccessRule($rule)
+    Set-ACL "AD:\$ouDN" $acl
+  when: >
+    result_ds_dcou_check.stdout | trim == "absent" and
+    result_ds_dcou_check.stdout | trim != "no_user"
+  register: result_ds_dcou_set
+  failed_when: result_ds_dcou_set.rc != 0
+
+# ------------------------------------------------------------------------------
+# CRED-019: PrintNightmare spool driver directory writable by Authenticated Users
+# Grant (OI)(CI)(W) — object/container inherit, write only (not full control).
+# Use icacls; check current ACL with icacls /findsid first.
+# ------------------------------------------------------------------------------
+- name: CRED-019 - Check Authenticated Users write ACE on spool x64 driver dir
+  ansible.windows.win_shell: |
+    $path = 'C:\Windows\System32\spool\drivers\x64\3'
+    if (-not (Test-Path $path)) {
+      New-Item -Path $path -ItemType Directory -Force | Out-Null
+      Write-Output "created_needs_acl"
+      exit 0
+    }
+    $acl = icacls $path 2>&1
+    if ($acl | Select-String "Authenticated Users.*\(W\|OI\|CI\|WD\|AD\)" ) {
+      Write-Output "present"
+    } else {
+      Write-Output "absent"
+    }
+  register: result_spool_acl_check
+  changed_when: false
+  failed_when: result_spool_acl_check.rc != 0
+
+- name: CRED-019 - Grant Authenticated Users (OI)(CI)(W) on spool x64 driver dir
+  ansible.windows.win_shell: |
+    $path = 'C:\Windows\System32\spool\drivers\x64\3'
+    icacls $path /grant "Authenticated Users:(OI)(CI)(W)" /T | Out-Null
+  when: result_spool_acl_check.stdout | trim in ["absent", "created_needs_acl"]
+  register: result_spool_acl_set
+  failed_when: result_spool_acl_set.rc != 0
+
+# ------------------------------------------------------------------------------
+# CRED-021: DFSCoerce — install DFS Namespace + DFSR features on dc01
+# Check feature state before installing; start Dfs + DFSR services after.
+# ------------------------------------------------------------------------------
+- name: CRED-021 - Check FS-DFS-Namespace and FS-DFS-Replication feature state
+  ansible.windows.win_shell: |
+    $ns   = (Get-WindowsFeature -Name "FS-DFS-Namespace").InstallState
+    $repl = (Get-WindowsFeature -Name "FS-DFS-Replication").InstallState
+    Write-Output "ns=$ns repl=$repl"
+  register: result_dfs_feature_check
+  changed_when: false
+  failed_when: result_dfs_feature_check.rc != 0
+
+- name: CRED-021 - Install FS-DFS-Namespace feature
+  ansible.windows.win_feature:
+    name: FS-DFS-Namespace
+    state: present
+  when: "'ns=Installed' not in result_dfs_feature_check.stdout"
+  register: result_dfs_ns_install
+  failed_when: >
+    result_dfs_ns_install.failed is defined and result_dfs_ns_install.failed
+
+- name: CRED-021 - Install FS-DFS-Replication feature
+  ansible.windows.win_feature:
+    name: FS-DFS-Replication
+    state: present
+  when: "'repl=Installed' not in result_dfs_feature_check.stdout"
+  register: result_dfs_repl_install
+  failed_when: >
+    result_dfs_repl_install.failed is defined and result_dfs_repl_install.failed
+
+- name: CRED-021 - Check Dfs service state
+  ansible.windows.win_service_info:
+    name: Dfs
+  register: result_dfs_svc_info
+  failed_when: result_dfs_svc_info.services | length == 0
+
+- name: CRED-021 - Ensure Dfs service is running and set to auto-start
+  ansible.windows.win_service:
+    name: Dfs
+    state: started
+    start_mode: auto
+  when: >
+    result_dfs_svc_info.services[0].state != 'running' or
+    result_dfs_svc_info.services[0].start_mode != 'auto'
+
+# ------------------------------------------------------------------------------
+# CRED-053: ShadowCoerce — DFSR service running on dc01
+# DFSR exposes the FSRVP endpoint used by ShadowCoerce.
+# Check before acting; reuse feature already installed by CRED-021.
+# ------------------------------------------------------------------------------
+- name: CRED-053 - Check DFSR service state
+  ansible.windows.win_service_info:
+    name: DFSR
+  register: result_dfsr_svc_info
+  failed_when: result_dfsr_svc_info.services | length == 0
+
+- name: CRED-053 - Ensure DFSR service is running and set to auto-start
+  ansible.windows.win_service:
+    name: DFSR
+    state: started
+    start_mode: auto
+  when: >
+    result_dfsr_svc_info.services[0].state != 'running' or
+    result_dfsr_svc_info.services[0].start_mode != 'auto'

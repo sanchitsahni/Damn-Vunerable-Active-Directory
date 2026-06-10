@@ -1,0 +1,85 @@
+---
+# ==============================================================================
+# vuln_defense_evasion/tasks/logging.yml — DEF-021..040
+# Target: all hosts
+#
+# DEF-021  PowerShell ScriptBlock logging disabled
+# DEF-022  PowerShell Module logging disabled
+# DEF-023  PowerShell Transcription disabled
+# DEF-024  Security event log size reduced
+# DEF-025  Process creation audit disabled
+# DEF-026  Sysmon not installed (no indicator)
+# DEF-027  WEF (Windows Event Forwarding) not configured
+# DEF-028  Applocker auditing disabled
+# DEF-029  Constrained Language Mode disabled
+# DEF-030  WDAC (Windows Defender Application Control) disabled
+# ==============================================================================
+
+# DEF-021..023: PowerShell logging disabled
+- name: DEF-021 - Disable PowerShell ScriptBlock logging
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging'
+    name: EnableScriptBlockLogging
+    data: "{{ ps_script_block_logging }}"
+    type: dword
+
+- name: DEF-022 - Disable PowerShell Module logging
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging'
+    name: EnableModuleLogging
+    data: "{{ ps_module_logging }}"
+    type: dword
+
+- name: DEF-023 - Disable PowerShell Transcription
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription'
+    name: EnableTranscripting
+    data: "{{ ps_transcription }}"
+    type: dword
+
+# DEF-024: Reduce security event log size
+- name: DEF-024 - Reduce Security event log maximum size
+  ansible.windows.win_shell: |
+    wevtutil sl Security /ms:8388608 2>&1
+    Write-Output "changed: Security log reduced to 8MB"
+  register: def024_set
+  changed_when: "'changed:' in def024_set.stdout"
+  failed_when: def024_set.rc != 0
+
+# DEF-025: Disable process creation audit
+- name: DEF-025 - Disable process creation auditing
+  ansible.windows.win_shell: |
+    auditpol /set /subcategory:"Process Creation" /success:disable /failure:disable 2>&1
+    Write-Output "changed: process creation audit disabled"
+  register: def025_set
+  changed_when: "'changed:' in def025_set.stdout"
+  failed_when: def025_set.rc != 0
+
+# DEF-029: PowerShell Constrained Language Mode — ensure Full language mode
+- name: DEF-029 - Ensure PowerShell LanguageMode is FullLanguage
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
+    name: __PSLockdownPolicy
+    data: 0
+    type: dword
+
+- name: DEF-021..030 - Drop logging evasion surface note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-DEF-021-Logging-Disabled.txt'
+    content: |
+      DEF-021..030: Security Logging Weakness
+      =========================================
+      Configured on all lab hosts:
+        - ScriptBlock logging: DISABLED (no PowerShell command capture)
+        - Module logging: DISABLED
+        - Transcription: DISABLED
+        - Security log: 8MB max (overwrites quickly)
+        - Process creation audit: DISABLED
+        - PowerShell CLM: DISABLED (FullLanguage mode)
+
+      This creates a realistic post-breach environment where an attacker
+      can run malicious PowerShell without triggering logging alerts.
+
+      To enable for blue team exercise:
+        Set-ItemProperty HKLM:\...\ScriptBlockLogging EnableScriptBlockLogging 1
+        auditpol /set /subcategory:"Process Creation" /success:enable

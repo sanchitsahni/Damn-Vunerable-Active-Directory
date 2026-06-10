@@ -1,0 +1,268 @@
+---
+# ==============================================================================
+# DVAD site.yml — Master Playbook
+#
+# Dependency order:
+#   1. corp.local DC must be fully promoted before child/finance/root DCs
+#   2. All DCs must be up before trusts are configured
+#   3. All DCs must be up before DNS forwarders are set
+#   4. DCs must be reachable (LDAP) before member servers join
+#
+# Usage:
+#   ansible-playbook -i inventory.yml playbooks/site.yml
+#   ansible-playbook -i inventory.yml playbooks/site.yml --tags ad_domain
+#   ansible-playbook -i inventory.yml playbooks/site.yml --limit dc01.corp.local
+# ==============================================================================
+
+# ============================================================================
+# Phase 1: Promote dc01.corp.local (corp.local forest root DC)
+# ============================================================================
+- name: Phase 1 — Promote corp.local DC
+  hosts: dc01.corp.local
+  gather_facts: false
+  tags:
+    - ad_domain
+    - corp_dc
+    - phase1
+  roles:
+    - role: ad_domain
+      vars:
+        ad_domain: corp.local
+        ad_netbios: CORP
+        ad_hostname: dc01
+        ad_static_ip: 10.10.0.10
+        ad_subnet_mask: 255.255.248.0
+        ad_gateway: 10.10.0.1
+
+# ============================================================================
+# Phase 2: Promote dc01.eu.corp.local (child domain)
+# Must run after Phase 1 — corp.local LDAP must be up.
+# ============================================================================
+- name: Phase 2 — Promote eu.corp.local child DC
+  hosts: dc01.eu.corp.local
+  gather_facts: false
+  tags:
+    - child_domain
+    - eu_dc
+    - phase2
+  roles:
+    - role: child_domain
+
+# ============================================================================
+# Phase 3: Promote dc01.finance.local (finance.local forest, separate)
+# ============================================================================
+- name: Phase 3 — Promote finance.local DC
+  hosts: dc01.finance.local
+  gather_facts: false
+  tags:
+    - ad_domain
+    - finance_dc
+    - phase3
+  roles:
+    - role: ad_domain
+      vars:
+        ad_domain: finance.local
+        ad_netbios: FINANCE
+        ad_hostname: DC01-FIN
+        ad_static_ip: 10.10.20.10
+        ad_subnet_mask: 255.255.0.0
+        ad_gateway: 10.10.0.1
+
+# ============================================================================
+# Phase 4: Promote dc01.root.corp (root.corp forest, separate)
+# ============================================================================
+- name: Phase 4 — Promote root.corp DC
+  hosts: dc01.root.corp
+  gather_facts: false
+  tags:
+    - ad_domain
+    - root_dc
+    - phase4
+  roles:
+    - role: ad_domain
+      vars:
+        ad_domain: root.corp
+        ad_netbios: ROOT
+        ad_hostname: DC01-ROOT
+        ad_static_ip: 10.10.30.10
+        ad_subnet_mask: 255.255.0.0
+        ad_gateway: 10.10.0.1
+
+# ============================================================================
+# Phase 5: Join member servers to corp.local
+# Requires Phase 1 complete (corp.local LDAP must answer).
+# ============================================================================
+- name: Phase 5 — Join member servers to corp.local
+  hosts: member_servers
+  gather_facts: false
+  tags:
+    - domain_join
+    - member_servers
+    - phase5
+  roles:
+    - role: domain_join
+      vars:
+        domain_to_join: corp.local
+        domain_user: Administrator
+        domain_password: "DVADlab2024!"
+        domain_netbios: CORP
+        domain_dns_ip: 10.10.0.10
+        member_subnet_mask: 255.255.0.0
+        member_gateway: 10.10.0.1
+
+# ============================================================================
+# Phase 6: Configure cross-forest trusts
+# Requires Phases 1, 3, 4 complete (all forest DCs up).
+# Run against dc01.corp.local — it initiates both trusts.
+# ============================================================================
+- name: Phase 6 — Configure cross-forest trusts
+  hosts: dc01.corp.local
+  gather_facts: false
+  tags:
+    - ad_trust
+    - trusts
+    - phase6
+  roles:
+    - role: ad_trust
+
+# ============================================================================
+# Phase 7: Configure DNS forwarders on all DCs
+# Requires all DCs to be promoted (Phases 1–4).
+# ============================================================================
+- name: Phase 7 — Configure DNS conditional forwarders on all DCs
+  hosts: all_dcs
+  gather_facts: false
+  tags:
+    - dns
+    - phase7
+  roles:
+    - role: dns
+
+# ============================================================================
+# Phase 8: Core vulnerability injection — users, ACLs, Kerberos misconfigs
+# These roles populate the fundamental AD attack surface (existing roles).
+# Requires Phases 1–7 complete.
+# ============================================================================
+- name: Phase 8 — Core credential and Kerberos vulnerability injection (all DCs)
+  hosts: all_dcs
+  gather_facts: false
+  tags:
+    - vuln_core
+    - phase8
+  roles:
+    - role: vuln_cred_access
+    - role: vuln_kerberos
+    - role: vuln_forest
+
+- name: Phase 8b — ADCS vulnerability injection (ca01)
+  hosts: ca01.corp.local
+  gather_facts: false
+  tags:
+    - vuln_adcs
+    - phase8
+  roles:
+    - role: vuln_adcs
+
+# ============================================================================
+# Phase 9: Initial access surfaces (workstations + member servers)
+# Phishing files, weak services, NLA-disabled RDP, IIS/WebDAV.
+# ============================================================================
+- name: Phase 9 — Initial access surfaces (all hosts)
+  hosts: all
+  gather_facts: false
+  tags:
+    - vuln_ia
+    - phase9
+  roles:
+    - role: vuln_ia_surface
+
+# ============================================================================
+# Phase 10: Lateral movement + persistence + privilege escalation (original roles)
+# ============================================================================
+- name: Phase 10 — Lateral movement, persistence, privesc (all hosts)
+  hosts: all
+  gather_facts: false
+  tags:
+    - vuln_lateral
+    - vuln_persistence
+    - vuln_privesc
+    - phase10
+  roles:
+    - role: vuln_lateral
+    - role: vuln_persistence
+    - role: vuln_privesc
+    - role: vuln_recon
+
+# ============================================================================
+# Phase 11: Modern CVE surfaces (2025/2026)
+# All other extended surfaces are now absorbed into base roles (phases 8-10).
+# ============================================================================
+- name: Phase 11 — Modern CVE surfaces 2025/2026 (all DCs + ws01)
+  hosts:
+    - all_dcs
+    - ws01.corp.local
+  gather_facts: false
+  tags:
+    - vuln_cve
+    - phase11
+  roles:
+    - role: vuln_cve
+
+# ============================================================================
+# Phase 13: Service expansion — SQL, SCCM, WSUS, Exchange
+# ============================================================================
+- name: Phase 13 — Service attack surfaces (sql01 + file01 + dc01)
+  hosts:
+    - sql01.corp.local
+    - file01.corp.local
+    - dc01.corp.local
+  gather_facts: false
+  tags:
+    - vuln_exchange
+    - vuln_srv
+    - phase13
+  roles:
+    - role: vuln_exchange
+
+# ============================================================================
+# Phase 14: Cloud/Entra hybrid + defense evasion surfaces
+# ============================================================================
+- name: Phase 14a — Entra/AAD hybrid attack surfaces (dc01)
+  hosts: dc01.corp.local
+  gather_facts: false
+  tags:
+    - vuln_cloud_entra
+    - vuln_clo
+    - phase14
+  roles:
+    - role: vuln_cloud_entra
+
+- name: Phase 14b — Defense evasion surfaces (ws01 + file01 + dc01)
+  hosts:
+    - ws01.corp.local
+    - file01.corp.local
+    - dc01.corp.local
+  gather_facts: false
+  tags:
+    - vuln_defense_evasion
+    - vuln_def
+    - phase14
+  roles:
+    - role: vuln_defense_evasion
+
+# ============================================================================
+# Phase 15: Web application attack surfaces (file01 + dc01)
+# ============================================================================
+- name: Phase 16 — Web application vulnerabilities (file01 + dc01)
+  hosts:
+    - file01.corp.local
+    - dc01.corp.local
+  gather_facts: false
+  tags:
+    - vuln_web_apps
+    - vuln_web
+    - phase16
+  roles:
+    - role: vuln_web_apps
+
+# (Phase 17-18 surfaces absorbed into vuln_cred_access, vuln_lateral, vuln_forest in phases 8-10)

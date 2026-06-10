@@ -1,0 +1,163 @@
+---
+# ==============================================================================
+# vuln_adcs/tasks/ca-flags.yml
+# CA-level misconfigurations for ESC6, ESC7, ESC8, ESC11.
+# Target: ca01.corp.local (runs on the CA itself via WinRM)
+# ==============================================================================
+
+# ==============================================================================
+# ESC6 — EDITF_ATTRIBUTESUBJECTALTNAME2 flag on CA policy module
+# When this flag is set, any CSR (even from a template that does NOT have
+# CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT) can include an arbitrary SAN supplied in
+# the request attributes — full impersonation via any enrollable template.
+#
+# Check current value of EditFlags before setting.
+# EDITF_ATTRIBUTESUBJECTALTNAME2 = 0x00040000 (262144 decimal)
+# ==============================================================================
+- name: ESC6 - Read current CA policy EditFlags
+  ansible.windows.win_shell: |
+    $out = certutil -getreg policy\EditFlags 2>&1
+    # certutil output contains a line like: EditFlags REG_DWORD = 0x11006e (1114222)
+    $line = $out | Select-String "EditFlags"
+    if ($line) {
+      # Extract hex value
+      if ($line -match "0x([0-9a-fA-F]+)") {
+        Write-Output "0x$($Matches[1])"
+      } else {
+        Write-Output "unknown"
+      }
+    } else {
+      Write-Output "not_found"
+    }
+  register: result_esc6_editflags
+  changed_when: false
+  failed_when: result_esc6_editflags.rc != 0
+
+- name: ESC6 - Enable EDITF_ATTRIBUTESUBJECTALTNAME2 on CA
+  ansible.windows.win_shell: |
+    # 0x00040000 = EDITF_ATTRIBUTESUBJECTALTNAME2
+    certutil -setreg policy\EditFlags +EDITF_ATTRIBUTESUBJECTALTNAME2
+  # Only set if the flag is not already present (bit check)
+  when: >
+    result_esc6_editflags.stdout | trim == "not_found" or
+    result_esc6_editflags.stdout | trim == "unknown" or
+    (result_esc6_editflags.stdout | trim | regex_replace('^0x', '') | int(base=16) | bitwise_and(262144)) == 0
+  register: result_esc6_set
+  failed_when: result_esc6_set.rc != 0
+  notify: "restart certsvc"
+
+# ==============================================================================
+# ESC7 — Add svc_darryl to the CA "Certificate Manager" role
+# Certificate Managers can approve pending certificate requests and revoke
+# issued certs. A low-priv account in this role can approve ESC3-agent requests
+# or revoke/re-issue to escalate.
+# ==============================================================================
+- name: ESC7 - Check if svc_darryl is already a CA Certificate Manager
+  ansible.windows.win_shell: |
+    $out = certutil -getreg CA\Officers 2>&1
+    if ($out -match "svc_darryl") { Write-Output "present" } else { Write-Output "absent" }
+  register: result_esc7_check
+  changed_when: false
+  failed_when: >
+    result_esc7_check.rc != 0 and
+    "element not found" not in (result_esc7_check.stderr | default("") | lower)
+
+- name: ESC7 - Grant svc_darryl Certificate Manager role on CA
+  ansible.windows.win_shell: |
+    # Add svc_darryl to the CA's Officers (Certificate Manager) role
+    # This uses the CA's built-in role management via certutil
+    $domain = $env:USERDOMAIN
+    certutil -setreg CA\Officers "+$domain\svc_darryl:Manage CA,Issue and Manage Certificates"
+  when: "'absent' in result_esc7_check.stdout"
+  register: result_esc7_set
+  failed_when: >
+    result_esc7_set.rc != 0 and
+    "already" not in (result_esc7_set.stderr | default("") | lower)
+  notify: "restart certsvc"
+
+# ==============================================================================
+# ESC8 — ADCS web enrollment over HTTP with NTLM (no Extended Protection)
+# Allows NTLM relay attacks to the /certsrv endpoint.
+# Disables Extended Protection for Authentication (EPA) on the CertSrv vdir.
+# ==============================================================================
+- name: ESC8 - Check IIS CertSrv extended protection and auth settings
+  ansible.windows.win_shell: |
+    Import-Module WebAdministration
+    $path = "{{ certsrv_iis_path }}"
+    if (-not (Test-Path $path)) {
+      Write-Output "certsrv_missing"
+      exit 0
+    }
+    $epa = (Get-WebConfiguration -PSPath $path -Filter "system.webServer/security/authentication/windowsAuthentication/extendedProtection").tokenChecking
+    $ntlm = Get-WebConfigurationProperty -PSPath $path -Filter "system.webServer/security/authentication/windowsAuthentication" -Name "enabled"
+    Write-Output "epa=$epa ntlm_enabled=$($ntlm.Value)"
+  register: result_esc8_check
+  changed_when: false
+  failed_when: >
+    result_esc8_check.rc != 0 and
+    "certsrv_missing" not in (result_esc8_check.stdout | default(""))
+
+- name: ESC8 - Disable Extended Protection (EPA) on CertSrv, enable NTLM auth
+  ansible.windows.win_shell: |
+    Import-Module WebAdministration
+    $path = "{{ certsrv_iis_path }}"
+
+    # Disable EPA (tokenChecking=None) — allows NTLM relay without bind-aware check
+    Set-WebConfigurationProperty -PSPath $path `
+      -Filter "system.webServer/security/authentication/windowsAuthentication/extendedProtection" `
+      -Name "tokenChecking" -Value "None"
+
+    # Ensure Windows Authentication (NTLM) is enabled
+    Set-WebConfigurationProperty -PSPath $path `
+      -Filter "system.webServer/security/authentication/windowsAuthentication" `
+      -Name "enabled" -Value $true
+
+    # Ensure Anonymous auth is off (certs only via NTLM)
+    Set-WebConfigurationProperty -PSPath $path `
+      -Filter "system.webServer/security/authentication/anonymousAuthentication" `
+      -Name "enabled" -Value $false
+
+    # Ensure HTTP (not HTTPS-only) binding exists on port 80
+    $site = Get-WebSite -Name "Default Web Site"
+    $http80 = $site.Bindings.Collection | Where-Object { $_.Protocol -eq "http" -and $_.BindingInformation -like "*:80:*" }
+    if (-not $http80) {
+      New-WebBinding -Name "Default Web Site" -Protocol http -Port 80 -IPAddress "*"
+    }
+  when: >
+    "'certsrv_missing' not in result_esc8_check.stdout" and
+    ("'None' not in result_esc8_check.stdout" or "'ntlm_enabled=True' not in result_esc8_check.stdout")
+  register: result_esc8_set
+  failed_when: result_esc8_set.rc != 0
+  notify: "restart iis"
+
+# ==============================================================================
+# ESC11 — No HTTPS on CertSrv RPC / ICertPassage endpoint
+# Ensures the RPC interface for certificate requests is reachable over plain
+# RPC (no HTTPS/SSL required), enabling NTLM relay to ICertPassage.
+# This is distinct from ESC8 (HTTP web enrollment) — ESC11 is the RPC path.
+# ==============================================================================
+- name: ESC11 - Check CertSrv RPC HTTPS enforcement registry value
+  ansible.windows.win_shell: |
+    $val = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\CertSvc\Configuration\{{ ca_name }}" `
+              -Name "InterfaceFlags" -ErrorAction SilentlyContinue).InterfaceFlags
+    if ($null -eq $val) { Write-Output "not_set" }
+    else { Write-Output $val }
+  register: result_esc11_check
+  changed_when: false
+  failed_when: result_esc11_check.rc != 0
+
+- name: ESC11 - Disable HTTPS enforcement on CertSrv RPC interface (InterfaceFlags)
+  ansible.windows.win_shell: |
+    # InterfaceFlags bit 0x200 = IF_ENFORCEENCRYPTICERTREQUEST (require HTTPS on RPC).
+    # Clear this bit so the ICertPassage interface accepts plain RPC — NTLM-relayable.
+    $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\CertSvc\Configuration\{{ ca_name }}"
+    $current = (Get-ItemProperty -Path $regPath -Name "InterfaceFlags" -ErrorAction SilentlyContinue).InterfaceFlags
+    if ($null -eq $current) { $current = 0 }
+    $cleared = $current -band (-bnot 0x200)
+    Set-ItemProperty -Path $regPath -Name "InterfaceFlags" -Value $cleared -Type DWord
+  when: >
+    result_esc11_check.stdout | trim == "not_set" or
+    (result_esc11_check.stdout | trim | int) | bitwise_and(512) != 0
+  register: result_esc11_set
+  failed_when: result_esc11_set.rc != 0
+  notify: "restart certsvc"

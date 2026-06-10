@@ -1,0 +1,22 @@
+---
+# ==============================================================================
+# vuln_recon/defaults/main.yml
+# ==============================================================================
+
+ad_domain: "corp.local"
+
+# NullSessionPipes value — pipes accessible without authentication.
+# These are required for rpcclient, enum4linux, net rpc enumeration.
+null_session_pipes:
+  - lsarpc
+  - samr
+  - netlogon
+  - srvsvc
+  - browser
+
+# SMB signing disabled on member servers (not DCs).
+# Needed for NTLM relay (LAT-028).
+smb_signing_targets:
+  - file01
+  - ws01
+  - sql01

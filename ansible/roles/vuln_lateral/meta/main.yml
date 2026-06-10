@@ -1,0 +1,16 @@
+---
+galaxy_info:
+  role_name: vuln_lateral
+  author: DVAD
+  description: >
+    Injects lateral-movement attack-surface misconfigurations
+    (LAT-012 SID-history trust, LAT-016/026 RBCD, LAT-021/022/034 ACL,
+    LAT-027 IPv6, LAT-028 SMB signing, LAT-033 writable share + coercion files)
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Windows
+      versions:
+        - 2019
+        - 2022
+
+dependencies: []

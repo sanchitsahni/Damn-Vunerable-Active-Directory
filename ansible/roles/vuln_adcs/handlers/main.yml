@@ -1,0 +1,16 @@
+---
+# ==============================================================================
+# vuln_adcs/handlers/main.yml
+# ==============================================================================
+
+- name: restart certsvc
+  ansible.windows.win_service:
+    name: certsvc
+    state: restarted
+  listen: "restart certsvc"
+
+- name: restart iis
+  ansible.windows.win_service:
+    name: W3SVC
+    state: restarted
+  listen: "restart iis"

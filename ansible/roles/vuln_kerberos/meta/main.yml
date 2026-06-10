@@ -1,0 +1,13 @@
+---
+galaxy_info:
+  role_name: vuln_kerberos
+  author: DVAD
+  description: Injects Kerberos attack-vector misconfigurations (CRED-001/002/016/018, SPNs, delegation, RC4 downgrade)
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Windows
+      versions:
+        - 2019
+        - 2022
+
+dependencies: []

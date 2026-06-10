@@ -1,0 +1,39 @@
+---
+# ==============================================================================
+# vuln_ia_surface/defaults/main.yml
+# ==============================================================================
+
+# Primary corp.local domain for LDAP/DNS targets
+ia_domain: "corp.local"
+
+# DC distinguished-name components used by dsHeuristics LDAP path
+ia_domain_dn: "DC=corp,DC=local"
+
+# SYSVOL credential script — credentials are intentionally plaintext (REC-015)
+ia_sysvol_script_path: 'C:\Windows\SYSVOL\sysvol\corp.local\scripts\setup.bat'
+ia_sysvol_script_content: |
+  @echo off
+  rem *** DVAD lab bootstrap — credentials intentionally exposed ***
+  net use \\dc01\C$ /user:corp\svc_darryl DVADlab2024!
+  net use \\dc01\C$ /user:CORP\Administrator DVADlab2024!
+
+# Attacker-side IP used in the library-ms coercion file (IA-024)
+ia_attacker_ip: "10.10.0.1"
+
+# NFS share details (IA-037)
+ia_nfs_share_name: "DVAD_NFS"
+ia_nfs_share_path: 'C:\Shares\NFS'
+
+# FTP site name (IA-035)
+ia_ftp_site_name: "DVAD-FTP"
+ia_ftp_site_port: 21
+
+# Shared printer name (IA-044)
+ia_printer_share_name: "DVAD-PRN"
+
+# SNMP community strings (IA-034 / IA-050)
+ia_snmp_communities:
+  - name: public
+    access: 4   # read-only (SNMP_ACCESS_READ_ONLY)
+  - name: private
+    access: 2   # read-write (SNMP_ACCESS_READ_WRITE)

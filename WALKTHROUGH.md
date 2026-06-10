@@ -10,7 +10,7 @@ End-to-end operator walkthrough for the Damn Vulnerable Active Directory lab. Th
 
 1. [Lab inventory](#1-lab-inventory) — what gets built
 2. [Prerequisites](#2-prerequisites) — host setup
-3. [Deploy](#3-deploy) — `./deploy.sh` walkthrough
+3. [Deploy](#3-deploy) — `python3 deploy.py` walkthrough
 4. [VPS deploy + WireGuard](#4-vps-deploy--wireguard) — remote attacker access
 5. [Attacker box prep](#5-attacker-box-prep) — Kali / BlackArch tools, `/etc/hosts`, `krb5.conf`
 6. [Verify the lab is alive](#6-verify-the-lab-is-alive)
@@ -106,15 +106,15 @@ git clone <this-repo> DVAD
 cd DVAD
 
 # Full lab (8 VMs):
-./deploy.sh
+python3 deploy.py
 
 # Smaller variants:
-./deploy.sh --minimal       # corp.local only, 5 VMs
-./deploy.sh --single-dc     # dc01 only, smoke test
-./deploy.sh --memory 24 --cpus 12 --disk-path /mnt/vms
+python3 deploy.py --profile minimal       # corp.local only, 5 VMs
+python3 deploy.py --profile single-dc     # dc01 only, smoke test
+python3 deploy.py --ram 24 --cpus 12 --disk-path /mnt/vms
 
 # Headless / VPS:
-./deploy.sh --vps           # VNC pinned to 127.0.0.1, capacity pre-flight
+python3 deploy.py --vps           # VNC pinned to 127.0.0.1, capacity pre-flight
 ```
 
 `deploy.sh` runs 7 phases. Total time: **45–90 minutes** for a full first run (Windows install is the bottleneck). Subsequent re-runs of Ansible alone take minutes.
@@ -150,7 +150,7 @@ On the VPS:
 ssh root@<vps>
 git clone <this-repo> DVAD
 cd DVAD
-./deploy.sh --vps                                  # ~24 GB RAM recommended
+python3 deploy.py --vps                                  # ~24 GB RAM recommended
 sudo bash scripts/vps-wg-gateway.sh up             # writes ./dvad-attacker.conf
 ```
 
@@ -2440,7 +2440,7 @@ bash qemu/network/setup-network.sh destroy
 rm -rf vms/ media/ autounattend/
 
 # Re-deploy from scratch:
-./deploy.sh
+python3 deploy.py
 ```
 
 The WG keys under `/etc/wireguard/*.key` and `wg-dvad.conf` are intentionally left in place after `down` — delete them by hand for a clean slate.
@@ -3544,8 +3544,8 @@ A: `ws01` is the kiosk. Lock down Internet Explorer policies via local GP (use `
 **Q: Does DVAD include EDR?**
 A: No, by default. Add Sysmon manually if you want to test detections (Appendix C in `docs/`).
 
-**Q: How is DVAD different from GOAD / Vulnerable AD?**
-A: GOAD is a 5-VM lab focused on Azure/cloud trust scenarios; Vulnerable AD is single-domain. DVAD = 8-VM, 3-forest, ADCS + cross-trust + ENUM-heavy. Bigger surface, slower to deploy.
+**Q: How is DVAD / Forge different from other AD labs?**
+A: Most single-domain labs top out at 1–3 VMs. Forge (DVAD) runs 3 forests, 8 VMs, ADCS ESC1–ESC15, cross-forest trust abuse, cloud/Entra hybrid, 1000+ mapped attack vectors — and ships with a graph-based exploit-chain validator so every path is verified to work, not just documented.
 
 **Q: Is the lab CTF-ready (single objective + scoring)?**
 A: Not out of the box. The flag manifest is per-host artefacts, not score-tracking. Use `tools/score.py` (operator-extended) to wrap.
@@ -4666,7 +4666,7 @@ done
 nxc ldap 10.10.0.10 -u alice -p 'DVADlab2024!' -M enum_trusts | grep -i 'finance\|root\|eu'
 ```
 
-If any of these fail, the lab is in a drifted state. Either `./deploy.sh` again, or `cd ansible && ansible-playbook ... site.yml --tags <failing-role>`.
+If any of these fail, the lab is in a drifted state. Either `python3 deploy.py` again, or `cd ansible && ansible-playbook ... site.yml --tags <failing-role>`.
 
 ---
 

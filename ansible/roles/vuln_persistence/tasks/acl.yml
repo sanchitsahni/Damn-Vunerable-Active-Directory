@@ -1,0 +1,82 @@
+---
+# ==============================================================================
+# vuln_persistence/tasks/acl.yml
+# Target: dc01.corp.local
+#
+# PER-015/033  stanley.hudson → GenericAll on AdminSDHolder
+#              SDProp re-propagates this ACE every 60 min to all protected objects,
+#              giving stanley.hudson persistent GenericAll across the entire
+#              AdminSDHolder-protected group/user set.
+# PER-027      KeyCredentialLink write surface — svc_printer has GenericWrite on
+#              its own object so the owner can add ms-DS-KeyCredentialLink
+#              (Shadow Credentials / PKINIT backdoor).
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# PER-015/033: stanley.hudson GenericAll on AdminSDHolder
+# ------------------------------------------------------------------------------
+- name: PER-015 - Check GenericAll ACE for stanley.hudson on AdminSDHolder
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $domDn = (Get-ADDomain).DistinguishedName
+    $dn    = "CN=AdminSDHolder,CN=System,$domDn"
+    $acl   = Get-Acl "AD:\$dn"
+    $exists = $acl.Access | Where-Object {
+      $_.IdentityReference -like "*stanley.hudson*" -and
+      $_.ActiveDirectoryRights -match "GenericAll"
+    }
+    if ($exists) { Write-Output "present" } else { Write-Output "absent" }
+  register: result_adminsdholder_check
+  changed_when: false
+  failed_when: result_adminsdholder_check.rc != 0
+
+- name: PER-015/033 - Grant stanley.hudson GenericAll on AdminSDHolder
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $src   = Get-ADUser -Identity "stanley.hudson" -ErrorAction Stop
+    $sid   = New-Object System.Security.Principal.SecurityIdentifier ($src.SID)
+    $domDn = (Get-ADDomain).DistinguishedName
+    $dn    = "CN=AdminSDHolder,CN=System,$domDn"
+    $acl   = Get-Acl "AD:\$dn"
+    $rule  = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+               $sid, "GenericAll", "Allow")
+    $acl.AddAccessRule($rule)
+    Set-Acl -Path "AD:\$dn" -AclObject $acl
+  when: "'absent' in result_adminsdholder_check.stdout"
+  register: result_adminsdholder_set
+  failed_when: result_adminsdholder_set.rc != 0
+
+# ------------------------------------------------------------------------------
+# PER-027: KeyCredentialLink write surface
+# Grant svc_printer GenericWrite on its own AD object so an attacker who
+# compromises svc_printer can write ms-DS-KeyCredentialLink (Shadow Credentials).
+# ms-DS-KeyCredentialLink GUID: 5b47d60f-6090-40b2-9f37-2a4de88f3063
+# ------------------------------------------------------------------------------
+- name: PER-027 - Check GenericWrite ACE for svc_printer on own object
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $u   = Get-ADUser -Identity "svc_printer"
+    $acl = Get-Acl "AD:\$($u.DistinguishedName)"
+    $exists = $acl.Access | Where-Object {
+      $_.IdentityReference -like "*svc_printer*" -and
+      ($_.ActiveDirectoryRights -match "GenericWrite" -or
+       $_.ActiveDirectoryRights -match "WriteProperty")
+    }
+    if ($exists) { Write-Output "present" } else { Write-Output "absent" }
+  register: result_kcl_check
+  changed_when: false
+  failed_when: result_kcl_check.rc != 0
+
+- name: PER-027 - Grant svc_printer GenericWrite on own object (KeyCredentialLink surface)
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $u   = Get-ADUser -Identity "svc_printer" -ErrorAction Stop
+    $sid = New-Object System.Security.Principal.SecurityIdentifier ($u.SID)
+    $acl = Get-Acl "AD:\$($u.DistinguishedName)"
+    $rule = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+              $sid, "GenericWrite", "Allow")
+    $acl.AddAccessRule($rule)
+    Set-Acl -Path "AD:\$($u.DistinguishedName)" -AclObject $acl
+  when: "'absent' in result_kcl_check.stdout"
+  register: result_kcl_set
+  failed_when: result_kcl_set.rc != 0

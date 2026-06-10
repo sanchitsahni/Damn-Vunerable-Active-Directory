@@ -1,0 +1,88 @@
+---
+# ==============================================================================
+# vuln_persistence/tasks/registry.yml
+# Target: dc01.corp.local
+#
+# PER-002  IFEO debugger on accessibility tools (sethc/utilman) -> cmd.exe
+# PER-025  DSRM admin network logon (DsrmAdminLogonBehavior=2)
+# PER-018  krbtgt reset to known lab password (Golden Ticket precondition)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# PER-002/003: Image File Execution Options debugger on accessibility binaries.
+# When the sticky-keys / utility manager binary is invoked at the logon screen
+# (Shift x5, Windows+U) Windows instead launches the configured Debugger value.
+# Targets the classic accessibility backdoor list.
+# ------------------------------------------------------------------------------
+- name: PER-002 - Set IFEO Debugger=cmd.exe on accessibility binaries
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\{{ item }}'
+    name: Debugger
+    data: 'cmd.exe'
+    type: string
+  loop:
+    - sethc.exe
+    - utilman.exe
+    - osk.exe
+    - Narrator.exe
+    - Magnify.exe
+
+# ------------------------------------------------------------------------------
+# PER-025: DSRM backdoor — DsrmAdminLogonBehavior=2 allows the local DSRM
+# Administrator account to authenticate over the network (pass-the-hash target).
+# Check registry value before setting to satisfy idempotency.
+# ------------------------------------------------------------------------------
+- name: PER-025 - Check DsrmAdminLogonBehavior current value
+  ansible.windows.win_shell: |
+    $val = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" `
+              -Name "DsrmAdminLogonBehavior" -ErrorAction SilentlyContinue).DsrmAdminLogonBehavior
+    Write-Output $val
+  register: result_dsrm_check
+  changed_when: false
+  failed_when: result_dsrm_check.rc != 0
+
+- name: PER-025 - Set DsrmAdminLogonBehavior=2 (DSRM network logon enabled)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'
+    name: DsrmAdminLogonBehavior
+    data: 2
+    type: dword
+  when: (result_dsrm_check.stdout | trim) != '2'
+
+# ------------------------------------------------------------------------------
+# PER-018: Golden Ticket precondition — reset krbtgt to known lab password.
+# With a known krbtgt hash (derived from KrbtgtDVAD2024!) participants can forge
+# TGTs for any user, including those that do not exist.
+# Password reset is always applied (no reliable way to check current hash).
+# ------------------------------------------------------------------------------
+- name: PER-018 - Reset krbtgt to known lab password (Golden Ticket precondition)
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    try {
+      $p = ConvertTo-SecureString "KrbtgtDVAD2024!" -AsPlainText -Force
+      Set-ADAccountPassword -Identity krbtgt -NewPassword $p -Reset -ErrorAction Stop
+      Write-Output "changed: krbtgt password reset"
+    } catch {
+      Write-Error "krbtgt reset: $($_.Exception.Message)"
+    }
+  register: result_krbtgt
+  changed_when: "'changed:' in result_krbtgt.stdout"
+  failed_when: result_krbtgt.rc != 0
+
+- name: PER-018 - Drop flag hint for Golden Ticket path
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-PER-018-GoldenTicket.txt'
+    content: |
+      PER-018: krbtgt password is KrbtgtDVAD2024!
+      Derive the NT hash to forge TGTs for any principal.
+
+- name: PER-021 - Drop hint for Diamond/Sapphire tickets (same krbtgt prereq)
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-PER-021-022-DiamondSapphire.txt'
+    content: "PER-021/022: Diamond/Sapphire tickets share the PER-018 krbtgt prereq."
+
+# Flag staging directory prerequisite for all flag files
+- name: Ensure C:\Flags exists
+  ansible.windows.win_file:
+    path: 'C:\Flags'
+    state: directory

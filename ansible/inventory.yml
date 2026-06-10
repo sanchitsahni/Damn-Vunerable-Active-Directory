@@ -1,0 +1,88 @@
+---
+# ==============================================================================
+# DVAD Ansible Inventory
+# Multi-Forest Active Directory Lab
+# ==============================================================================
+
+all:
+  vars:
+    ansible_user: Administrator
+    ansible_password: "DVADlab2024!"
+    ansible_connection: winrm
+    ansible_winrm_transport: ntlm
+    ansible_winrm_port: 5985
+    ansible_winrm_scheme: http
+    ansible_winrm_server_cert_validation: ignore
+    ansible_winrm_operation_timeout_sec: 120
+    ansible_winrm_read_timeout_sec: 180
+
+  children:
+    # =========================================================================
+    # All Domain Controllers
+    # =========================================================================
+    all_dcs:
+      hosts:
+        dc01.corp.local:
+          ansible_host: 10.10.0.10
+          # corp.local DC-specific vars (used by ad_domain role)
+          ad_domain: corp.local
+          ad_netbios: CORP
+          ad_hostname: dc01
+          ad_static_ip: 10.10.0.10
+          ad_subnet_mask: 255.255.0.0
+          ad_gateway: 10.10.0.1
+
+        dc01.eu.corp.local:
+          ansible_host: 10.10.0.11
+          # child_domain role vars
+          child_domain: eu.corp.local
+          child_domain_shortname: eu
+          parent_domain: corp.local
+
+        dc01.finance.local:
+          ansible_host: 10.10.20.10
+          # finance.local uses ad_domain role with overridden vars
+          ad_domain: finance.local
+          ad_netbios: FINANCE
+          ad_hostname: DC01-FIN
+          ad_static_ip: 10.10.20.10
+          ad_subnet_mask: 255.255.0.0
+          ad_gateway: 10.10.0.1
+
+        dc01.root.corp:
+          ansible_host: 10.10.30.10
+          # root.corp uses ad_domain role with overridden vars
+          ad_domain: root.corp
+          ad_netbios: ROOT
+          ad_hostname: DC01-ROOT
+          ad_static_ip: 10.10.30.10
+          ad_subnet_mask: 255.255.0.0
+          ad_gateway: 10.10.0.1
+
+    # =========================================================================
+    # CORP.LOCAL Member Servers
+    # =========================================================================
+    corp_servers:
+      hosts:
+        ca01.corp.local:
+          ansible_host: 10.10.0.12
+        file01.corp.local:
+          ansible_host: 10.10.0.13
+        sql01.corp.local:
+          ansible_host: 10.10.0.14
+
+    # =========================================================================
+    # CORP.LOCAL Workstations
+    # =========================================================================
+    corp_workstation:
+      hosts:
+        ws01.corp.local:
+          ansible_host: 10.10.0.100
+
+    # =========================================================================
+    # All member servers (non-DCs) — used by domain_join play in site.yml
+    # =========================================================================
+    member_servers:
+      children:
+        corp_servers:
+        corp_workstation:

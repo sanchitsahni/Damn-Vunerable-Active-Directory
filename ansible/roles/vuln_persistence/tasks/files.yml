@@ -1,0 +1,247 @@
+---
+# ==============================================================================
+# vuln_persistence_ext/tasks/files.yml
+# Target: dc01.corp.local (unless noted per task)
+#
+# PER-003  Startup folder persistence note
+# PER-013  Office macro autorun stub
+# PER-019  DLL search order hijack via PATH manipulation
+# PER-020  Image file execution options (IFEO) debugger stub
+# PER-021  AppInit_DLLs registry key
+# PER-022  Winlogon helper DLL entry
+# PER-023  Time provider DLL stub
+# PER-031  Boot script in group policy
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# PER-003: Startup folder persistence — drop a .bat file in All Users startup.
+# Any user logging into this machine will execute the batch file at logon.
+# ------------------------------------------------------------------------------
+- name: PER-003 - Check startup folder persistence file
+  ansible.windows.win_shell: |
+    $path = 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\dvad_startup.bat'
+    if (Test-Path $path) { Write-Output "exists" } else { Write-Output "missing" }
+  register: per003_check
+  changed_when: false
+  failed_when: per003_check.rc != 0
+
+- name: PER-003 - Drop startup persistence batch file
+  ansible.windows.win_copy:
+    dest: 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\dvad_startup.bat'
+    content: |
+      @echo off
+      rem PER-003: Startup folder persistence — DVAD lab
+      echo PER-003-startup-persistence > C:\Flags\FLAG-PER-003-Startup.txt
+      rem Place real payload here
+  when: "'missing' in per003_check.stdout"
+
+# ------------------------------------------------------------------------------
+# PER-013: Office macro autorun stub (ActiveSetup registry key).
+# ActiveSetup runs once per user on first login — used by attackers as persistent
+# execution without a scheduled task or service.
+# ------------------------------------------------------------------------------
+- name: PER-013 - Check ActiveSetup key
+  ansible.windows.win_shell: |
+    $path = 'HKLM:\SOFTWARE\Microsoft\Active Setup\Installed Components\{DVAD-PER-013}'
+    if (Test-Path $path) { Write-Output "present" } else { Write-Output "absent" }
+  register: per013_check
+  changed_when: false
+  failed_when: per013_check.rc != 0
+
+- name: PER-013 - Create ActiveSetup persistence key (PER-013)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Microsoft\Active Setup\Installed Components\{DVAD-PER-013}'
+    name: StubPath
+    data: 'cmd.exe /c echo PER-013-ActiveSetup >> C:\Flags\FLAG-PER-013-ActiveSetup.txt'
+    type: string
+  when: "'absent' in per013_check.stdout"
+
+- name: PER-013 - Set version key for ActiveSetup entry
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Microsoft\Active Setup\Installed Components\{DVAD-PER-013}'
+    name: Version
+    data: '1,0,0,1'
+    type: string
+  when: "'absent' in per013_check.stdout"
+
+# ------------------------------------------------------------------------------
+# PER-019: DLL search order hijack — world-writable C:\Tools at head of PATH.
+# Any DLL placed in C:\Tools will be found before System32 for processes
+# launched from PATH-resolved locations.
+# ------------------------------------------------------------------------------
+- name: PER-019 - Check if C:\Tools is at head of system PATH
+  ansible.windows.win_shell: |
+    $path = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
+    if ($path -match '^C:\\Tools') {
+      Write-Output "present"
+    } else {
+      Write-Output "absent"
+    }
+  register: per019_check
+  changed_when: false
+  failed_when: per019_check.rc != 0
+
+- name: PER-019 - Prepend C:\Tools to system PATH for DLL hijack surface
+  ansible.windows.win_shell: |
+    $current = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
+    if ($current -notmatch '^C:\\Tools') {
+      [Environment]::SetEnvironmentVariable('PATH', "C:\Tools;$current", 'Machine')
+      Write-Output "changed: C:\Tools prepended to PATH"
+    } else {
+      Write-Output "already present"
+    }
+  register: per019_set
+  changed_when: "'changed:' in per019_set.stdout"
+  failed_when: per019_set.rc != 0
+  when: "'absent' in per019_check.stdout"
+
+- name: PER-019 - Set C:\Tools ACL to world-writable
+  ansible.windows.win_shell: |
+    $dir = 'C:\Tools'
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    icacls $dir /grant "Everyone:(OI)(CI)F" /T /C /Q 2>&1 | Out-Null
+    Write-Output "changed: C:\Tools world-writable"
+  register: per019_acl
+  changed_when: "'changed:' in per019_acl.stdout"
+  failed_when: per019_acl.rc != 0
+
+# ------------------------------------------------------------------------------
+# PER-020: Image File Execution Options (IFEO) debugger stub.
+# Setting a debugger value for a target process causes Windows to launch the
+# debugger instead of the target. Attacker replaces the debugger path with
+# their payload. Targets: sethc.exe (Sticky Keys), utilman.exe (Accessibility).
+# ------------------------------------------------------------------------------
+- name: PER-020 - Check IFEO debugger for sethc.exe
+  ansible.windows.win_shell: |
+    $path = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\sethc.exe'
+    if (Test-Path $path) {
+      $v = (Get-ItemProperty $path -Name 'Debugger' -ErrorAction SilentlyContinue).Debugger
+      if ($v) { Write-Output "present: $v" } else { Write-Output "absent" }
+    } else {
+      Write-Output "absent"
+    }
+  register: per020_check
+  changed_when: false
+  failed_when: per020_check.rc != 0
+
+- name: PER-020 - Set IFEO debugger stub on sethc.exe (Sticky Keys backdoor)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\sethc.exe'
+    name: Debugger
+    data: 'C:\Tools\dvad_ifeo.exe'
+    type: string
+  when: "'absent' in per020_check.stdout"
+
+- name: PER-020 - Set IFEO debugger stub on utilman.exe (Accessibility backdoor)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\utilman.exe'
+    name: Debugger
+    data: 'C:\Tools\dvad_ifeo.exe'
+    type: string
+
+# ------------------------------------------------------------------------------
+# PER-021: AppInit_DLLs — DLL loaded into every process using user32.dll.
+# LoadAppInit_DLLs must be 1 and RequireSignedAppInit_DLLs must be 0.
+# ------------------------------------------------------------------------------
+- name: PER-021 - Check AppInit_DLLs registry value
+  ansible.windows.win_shell: |
+    $v = (Get-ItemProperty `
+            -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows' `
+            -Name 'AppInit_DLLs' `
+            -ErrorAction SilentlyContinue).AppInit_DLLs
+    if ($v) { Write-Output "present: $v" } else { Write-Output "absent" }
+  register: per021_check
+  changed_when: false
+  failed_when: per021_check.rc != 0
+
+- name: PER-021 - Set AppInit_DLLs persistence entries
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows'
+    name: "{{ item.name }}"
+    data: "{{ item.data }}"
+    type: "{{ item.type }}"
+  loop:
+    - { name: 'AppInit_DLLs',              data: 'C:\Tools\dvad_appinit.dll', type: string }
+    - { name: 'LoadAppInit_DLLs',          data: 1,                            type: dword  }
+    - { name: 'RequireSignedAppInit_DLLs', data: 0,                            type: dword  }
+  when: "'absent' in per021_check.stdout"
+
+# ------------------------------------------------------------------------------
+# PER-022: Winlogon helper DLL — Userinit and Shell values.
+# Malicious DLL appended to Userinit runs for every interactive logon.
+# ------------------------------------------------------------------------------
+- name: PER-022 - Check Winlogon Userinit value
+  ansible.windows.win_shell: |
+    $v = (Get-ItemProperty `
+            -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' `
+            -Name 'Userinit' `
+            -ErrorAction SilentlyContinue).Userinit
+    if ($v -match 'dvad') { Write-Output "present" } else { Write-Output "absent: $v" }
+  register: per022_check
+  changed_when: false
+  failed_when: per022_check.rc != 0
+
+- name: PER-022 - Append dvad_winlogon.exe to Winlogon Userinit (PER-022)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+    name: Userinit
+    data: 'C:\Windows\system32\userinit.exe,C:\Tools\dvad_winlogon.exe,'
+    type: string
+  when: "'absent' in per022_check.stdout"
+
+# ------------------------------------------------------------------------------
+# PER-023: Time provider DLL stub.
+# W32Time loads DLLs from HKLM\...\TimeProviders\*\DllName. Attacker-controlled
+# DLL runs as SYSTEM via the Windows Time service.
+# ------------------------------------------------------------------------------
+- name: PER-023 - Check if dvad time provider key exists
+  ansible.windows.win_shell: |
+    $path = 'HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders\DvadProvider'
+    if (Test-Path $path) { Write-Output "present" } else { Write-Output "absent" }
+  register: per023_check
+  changed_when: false
+  failed_when: per023_check.rc != 0
+
+- name: PER-023 - Create malicious time provider registry entry (PER-023)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders\DvadProvider'
+    name: "{{ item.name }}"
+    data: "{{ item.data }}"
+    type: "{{ item.type }}"
+  loop:
+    - { name: 'DllName',   data: 'C:\Tools\dvad_timeprov.dll', type: string }
+    - { name: 'Enabled',   data: 0,                             type: dword  }
+    - { name: 'InputProvider', data: 0,                         type: dword  }
+  when: "'absent' in per023_check.stdout"
+
+# ------------------------------------------------------------------------------
+# PER-031: Boot script via GPO startup script registry key.
+# HKLM\...\Winlogon\GPExtensions + Scripts registry keys for machine startup.
+# ------------------------------------------------------------------------------
+- name: PER-031 - Check GPO startup script registry
+  ansible.windows.win_shell: |
+    $path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Group Policy\Scripts\Startup\0\0'
+    if (Test-Path $path) { Write-Output "present" } else { Write-Output "absent" }
+  register: per031_check
+  changed_when: false
+  failed_when: per031_check.rc != 0
+
+- name: PER-031 - Create GPO startup script persistence entry
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Group Policy\Scripts\Startup\0\0'
+    name: "{{ item.name }}"
+    data: "{{ item.data }}"
+    type: string
+  loop:
+    - { name: 'Script',     data: 'C:\Tools\dvad_startup.ps1' }
+    - { name: 'Parameters', data: '' }
+    - { name: 'ExecTime',   data: '' }
+  when: "'absent' in per031_check.stdout"
+
+- name: PER-031 - Drop GPO startup script stub
+  ansible.windows.win_copy:
+    dest: 'C:\Tools\dvad_startup.ps1'
+    content: |
+      # PER-031: GPO startup script persistence (DVAD lab)
+      # This script runs as SYSTEM at machine startup via Group Policy.
+      Add-Content -Path 'C:\Flags\FLAG-PER-031-GPO-Startup.txt' -Value "$(Get-Date) boot"

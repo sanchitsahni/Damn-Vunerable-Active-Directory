@@ -1,0 +1,127 @@
+---
+# ==============================================================================
+# vuln_cred_extended/tasks/browser_keys.yml — CRED-121..150
+# Target: ws01.corp.local
+#
+# CRED-121  Chrome saved passwords (accessible via DPAPI)
+# CRED-122  Edge saved passwords
+# CRED-123  Firefox saved passwords (key4.db)
+# CRED-124  Windows Credential Manager entries
+# CRED-125  SSH private key in user profile
+# CRED-126  AWS credentials file (.aws/credentials)
+# CRED-127  Azure credentials file (.azure/credentials)
+# CRED-128  Terraform tfstate with credentials
+# CRED-129  KeePass database in Documents
+# CRED-130  .rdp file with saved password
+# ==============================================================================
+
+# CRED-124: Windows Credential Manager — add fake stored credentials
+- name: CRED-124 - Store credentials in Windows Credential Manager
+  ansible.windows.win_shell: |
+    # cmdkey stores credentials accessible via DPAPI
+    cmdkey /add:dc01.corp.local /user:CORP\Administrator /pass:DVADlab2024! 2>&1
+    cmdkey /add:file01.corp.local /user:CORP\svc_darryl /pass:Darryl2024! 2>&1
+    cmdkey /add:sql01.corp.local /user:sa /pass:SqlServer2025! 2>&1
+    Write-Output "changed: credentials stored in Credential Manager"
+  register: cred124_set
+  changed_when: "'changed:' in cred124_set.stdout"
+  failed_when: cred124_set.rc != 0
+
+# CRED-125: SSH private key stub
+- name: CRED-125 - Create SSH key stub in user profile
+  ansible.windows.win_file:
+    path: 'C:\Users\Administrator\.ssh'
+    state: directory
+
+- name: CRED-125 - Drop SSH private key stub
+  ansible.windows.win_copy:
+    dest: 'C:\Users\Administrator\.ssh\id_rsa'
+    content: |
+      -----BEGIN OPENSSH PRIVATE KEY-----
+      CRED-125: SSH private key placeholder (DVAD lab)
+      Place real SSH key here for extraction exercise.
+      Extract with: Get-Content C:\Users\Administrator\.ssh\id_rsa
+      Also check: C:\Users\*\.ssh\id_rsa, id_ed25519, id_ecdsa
+      -----END OPENSSH PRIVATE KEY-----
+
+# CRED-126: AWS credentials stub
+- name: CRED-126 - Create AWS credentials stub
+  ansible.windows.win_file:
+    path: 'C:\Users\Administrator\.aws'
+    state: directory
+
+- name: CRED-126 - Drop AWS credentials file
+  ansible.windows.win_copy:
+    dest: 'C:\Users\Administrator\.aws\credentials'
+    content: |
+      [default]
+      # CRED-126: AWS credentials stub (DVAD lab simulation)
+      aws_access_key_id = AKIA00000000DVAD1234
+      aws_secret_access_key = dvadlab+secret/key+for+aws+access+2024
+
+      [production]
+      aws_access_key_id = AKIA00000000PROD5678
+      aws_secret_access_key = production+secret/key+do+not+share
+
+# CRED-128: Terraform tfstate stub
+- name: CRED-128 - Drop Terraform tfstate with credentials
+  ansible.windows.win_copy:
+    dest: 'C:\Tools\terraform.tfstate'
+    content: |
+      {
+        "version": 4,
+        "terraform_version": "1.5.0",
+        "resources": [
+          {
+            "type": "aws_instance",
+            "name": "lab_server",
+            "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+            "instances": [{
+              "attributes": {
+                "password": "DVADlab2024!",
+                "username": "Administrator",
+                "connection_string": "{{ sql_conn_string | default('Server=sql01;Password=SqlServer2025!') }}"
+              }
+            }]
+          }
+        ]
+      }
+
+# CRED-130: RDP file with saved password (encrypted with current user's DPAPI key)
+- name: CRED-130 - Drop RDP connection file with saved credentials
+  ansible.windows.win_copy:
+    dest: 'C:\Users\Administrator\Desktop\Corporate Server.rdp'
+    content: |
+      screen mode id:i:2
+      use multimon:i:0
+      desktopwidth:i:1920
+      desktopheight:i:1080
+      full address:s:dc01.corp.local
+      username:s:CORP\Administrator
+      password 51:b:DVAD-CRED-130-stub-DPAPI-encrypted-password-placeholder
+      authentication level:i:0
+
+- name: CRED-121..150 - Drop browser credential extraction note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-CRED-121-BrowserCreds.txt'
+    content: |
+      CRED-121..130: Browser and Key Material Extraction
+      ====================================================
+      Available credential stores on ws01:
+        Windows Credential Manager: CRED-124 — cmdkey list
+        SSH private key:            CRED-125 — C:\Users\Administrator\.ssh\id_rsa
+        AWS credentials:            CRED-126 — C:\Users\Administrator\.aws\credentials
+        Terraform state:            CRED-128 — C:\Tools\terraform.tfstate
+        RDP saved password:         CRED-130 — C:\Users\Administrator\Desktop\Corporate Server.rdp
+
+      Browser credential extraction (Chrome/Edge — DPAPI protected):
+        SharpChrome.exe logins  (requires SYSTEM or user session)
+        mimikatz# dpapi::chrome /in:"%LOCALAPPDATA%\Google\Chrome\User Data\Default\Login Data"
+        SharpDPAPI.exe credentials
+
+      Windows Credential Manager:
+        cmdkey /list
+        mimikatz# sekurlsa::credman
+
+      SharpDPAPI (master key approach):
+        SharpDPAPI.exe triage

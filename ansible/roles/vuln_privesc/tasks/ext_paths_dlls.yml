@@ -1,0 +1,303 @@
+---
+# ==============================================================================
+# vuln_privesc_ext/tasks/paths-dlls.yml
+# Targets: file01.corp.local (PE-009/010/041/042), ws01.corp.local (PE-010/023)
+#
+# PE-009  DLL hijacking: C:\Tools in system PATH + version.dll placeholder
+#         + DVADApp.exe placeholder that loads version.dll at startup
+# PE-010  PATH hijacking: C:\Tools already in PATH (PE-009); also add
+#         C:\Users\Public\ to user PATH on ws01
+# PE-023  Startup folder writable by Domain Users
+# PE-041  Modifiable service path folder: C:\Program Files\DVADSvc2\ writable
+#         by Authenticated Users + service.exe placeholder
+# PE-042  Modifiable registry service path: DVADRegSvc with writable ImagePath key
+# PE-025  Token privilege helper files: token_helper.exe + privileges.txt
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# PE-009: DLL hijacking via C:\Tools in system PATH
+# C:\Tools is already created world-writable by vuln_privesc (PE-030).
+# Here we add the DLL and app placeholders that make the hijack path concrete.
+# ------------------------------------------------------------------------------
+- name: PE-009 - Ensure C:\Tools exists and is world-writable
+  ansible.windows.win_shell: |
+    if (-not (Test-Path "C:\Tools")) {
+      New-Item -ItemType Directory -Path "C:\Tools" -Force | Out-Null
+    }
+    icacls "C:\Tools" /grant "Everyone:(OI)(CI)F" 2>$null | Out-Null
+    Write-Output "ok"
+  when: inventory_hostname == 'file01.corp.local'
+  register: result_tools_dir
+  changed_when: false
+  failed_when: result_tools_dir.rc != 0
+
+- name: PE-009 - Plant version.dll placeholder in C:\Tools
+  ansible.windows.win_copy:
+    dest: 'C:\Tools\version.dll'
+    content: "DVAD_PLACEHOLDER: replace with malicious version.dll for DLL hijack (PE-009)\r\n"
+  when: inventory_hostname == 'file01.corp.local'
+
+- name: PE-009 - Plant DVADApp.exe placeholder (loads version.dll on start)
+  ansible.windows.win_copy:
+    dest: 'C:\Tools\DVADApp.exe'
+    content: "DVAD_PLACEHOLDER: DVADApp.exe loads version.dll from its own directory.\r\nReplace version.dll to hijack execution context.\r\n"
+  when: inventory_hostname == 'file01.corp.local'
+
+- name: PE-009 - Prepend C:\Tools to system PATH (DLL search-order hijack)
+  ansible.windows.win_shell: |
+    $cur = [Environment]::GetEnvironmentVariable("PATH", "Machine")
+    if ($cur -notlike "*C:\Tools*") {
+      [Environment]::SetEnvironmentVariable("PATH", "C:\Tools;$cur", "Machine")
+      Write-Output "changed: C:\Tools prepended to system PATH"
+    } else {
+      Write-Output "ok: C:\Tools already in system PATH"
+    }
+  when: inventory_hostname == 'file01.corp.local'
+  register: result_pe009_path
+  changed_when: "'changed:' in result_pe009_path.stdout"
+  failed_when: result_pe009_path.rc != 0
+
+- name: PE-009 - Verify version.dll and DVADApp.exe present and PATH configured
+  ansible.windows.win_shell: |
+    $dllOk = Test-Path "C:\Tools\version.dll"
+    $appOk = Test-Path "C:\Tools\DVADApp.exe"
+    $pathOk = [Environment]::GetEnvironmentVariable("PATH","Machine") -like "*C:\Tools*"
+    Write-Output "version.dll: $dllOk | DVADApp.exe: $appOk | PATH: $pathOk"
+    if (-not $dllOk -or -not $appOk -or -not $pathOk) { exit 1 }
+  when: inventory_hostname == 'file01.corp.local'
+  register: result_pe009_check
+  changed_when: false
+  failed_when: result_pe009_check.rc != 0
+
+# ------------------------------------------------------------------------------
+# PE-010: PATH hijacking
+# C:\Tools is already world-writable and in system PATH (PE-009/030).
+# On ws01 we also add C:\Users\Public\ to the per-user PATH so that a low-priv
+# user can shadow any binary name that a higher-priv process looks for in PATH.
+# ------------------------------------------------------------------------------
+- name: PE-010 - Add C:\Users\Public to user PATH on ws01
+  ansible.windows.win_shell: |
+    $cur = [Environment]::GetEnvironmentVariable("PATH", "User")
+    if ($cur -notlike "*C:\Users\Public*") {
+      [Environment]::SetEnvironmentVariable("PATH", "C:\Users\Public;$cur", "User")
+      Write-Output "changed: C:\Users\Public prepended to user PATH"
+    } else {
+      Write-Output "ok: C:\Users\Public already in user PATH"
+    }
+  when: inventory_hostname == 'ws01.corp.local'
+  register: result_pe010_ws01
+  changed_when: "'changed:' in result_pe010_ws01.stdout"
+  failed_when: result_pe010_ws01.rc != 0
+
+- name: PE-010 - Verify C:\Users\Public in user PATH on ws01
+  ansible.windows.win_shell: |
+    $p = [Environment]::GetEnvironmentVariable("PATH","User")
+    if ($p -like "*C:\Users\Public*") {
+      Write-Output "ok: C:\Users\Public in user PATH"
+    } else {
+      Write-Error "C:\Users\Public not found in user PATH"; exit 1
+    }
+  when: inventory_hostname == 'ws01.corp.local'
+  register: result_pe010_check
+  changed_when: false
+  failed_when: result_pe010_check.rc != 0
+
+# ------------------------------------------------------------------------------
+# PE-023: Startup folder writable by Domain Users
+# All-Users startup: C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp
+# Any file placed here runs at next interactive logon under that user's context.
+# If a privileged user (e.g., domain admin) logs onto ws01, the startup payload
+# executes in their session.
+# ------------------------------------------------------------------------------
+- name: PE-023 - Loosen All-Users Startup folder DACL on ws01
+  ansible.windows.win_shell: |
+    $p = "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp"
+    $existing = (icacls $p 2>$null | Out-String)
+    if ($existing -notlike "*Domain Users*") {
+      icacls $p /grant "CORP\Domain Users:(OI)(CI)(W)" 2>$null | Out-Null
+      Write-Output "changed: Domain Users write access granted on Startup folder"
+    } else {
+      Write-Output "ok: Domain Users write access already set"
+    }
+  when: inventory_hostname == 'ws01.corp.local'
+  register: result_pe023
+  changed_when: "'changed:' in result_pe023.stdout"
+  failed_when: result_pe023.rc != 0
+
+- name: PE-023 - Verify Startup folder ACL includes Domain Users write
+  ansible.windows.win_shell: |
+    $p   = "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp"
+    $acl = icacls $p 2>$null | Out-String
+    Write-Output $acl
+    if ($acl -notlike "*Domain Users*") {
+      Write-Warning "Domain Users not found in Startup folder ACL"
+    }
+  when: inventory_hostname == 'ws01.corp.local'
+  register: result_pe023_check
+  changed_when: false
+  failed_when: result_pe023_check.rc != 0
+
+# ------------------------------------------------------------------------------
+# PE-025: Token privilege helper artifacts
+# Place a token_helper.exe placeholder and a privileges.txt enumerating the
+# interesting privileges available in the lab so participants have a roadmap.
+# ------------------------------------------------------------------------------
+- name: PE-025 - Place token_helper.exe placeholder in C:\Tools
+  ansible.windows.win_copy:
+    dest: 'C:\Tools\token_helper.exe'
+    content: "DVAD_PLACEHOLDER: token_helper.exe — impersonation/privilege demo tool\r\n"
+  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+
+- name: PE-025 - Place privileges.txt listing available lab privileges
+  ansible.windows.win_copy:
+    dest: 'C:\Tools\privileges.txt'
+    content: |
+      DVAD Privilege Escalation Surface — Token Privileges Inventory
+      ==============================================================
+      Host: {{ inventory_hostname }}
+
+      Privileges intentionally granted on this lab:
+        SeAssignPrimaryTokenPrivilege  -> svc_phyllis           (PE-002)
+        SeTcbPrivilege                 -> svc_tcb              (PE-003)
+        SeLoadDriverPrivilege          -> Dev_Team group       (PE-004)
+        SeBackupPrivilege              -> svc_darryl / Warehouse (PE-005)
+        SeRestorePrivilege             -> svc_darryl / Warehouse (PE-006)
+        SeImpersonatePrivilege         -> LocalService / NetworkService (PE-001/013)
+        SeIncreaseQuotaPrivilege       -> svc_quota            (PE-021)
+        SeChangeNotifyPrivilege        -> All Users (default)  (PE-020)
+        SeManageVolumePrivilege        -> Asset_Owners group   (PE-026)
+        SeCreateSymbolicLinkPrivilege  -> Dev_Team group       (PE-027)
+        SeDebugPrivilege               -> Administrators       (PE-028)
+        SeTakeOwnershipPrivilege       -> Asset_Owners group   (PE-029)
+
+      Enumerate locally with:
+        whoami /priv
+        Get-Process | ForEach-Object { [System.Diagnostics.Process]::GetProcessById($_.Id) }
+        AccessChk.exe -a * (Sysinternals)
+  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+
+- name: PE-025 - Verify token_helper.exe and privileges.txt exist
+  ansible.windows.win_shell: |
+    $helperOk = Test-Path "C:\Tools\token_helper.exe"
+    $privsOk  = Test-Path "C:\Tools\privileges.txt"
+    Write-Output "token_helper.exe: $helperOk | privileges.txt: $privsOk"
+    if (-not $helperOk -or -not $privsOk) { exit 1 }
+  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+  register: result_pe025_check
+  changed_when: false
+  failed_when: result_pe025_check.rc != 0
+
+# ------------------------------------------------------------------------------
+# PE-041: Modifiable service path folder
+# C:\Program Files\DVADSvc2\ is writable by Authenticated Users and contains
+# a service binary. Authenticated Users can overwrite service.exe and wait for
+# the next service restart to execute code as SYSTEM.
+# ------------------------------------------------------------------------------
+- name: PE-041 - Create C:\Program Files\DVADSvc2 service folder
+  ansible.windows.win_file:
+    path: 'C:\Program Files\DVADSvc2'
+    state: directory
+  when: inventory_hostname == 'file01.corp.local'
+
+- name: PE-041 - Stage DVADSvc2 placeholder service binary
+  ansible.windows.win_copy:
+    dest: 'C:\Program Files\DVADSvc2\service.exe'
+    content: "DVAD_PLACEHOLDER: DVADSvc2 service binary — overwrite to escalate (PE-041)\r\n"
+  when: inventory_hostname == 'file01.corp.local'
+
+- name: PE-041 - Create DVADSvc2 service
+  ansible.windows.win_shell: |
+    $svc = Get-Service -Name "DVADSvc2" -ErrorAction SilentlyContinue
+    if (-not $svc) {
+      sc.exe create DVADSvc2 `
+        binpath= "C:\Program Files\DVADSvc2\service.exe" `
+        start= auto | Out-Null
+      Write-Output "changed: DVADSvc2 created"
+    } else {
+      Write-Output "ok: DVADSvc2 already exists"
+    }
+  when: inventory_hostname == 'file01.corp.local'
+  register: result_dvadsvc2_create
+  changed_when: "'changed:' in result_dvadsvc2_create.stdout"
+  failed_when: result_dvadsvc2_create.rc != 0
+
+- name: PE-041 - Grant Authenticated Users full control on DVADSvc2 folder
+  ansible.windows.win_shell: |
+    icacls "C:\Program Files\DVADSvc2" `
+      /grant "NT AUTHORITY\Authenticated Users:(OI)(CI)F" 2>$null | Out-Null
+  when: inventory_hostname == 'file01.corp.local'
+  changed_when: false
+
+- name: PE-041 - Verify DVADSvc2 folder + service + ACL
+  ansible.windows.win_shell: |
+    $folderOk = Test-Path "C:\Program Files\DVADSvc2\service.exe"
+    $svcOk    = [bool](Get-Service "DVADSvc2" -ErrorAction SilentlyContinue)
+    $acl      = icacls "C:\Program Files\DVADSvc2" 2>$null | Out-String
+    $aclOk    = $acl -like "*Authenticated Users*"
+    Write-Output "folder: $folderOk | service: $svcOk | ACL: $aclOk"
+    if (-not $folderOk -or -not $svcOk -or -not $aclOk) { exit 1 }
+  when: inventory_hostname == 'file01.corp.local'
+  register: result_pe041_check
+  changed_when: false
+  failed_when: result_pe041_check.rc != 0
+
+# ------------------------------------------------------------------------------
+# PE-042: Modifiable registry service path
+# DVADRegSvc's ImagePath registry value is writable by Authenticated Users.
+# An attacker can modify the ImagePath and trigger the service to run arbitrary
+# code under SYSTEM at next service start.
+# ------------------------------------------------------------------------------
+- name: PE-042 - Create DVADRegSvc service (placeholder binary in C:\Tools)
+  ansible.windows.win_shell: |
+    # Placeholder binary (reuse toolsvc.exe location for simplicity)
+    $binPath = "C:\Tools\dvadregsvc.exe"
+    if (-not (Test-Path $binPath)) {
+      Set-Content -Path $binPath -Value "DVAD_PLACEHOLDER" -Force
+    }
+    $svc = Get-Service -Name "DVADRegSvc" -ErrorAction SilentlyContinue
+    if (-not $svc) {
+      sc.exe create DVADRegSvc binpath= $binPath start= demand | Out-Null
+      Write-Output "changed: DVADRegSvc created"
+    } else {
+      Write-Output "ok: DVADRegSvc already exists"
+    }
+  when: inventory_hostname == 'file01.corp.local'
+  register: result_dvadregsvc_create
+  changed_when: "'changed:' in result_dvadregsvc_create.stdout"
+  failed_when: result_dvadregsvc_create.rc != 0
+
+- name: PE-042 - Grant Authenticated Users SetValue on DVADRegSvc ImagePath key
+  ansible.windows.win_shell: |
+    $keyPath = "HKLM:\SYSTEM\CurrentControlSet\Services\DVADRegSvc"
+    if (Test-Path $keyPath) {
+      $acl  = Get-Acl $keyPath
+      $rule = New-Object System.Security.AccessControl.RegistryAccessRule(
+                "NT AUTHORITY\Authenticated Users", "SetValue", "Allow")
+      $acl.AddAccessRule($rule)
+      Set-Acl $keyPath $acl
+    } else {
+      Write-Error "DVADRegSvc registry key not found — service may not have been created"; exit 1
+    }
+  when: inventory_hostname == 'file01.corp.local'
+  register: result_pe042_acl
+  failed_when: result_pe042_acl.rc != 0
+
+- name: PE-042 - Verify DVADRegSvc registry key and ACL
+  ansible.windows.win_shell: |
+    $keyPath = "HKLM:\SYSTEM\CurrentControlSet\Services\DVADRegSvc"
+    $keyOk   = Test-Path $keyPath
+    if ($keyOk) {
+      $acl   = Get-Acl $keyPath
+      $aclOk = ($acl.Access | Where-Object {
+                  $_.IdentityReference -like "*Authenticated Users*" -and
+                  $_.RegistryRights    -like "*SetValue*"
+                }) -ne $null
+      Write-Output "Key exists: $keyOk | Authenticated Users SetValue: $aclOk"
+      if (-not $aclOk) { exit 1 }
+    } else {
+      Write-Error "DVADRegSvc key not found"; exit 1
+    }
+  when: inventory_hostname == 'file01.corp.local'
+  register: result_pe042_check
+  changed_when: false
+  failed_when: result_pe042_check.rc != 0

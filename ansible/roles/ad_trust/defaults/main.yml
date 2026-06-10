@@ -1,0 +1,30 @@
+---
+# ==============================================================================
+# ad_trust role defaults
+# ==============================================================================
+
+# corp.local DC coordinates
+corp_dc: "dc01.corp.local"
+corp_dc_ip: "10.10.0.10"
+corp_admin_user: "CORP\\Administrator"
+corp_admin_password: "DVADlab2024!"
+
+# finance.local DC coordinates
+finance_dc: "dc01.finance.local"
+finance_dc_ip: "10.10.20.10"
+finance_admin_user: "FINANCE\\Administrator"
+finance_admin_password: "DVADlab2024!"
+
+# root.corp DC coordinates
+root_dc: "dc01.root.corp"
+root_dc_ip: "10.10.30.10"
+root_admin_user: "ROOT\\Administrator"
+root_admin_password: "DVADlab2024!"
+
+# Trust direction — BiDirectional for all trusts in this lab
+trust_direction: "BiDirectional"
+
+# SID filtering intentionally DISABLED (DF-008: SID filtering bypass)
+# Setting SIDFilteringForestAware=$false and SIDFilteringQuarantined=$false
+# allows cross-forest SID history injection attacks.
+sid_filtering_enabled: false

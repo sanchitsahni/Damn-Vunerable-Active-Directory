@@ -1,0 +1,199 @@
+---
+# ==============================================================================
+# vuln_web_apps/tasks/web_vulns.yml — WEB-021..060
+# Target: file01.corp.local
+#
+# WEB-021  SQL injection via ASPX page
+# WEB-022  XSS via reflected parameter
+# WEB-023  CSRF — no token validation
+# WEB-024  Path traversal via file download endpoint
+# WEB-025  XXE injection in XML endpoint
+# WEB-026  SSRF via image fetch endpoint
+# WEB-027  Insecure deserialization (ViewState without MAC)
+# WEB-028  JWT none algorithm bypass stub
+# WEB-029  Open redirect
+# WEB-030  IDOR — user ID enumeration via parameter
+# ==============================================================================
+
+- name: WEB-000 - Drop landing page (default.aspx entry point)
+  ansible.windows.win_copy:
+    dest: 'C:\inetpub\wwwroot\default.aspx'
+    content: |
+      <%@ Page Language="C#" %>
+      <%@ Import Namespace="System.Data.SqlClient" %>
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>DVAD Corp Portal</title>
+        <style>body{font-family:Arial;margin:40px;} .nav a{margin-right:15px;} h1{color:#2c3e50;}</style>
+      </head>
+      <body>
+        <h1>DVAD Corp Internal Portal</h1>
+        <div class="nav">
+          <a href="login.aspx">Login</a>
+          <a href="products.aspx">Products</a>
+          <a href="search.aspx">Employee Search</a>
+          <a href="upload.aspx">File Upload</a>
+        </div>
+        <hr/>
+        <p>Welcome to the DVAD Corp internal portal. Please log in to access resources.</p>
+        <p><small>Version: 1.0 | Server: <%= Request.ServerVariables["SERVER_NAME"] %></small></p>
+      </body>
+      </html>
+
+- name: WEB-000 - Drop login page (real entry point with SQL backend)
+  ansible.windows.win_copy:
+    dest: 'C:\inetpub\wwwroot\login.aspx'
+    content: |
+      <%@ Page Language="C#" %>
+      <%@ Import Namespace="System.Data.SqlClient" %>
+      <!DOCTYPE html>
+      <html>
+      <head><title>DVAD Corp — Login</title>
+        <style>body{font-family:Arial;margin:40px;} input{margin:5px;padding:5px;} .err{color:red;}</style>
+      </head>
+      <body>
+        <h2>DVAD Corp Login</h2>
+        <form method="post">
+          <label>Username: <input type="text" name="user" /></label><br/>
+          <label>Password: <input type="password" name="pass" /></label><br/>
+          <input type="submit" value="Login" />
+        </form>
+        <%
+          var user = Request.Form["user"] ?? "";
+          var pass = Request.Form["pass"] ?? "";
+          var msg  = "";
+          if (!string.IsNullOrEmpty(user)) {
+            var connStr = "Server=sql01.corp.local;Database=DunderMifflin;User Id=dunder_web;Password=WebUser2024!;";
+            // VULNERABLE (WEB-021): string concatenation — no parameterized query
+            var sql = "SELECT id,username,role FROM dbo.users WHERE username='" + user +
+                      "' AND password='" + pass + "'";
+            try {
+              using (var conn = new SqlConnection(connStr)) {
+                conn.Open();
+                var cmd = new SqlCommand(sql, conn);
+                var reader = cmd.ExecuteReader();
+                if (reader.HasRows) {
+                  reader.Read();
+                  msg = "Welcome, " + reader["username"].ToString() + " [" + reader["role"].ToString() + "]";
+                } else {
+                  msg = "<span class='err'>Login failed.</span>";
+                }
+              }
+            } catch (Exception ex) {
+              // WEB-007: detailed errors exposed
+              msg = "<span class='err'>Error: " + ex.Message + "<br/>Query: " + Server.HtmlEncode(sql) + "</span>";
+            }
+          }
+        %>
+        <p><%= msg %></p>
+        <!-- Debug hint: try ' OR '1'='1 -->
+      </body>
+      </html>
+
+- name: WEB-021..060 - Drop vulnerable web app pages
+  ansible.windows.win_copy:
+    dest: "{{ item.path }}"
+    content: "{{ item.content }}"
+  loop:
+    - path: 'C:\inetpub\wwwroot\sqli.aspx'
+      content: |
+        <%@ Page Language="C#" %>
+        <%@ Import Namespace="System.Data.SqlClient" %>
+        <!-- WEB-021: SQL Injection — search endpoint against DunderMifflin -->
+        <!DOCTYPE html>
+        <html><body>
+        <h2>WEB-021: Product Search (SQL Injection)</h2>
+        <form method="get">
+          Product ID: <input type="text" name="id" placeholder="1"/>
+          <input type="submit" value="Search"/>
+        </form>
+        <%
+          var id = Request.QueryString["id"] ?? "";
+          if (!string.IsNullOrEmpty(id)) {
+            var connStr = "Server=sql01.corp.local;Database=DunderMifflin;User Id=dunder_web;Password=WebUser2024!;";
+            // VULNERABLE: direct string concat — union/blind/error SQLi
+            var sql = "SELECT id,name,price,description FROM dbo.products WHERE id=" + id;
+            try {
+              using (var conn = new SqlConnection(connStr)) {
+                conn.Open();
+                var cmd = new SqlCommand(sql, conn);
+                var reader = cmd.ExecuteReader();
+                Response.Write("<table border='1'><tr><th>ID</th><th>Name</th><th>Price</th><th>Desc</th></tr>");
+                while (reader.Read()) {
+                  Response.Write("<tr><td>" + reader["id"] + "</td><td>" + reader["name"] +
+                                 "</td><td>" + reader["price"] + "</td><td>" + reader["description"] + "</td></tr>");
+                }
+                Response.Write("</table>");
+                Response.Write("<br/><small>Query: " + Server.HtmlEncode(sql) + "</small>");
+              }
+            } catch (Exception ex) {
+              // Error-based SQLi surface
+              Response.Write("<p style='color:red'>Error: " + ex.Message + "</p>");
+            }
+          }
+        %>
+        <p>Hint: try <code>?id=1 UNION SELECT username,password,role,email FROM dbo.users--</code></p>
+        </body></html>
+
+    - path: 'C:\inetpub\wwwroot\xss.aspx'
+      content: |
+        <%@ Page Language="C#" %>
+        <!-- WEB-022: Reflected XSS -->
+        <!DOCTYPE html>
+        <html><body>
+        <h2>WEB-022: Reflected XSS Search</h2>
+        <form method="get">
+          <input type="text" name="q" placeholder="Search..."/>
+          <input type="submit" value="Search"/>
+        </form>
+        <% if (Request.QueryString["q"] != null) {
+             // VULNERABLE: no HTML encoding
+             Response.Write("<p>Results for: " + Request.QueryString["q"] + "</p>");
+           } %>
+        </body></html>
+
+    - path: 'C:\inetpub\wwwroot\path_traversal.aspx'
+      content: |
+        <%@ Page Language="C#" %>
+        <%@ Import Namespace="System.IO" %>
+        <!-- WEB-024: Path Traversal File Read -->
+        <!DOCTYPE html>
+        <html><body>
+        <h2>WEB-024: File Download</h2>
+        <form method="get">
+          <input type="text" name="file" placeholder="filename.txt"/>
+          <input type="submit" value="Download"/>
+        </form>
+        <% var filename = Request.QueryString["file"];
+           if (!string.IsNullOrEmpty(filename)) {
+             // VULNERABLE: no path sanitization
+             var path = @"C:\inetpub\wwwroot\" + filename;
+             if (File.Exists(path)) {
+               Response.Write("<pre>" + Server.HtmlEncode(File.ReadAllText(path)) + "</pre>");
+             }
+           } %>
+        </body></html>
+
+    - path: 'C:\inetpub\wwwroot\ssrf.aspx'
+      content: |
+        <%@ Page Language="C#" %>
+        <%@ Import Namespace="System.Net" %>
+        <!-- WEB-026: SSRF via image fetch -->
+        <!DOCTYPE html>
+        <html><body>
+        <h2>WEB-026: Image Fetch (SSRF)</h2>
+        <form method="get">
+          <input type="text" name="url" placeholder="http://..."/>
+          <input type="submit" value="Fetch"/>
+        </form>
+        <% var url = Request.QueryString["url"];
+           if (!string.IsNullOrEmpty(url)) {
+             try {
+               // VULNERABLE: fetches any URL including internal endpoints
+               var client = new WebClient();
+               var data = client.DownloadString(url);
+               Response.Write("<pre>" + Server.HtmlEncode(data.Substring(0, Math.Min(data.Length, 2000))) + "</pre>");
+             } catch (Exception ex) { Response.Write("<p>Error: " + ex.Message + "</p>"); }
+           } %>
+        </body></html>

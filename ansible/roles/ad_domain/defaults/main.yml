@@ -1,0 +1,22 @@
+---
+# ==============================================================================
+# ad_domain role defaults
+# Override per-host in inventory group_vars or host_vars
+# ==============================================================================
+
+ad_domain: "corp.local"
+ad_netbios: "CORP"
+ad_password: "DVADlab2024!"
+ad_safe_mode_password: "DVADlab2024!"
+
+# DC IP used for LDAP readiness checks by downstream roles
+ad_dc_ip: "10.10.0.10"
+
+# Functional level — WinThreshold = Server 2016+
+ad_forest_mode: "WinThreshold"
+ad_domain_mode: "WinThreshold"
+
+# NTDS/SYSVOL paths
+ad_db_path: 'C:\Windows\NTDS'
+ad_log_path: 'C:\Windows\NTDS'
+ad_sysvol_path: 'C:\Windows\SYSVOL'

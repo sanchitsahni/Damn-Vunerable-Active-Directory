@@ -47,14 +47,14 @@ except ImportError:
 LAB_DOMAIN    = "corp.local"
 LAB_USER      = "CORP\\Administrator"
 LAB_PASSWORD  = "DVADlab2024!"
-DC_IP         = "10.10.0.10"
-DC_EU_IP      = "10.10.0.10"
-CA_IP         = "10.10.0.10"
-FILE_IP       = "10.10.0.10"
-SQL_IP        = "10.10.0.10"
-WS_IP         = "10.10.0.10"
-FIN_DC_IP     = "10.10.0.10"
-ROOT_DC_IP    = "10.10.0.10"
+DC_IP         = "10.10.0.10"   # dc01.corp.local
+DC_EU_IP      = "10.10.0.11"   # dc01.eu.corp.local
+CA_IP         = "10.10.0.12"   # ca01.corp.local
+FILE_IP       = "10.10.0.13"   # file01.corp.local
+SQL_IP        = "10.10.0.14"   # sql01.corp.local
+WS_IP         = "10.10.0.100"  # ws01.corp.local
+FIN_DC_IP     = "10.10.20.10"  # dc01.finance.local
+ROOT_DC_IP    = "10.10.30.10"  # dc01.root.corp
 
 class C:
     GREEN  = '\033[92m'

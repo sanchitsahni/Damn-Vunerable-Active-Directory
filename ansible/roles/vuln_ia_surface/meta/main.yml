@@ -1,0 +1,23 @@
+---
+galaxy_info:
+  role_name: vuln_ia_surface
+  author: DVAD
+  description: >
+    Configures the full initial-access attack surface for IA-003 through IA-050:
+    anonymous LDAP (IA-003), DNS AXFR (IA-004/041), ZeroLogon (IA-014),
+    WinRM-HTTPS self-signed listener (IA-040), ADWS auto-start (IA-046),
+    SYSVOL credential exposure (REC-015), SNMP public/private (IA-034/050),
+    FTP anon (IA-035), Telnet (IA-036), NFS anon (IA-037), SMB1 (IA-038),
+    Print Spooler shared printer (IA-044/015), WSD/SSDP (IA-047),
+    IIS WebDAV (IA-039/049), WebClient coercion (IA-045),
+    MSSQL sa + xp_cmdshell (IA-011), SQL Browser (IA-048),
+    phishing surface macros/ASR (IA-019..022), RDP NLA-off (IA-027/043),
+    library-ms NTLM leak file (IA-024), AMSI bypass (IA-033)
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Windows
+      versions:
+        - 2019
+        - 2022
+
+dependencies: []

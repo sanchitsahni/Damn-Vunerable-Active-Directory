@@ -1,0 +1,143 @@
+---
+# ==============================================================================
+# domain_join/tasks/main.yml
+# Joins a member server to its domain.
+# Idempotent: checks DomainRole before attempting join.
+# ==============================================================================
+
+# --------------------------------------------------------------------------
+# Network — static IP/DNS must be set before domain join
+# --------------------------------------------------------------------------
+
+- name: Set static IP and point DNS at domain DC
+  ansible.windows.win_shell: |
+    Start-Sleep -Seconds 5
+    $adapter = Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
+    netsh interface ip set address "$($adapter.Name)" static {{ ansible_host }} {{ member_subnet_mask }} {{ member_gateway }} 1
+    netsh interface ip set dns    "$($adapter.Name)" static {{ domain_dns_ip }}
+    Write-Output "IP configured: {{ ansible_host }}"
+  async: 20
+  poll: 0
+  changed_when: false
+
+- name: Wait for network to stabilize
+  ansible.builtin.wait_for_connection:
+    delay: 15
+    timeout: 60
+
+- name: Reset WinRM connection after IP change
+  ansible.builtin.meta: reset_connection
+
+# --------------------------------------------------------------------------
+# Hostname — derive short name from inventory_hostname (e.g. ca01.corp.local -> CA01)
+# --------------------------------------------------------------------------
+
+- name: Set hostname from inventory short name
+  ansible.windows.win_hostname:
+    name: "{{ inventory_hostname.split('.')[0] | upper }}"
+  register: hostname_result
+
+- name: Reboot if hostname changed
+  ansible.windows.win_reboot:
+    reboot_timeout: 600
+    post_reboot_delay: 30
+  when: hostname_result.reboot_required
+
+- name: Wait for host after hostname reboot
+  ansible.builtin.wait_for_connection:
+    delay: 30
+    timeout: 300
+
+# --------------------------------------------------------------------------
+# Precondition: DC must be reachable
+# --------------------------------------------------------------------------
+
+- name: Assert domain DC ({{ domain_dns_ip }}) is reachable on LDAP
+  ansible.windows.win_shell: |
+    $timeout = 900
+    $elapsed = 0
+    while ($elapsed -lt $timeout) {
+      $tcp = Test-NetConnection -ComputerName {{ domain_dns_ip }} -Port 389 -WarningAction SilentlyContinue
+      if ($tcp.TcpTestSucceeded) {
+        Start-Sleep -Seconds 30
+        Write-Output "READY"
+        exit 0
+      }
+      Start-Sleep -Seconds 15
+      $elapsed += 15
+    }
+    Write-Output "TIMEOUT"; exit 1
+  register: dc_ready
+  changed_when: false
+  failed_when: "'READY' not in dc_ready.stdout"
+  timeout: 960
+
+# --------------------------------------------------------------------------
+# Idempotency gate
+# DomainRole: 0=Standalone, 1=Member, 2=StandaloneServer, 3=MemberServer,
+#             4=BackupDC, 5=PrimaryDC
+# Values 1 and 3 both indicate already-joined member status.
+# --------------------------------------------------------------------------
+
+- name: Check current domain membership
+  ansible.windows.win_shell: |
+    $cs = Get-CimInstance -ClassName Win32_ComputerSystem
+    Write-Output "ROLE:$($cs.DomainRole) DOMAIN:$($cs.Domain)"
+  register: membership_check
+  changed_when: false
+
+- name: Parse domain membership facts
+  ansible.builtin.set_fact:
+    _domain_role: "{{ membership_check.stdout | regex_search('ROLE:(\\d+)', '\\1') | first }}"
+    _current_domain: "{{ membership_check.stdout | regex_search('DOMAIN:(\\S+)', '\\1') | first }}"
+
+# --------------------------------------------------------------------------
+# Domain join
+# --------------------------------------------------------------------------
+
+- name: Join {{ domain_to_join }} domain
+  microsoft.ad.membership:
+    dns_domain_name: "{{ domain_to_join }}"
+    hostname: "{{ inventory_hostname.split('.')[0] | upper }}"
+    domain_admin_user: "{{ domain_netbios }}\\{{ domain_user }}"
+    domain_admin_password: "{{ domain_password }}"
+    state: domain
+    reboot: false
+  register: domain_join_result
+  # Already joined = role 1 or 3 AND domain matches
+  when: >
+    _domain_role not in ['1', '3'] or
+    _current_domain | lower != domain_to_join | lower
+
+- name: Reboot after domain join
+  ansible.windows.win_reboot:
+    reboot_timeout: 600
+    post_reboot_delay: 45
+  when:
+    - domain_join_result is not skipped
+    - domain_join_result.reboot_required | default(false)
+
+- name: Wait for domain-joined host to come back
+  ansible.builtin.wait_for_connection:
+    delay: 45
+    timeout: 600
+  when:
+    - domain_join_result is not skipped
+    - domain_join_result.reboot_required | default(false)
+
+# --------------------------------------------------------------------------
+# Verify membership
+# --------------------------------------------------------------------------
+
+- name: Verify domain membership
+  ansible.windows.win_shell: |
+    $cs = Get-CimInstance -ClassName Win32_ComputerSystem
+    if ($cs.Domain -like "*{{ domain_to_join }}*") {
+      Write-Output "JOINED: $($cs.Domain)"
+    } else {
+      Write-Output "NOT_JOINED: $($cs.Domain)"
+      exit 1
+    }
+  register: join_verify
+  changed_when: false
+  failed_when: "'NOT_JOINED' in join_verify.stdout"

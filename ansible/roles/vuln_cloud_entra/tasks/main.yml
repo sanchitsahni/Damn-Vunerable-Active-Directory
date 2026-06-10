@@ -1,0 +1,23 @@
+---
+# ==============================================================================
+# vuln_cloud_entra/tasks/main.yml — CLO-001..100
+# Entra ID / Azure AD hybrid identity surfaces
+#
+# sync_accounts.yml — dc01: CLO-001..020 Entra Connect sync account misconfigs
+# hybrid_join.yml   — dc01: CLO-021..040 Azure AD hybrid join surfaces
+# app_registrations.yml — dc01: CLO-041..060 Entra app reg surfaces
+# conditional_access.yml — dc01: CLO-061..080 CA policy bypass surfaces
+# cloud_notes.yml   — dc01: CLO-081..100 additional cloud attack notes
+# ==============================================================================
+
+- name: All CLO cloud identity surfaces run on dc01.corp.local
+  ansible.builtin.import_tasks: sync_accounts.yml
+  when: inventory_hostname == 'dc01.corp.local'
+
+- name: Import hybrid join attack surfaces
+  ansible.builtin.import_tasks: hybrid_join.yml
+  when: inventory_hostname == 'dc01.corp.local'
+
+- name: Import cloud attack notes (CLO-041..100)
+  ansible.builtin.import_tasks: cloud_notes.yml
+  when: inventory_hostname == 'dc01.corp.local'

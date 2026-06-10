@@ -6,32 +6,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-DVAD = **Deployable Vulnerable Active Directory** lab. It is not application code — it is infrastructure automation (Bash + Ansible + QEMU/KVM) that builds a multi-forest Windows AD environment and **intentionally misconfigures it** for CTF/red-team practice. The "bugs" (disabled Defender, weak service accounts, ESC-vulnerable cert templates, DoNotRequirePreAuth, permissive ACLs, SMB1, etc.) are the spec, not regressions. Do not "fix" them unless explicitly asked. `PLAN.md` is the attack-vector spec; `ad-architechture.html` is the visual companion.
+DUNDER (a.k.a. DVAD = Deployable Vulnerable Active Directory) is a lab for CTF/red-team practice. Not application code — infrastructure automation (Bash + Ansible + QEMU/KVM) that builds a multi-forest Windows AD environment and **intentionally misconfigures it**. The "bugs" (disabled Defender, weak service accounts, ESC-vulnerable cert templates, DoNotRequirePreAuth, permissive ACLs, SMB1, etc.) are the spec, not regressions. Do not "fix" them unless explicitly asked. `PLAN.md` is the attack-vector spec; `ad-architechture.html` is the visual companion.
 
-## Entry point and stale duplicates
+## Entry point
 
-- **Real entrypoint:** `./deploy.sh` at repo root. It runs 7 phases: deps → networks → Windows media → VM create → wait → Massgrave activation → Ansible. Sets `DVAD_HOME` for everything downstream.
-- **Stale duplicates — do not edit:** `scripts/deploy.sh` and `qemu/vm_defs/vm-create.sh` are leftovers from an earlier iteration. Edit the root `deploy.sh` and `qemu/vm-create.sh` instead. Treat the duplicates as deletion candidates if asked to clean up.
-- `.nanocoder/` is leftover tool state, **not** project config. `.nanocoder/tasks.json` is unreliable — many `in_progress` items are already done in code.
+- **Entry point:** `python3 deploy.py` at repo root. Interactive wizard + 7-phase pipeline: media download → packer build → networks → VM create → WinRM wait → Ansible → verify.
+- Provider scripts live in `providers/qemu/` (vm-create.sh + network-setup.sh) and `providers/virtualbox/` — not the old `qemu/` directory.
+- `.nanocoder/` was leftover tool state — it has been removed. If it reappears, delete it.
 
 ## Topology consistency (four-way invariant)
 
-Hostnames, IPs, and MACs are hardcoded across **four** files that must stay in sync. The full table is in AGENTS.md (three forests: `corp.local` on `dvad-ctf`, `finance.local` on `dvad-finance`, `root.corp` on `dvad-root`). When adding/renaming a VM, update all four:
+Hostnames, IPs, and MACs are hardcoded across **four** files that must stay in sync. All VMs share the single `dvad-ctf` bridge on `10.10.0.0/16` (corp=10.10.0.x, finance=10.10.20.x, root=10.10.30.x). When adding/renaming a VM, update all four:
 
-1. `qemu/vm-create.sh` — `VM_DEFS` associative array
-2. `qemu/network/setup-network.sh` — `add_static_leases` (dnsmasq static leases)
+1. `providers/qemu/vm-create.sh` — `VM_DEFS` associative array
+2. `providers/qemu/network-setup.sh` — `add_static_leases` (dnsmasq static leases)
 3. `ansible/inventory.yml` — host entry **and** the right child group (`corp_servers`, `corp_workstation`, `all_dcs`, `member_servers` — `site.yml` references these by name)
 4. Any role/task referencing the hostname
 
-Lab-wide password is `DVADlab2024!` (in `ansible/inventory.yml` and `qemu/vm-create.sh`). Not a secret — intentionally vulnerable lab.
+Lab-wide password is `DVADlab2024!` (in `ansible/inventory.yml` and `providers/qemu/vm-create.sh`). Not a secret — intentionally vulnerable lab.
 
 ## Common commands
 
 ```bash
-./deploy.sh                          # full lab (8 VMs, ~18GB RAM)
-./deploy.sh --minimal                # corp.local only (5 VMs)
-./deploy.sh --single-dc              # 1 VM smoke test
-./deploy.sh --memory 24 --disk-path /mnt/vms
+python3 deploy.py                                            # interactive wizard
+python3 deploy.py --profile minimal --provider qemu --yes   # corp.local only (5 VMs)
+python3 deploy.py --profile single-dc --provider qemu --yes # 1 VM smoke test
+python3 deploy.py --ram 24 --disk-path /mnt/vms --yes
 
 # Re-run only Ansible after VMs are up (note: inventory.yml at ansible/ root, NOT inventory/hosts.yml):
 cd ansible && ansible-playbook -i inventory.yml playbooks/site.yml -v

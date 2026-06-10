@@ -1,0 +1,237 @@
+---
+# ==============================================================================
+# vuln_recon/tasks/main.yml
+# Target: all DCs + file01 (via host_vars delegation in site.yml)
+#
+# Configures the enumeration / initial-access surface:
+#   REC-002 / IA-002   RestrictAnonymous=0, RestrictAnonymousSAM=0,
+#                      EveryoneIncludesAnonymous=1 on DCs
+#   REC-010 / IA-008   LLMNR enabled (remove GPO disable key); NBT-NS enabled
+#   IA-042             NullSessionPipes — lsarpc,samr,netlogon,srvsvc,browser
+#   IA-007             Guest account enabled on file01
+#   LAT-028            SMB signing disabled on non-DC members
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# REC-002 / IA-002: Anonymous null session access
+# RestrictAnonymous=0      — allow null-session enumeration
+# RestrictAnonymousSAM=0   — SAM enumerable anonymously
+# EveryoneIncludesAnonymous=1 — anonymous SID = Everyone SID
+# RestrictNullSessAccess=0 — allow named pipe access without auth
+# Check current registry values before writing.
+# ------------------------------------------------------------------------------
+- name: IA-002 - Check RestrictAnonymous registry value
+  ansible.windows.win_shell: |
+    $val = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" `
+              -Name "RestrictAnonymous" -ErrorAction SilentlyContinue).RestrictAnonymous
+    Write-Output $val
+  register: result_restrict_anon
+  changed_when: false
+  failed_when: result_restrict_anon.rc != 0
+
+- name: IA-002 - Set null-session registry keys on DC
+  ansible.windows.win_regedit:
+    path: "{{ item.path }}"
+    name: "{{ item.name }}"
+    data: "{{ item.data }}"
+    type: dword
+  loop:
+    - { path: 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa',                  name: 'RestrictAnonymous',         data: 0 }
+    - { path: 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa',                  name: 'RestrictAnonymousSAM',      data: 0 }
+    - { path: 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa',                  name: 'EveryoneIncludesAnonymous', data: 1 }
+    - { path: 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters', name: 'RestrictNullSessAccess', data: 0 }
+
+# ansible.windows.win_regedit is idempotent by design — only writes if value differs
+
+# ------------------------------------------------------------------------------
+# IA-042: NullSessionPipes — accessible named pipes without authentication.
+# These are needed for rpcclient / enum4linux / net rpc tool chains.
+# Check existing value before setting; REG_MULTI_SZ comparison.
+# ------------------------------------------------------------------------------
+- name: IA-042 - Check current NullSessionPipes value
+  ansible.windows.win_shell: |
+    $val = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" `
+              -Name "NullSessionPipes" -ErrorAction SilentlyContinue).NullSessionPipes
+    if ($val) { Write-Output ($val -join ",") } else { Write-Output "not_set" }
+  register: result_nullpipes_check
+  changed_when: false
+  failed_when: result_nullpipes_check.rc != 0
+
+- name: IA-042 - Set NullSessionPipes (lsarpc, samr, netlogon, srvsvc, browser)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'
+    name: NullSessionPipes
+    data: "{{ null_session_pipes }}"
+    type: multistring
+  when: >
+    result_nullpipes_check.stdout | trim == "not_set" or
+    not (null_session_pipes | map('lower') | list | intersect(
+      result_nullpipes_check.stdout | lower | split(',') | list
+    ) | list | length == null_session_pipes | length)
+
+# ------------------------------------------------------------------------------
+# REC-010 / IA-008: LLMNR — ensure NOT disabled by GPO key
+# The GPO sets EnableMulticast=0 under DNSClient policy key.
+# We must remove that value (not just set it to 1, which GPO would override).
+# Also enable NBT-NS via registry.
+# ------------------------------------------------------------------------------
+- name: REC-010 - Check if LLMNR GPO disable key exists
+  ansible.windows.win_shell: |
+    $key  = "HKLM:\Software\Policies\Microsoft\Windows NT\DNSClient"
+    $val  = (Get-ItemProperty -Path $key -Name "EnableMulticast" -ErrorAction SilentlyContinue).EnableMulticast
+    if ($null -eq $val)  { Write-Output "not_present" }
+    elseif ($val -eq 0)  { Write-Output "disabled_0" }
+    else                  { Write-Output "enabled_$val" }
+  register: result_llmnr_check
+  changed_when: false
+  failed_when: result_llmnr_check.rc != 0
+
+- name: REC-010 - Remove LLMNR GPO disable key so multicast DNS stays enabled
+  ansible.windows.win_shell: |
+    $key = "HKLM:\Software\Policies\Microsoft\Windows NT\DNSClient"
+    if (Test-Path $key) {
+      Remove-ItemProperty -Path $key -Name "EnableMulticast" -ErrorAction SilentlyContinue
+    }
+  when: "'disabled_0' in result_llmnr_check.stdout"
+  register: result_llmnr_remove
+  failed_when: result_llmnr_remove.rc != 0
+
+- name: IA-008 - Check NBT-NS registry state on each adapter
+  ansible.windows.win_shell: |
+    # NetbiosOptions: 0=default(DHCP), 1=enabled, 2=disabled
+    # We want 1 (always enabled) on all adapters.
+    $adapters = Get-ChildItem "HKLM:\SYSTEM\CurrentControlSet\Services\NetBT\Parameters\Interfaces"
+    $needsSet = $false
+    foreach ($a in $adapters) {
+      $val = (Get-ItemProperty -Path $a.PSPath -Name "NetbiosOptions" -ErrorAction SilentlyContinue).NetbiosOptions
+      if ($val -ne 1) { $needsSet = $true; break }
+    }
+    if ($needsSet) { Write-Output "needs_set" } else { Write-Output "ok" }
+  register: result_nbtns_check
+  changed_when: false
+  failed_when: result_nbtns_check.rc != 0
+
+- name: IA-008 - Enable NBT-NS (NetbiosOptions=1) on all network adapters
+  ansible.windows.win_shell: |
+    $adapters = Get-ChildItem "HKLM:\SYSTEM\CurrentControlSet\Services\NetBT\Parameters\Interfaces"
+    foreach ($a in $adapters) {
+      Set-ItemProperty -Path $a.PSPath -Name "NetbiosOptions" -Value 1 -Type DWord
+    }
+  when: "'needs_set' in result_nbtns_check.stdout"
+  register: result_nbtns_set
+  failed_when: result_nbtns_set.rc != 0
+
+# ------------------------------------------------------------------------------
+# IA-007: Guest account enabled on file01
+# This task should only run when the host is file01 — controlled by a
+# when: condition in site.yml or by targeting file01 host group.
+# The role itself checks the account state before enabling.
+# ------------------------------------------------------------------------------
+- name: IA-007 - Check Guest account status
+  ansible.windows.win_shell: |
+    $guest = Get-LocalUser -Name "Guest" -ErrorAction SilentlyContinue
+    if ($null -eq $guest)        { Write-Output "not_found" }
+    elseif ($guest.Enabled)      { Write-Output "enabled" }
+    else                          { Write-Output "disabled" }
+  register: result_guest_check
+  changed_when: false
+  failed_when: result_guest_check.rc != 0
+  when: inventory_hostname in groups['file_servers'] | default([])
+
+- name: IA-007 - Enable Guest account on file01
+  ansible.windows.win_shell: |
+    Enable-LocalUser -Name "Guest" -ErrorAction Stop
+    Set-LocalUser -Name "Guest" -PasswordNeverExpires $true -ErrorAction SilentlyContinue
+  when:
+    - inventory_hostname in groups['file_servers'] | default([])
+    - "'disabled' in result_guest_check.stdout"
+  register: result_guest_enable
+  failed_when: result_guest_enable.rc != 0
+
+# ------------------------------------------------------------------------------
+# LAT-028: SMB signing disabled on non-DC member servers (file01, ws01, sql01)
+# SMB signing enforced = NTLM relay blocked. We disable the requirement.
+# EnableSecuritySignature=0 + RequireSecuritySignature=0
+# Target-scoped: only applies when inventory_hostname is in member_servers group.
+# DCs retain their default signing requirement (do not touch them here).
+# ------------------------------------------------------------------------------
+- name: LAT-028 - Check SMB signing settings on member server
+  ansible.windows.win_shell: |
+    $params = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" `
+                -ErrorAction SilentlyContinue
+    $enable  = $params.EnableSecuritySignature
+    $require = $params.RequireSecuritySignature
+    Write-Output "enable=$enable require=$require"
+  register: result_smb_sign_check
+  changed_when: false
+  failed_when: result_smb_sign_check.rc != 0
+  when: inventory_hostname in groups['member_servers'] | default([])
+
+- name: LAT-028 - Disable SMB signing requirement on member server
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'
+    name: "{{ item.name }}"
+    data: "{{ item.data }}"
+    type: dword
+  loop:
+    - { name: 'EnableSecuritySignature',  data: 0 }
+    - { name: 'RequireSecuritySignature', data: 0 }
+  when:
+    - inventory_hostname in groups['member_servers'] | default([])
+    - "'require=0' not in result_smb_sign_check.stdout or 'enable=0' not in result_smb_sign_check.stdout"
+
+# ------------------------------------------------------------------------------
+# REC-007: DNS zone transfer open (allow AXFR from any host)
+# Idempotent — Set-DnsServerPrimaryZone is safe to re-run.
+# Only runs on DCs (dns server role present).
+# ------------------------------------------------------------------------------
+- name: REC-007 - Allow unrestricted DNS zone transfers on corp.local
+  ansible.windows.win_shell: |
+    Import-Module DnsServer
+    # TransferAnyServer = unrestricted AXFR; no restriction on secondary IPs
+    Set-DnsServerPrimaryZone -Name "{{ ad_domain }}" `
+      -SecureSecondaries TransferAnyServer -ErrorAction SilentlyContinue
+    dnscmd /ZoneResetSecondaries {{ ad_domain }} /NonSecure 2>&1 | Out-Null
+    Write-Output "dns_axfr_set"
+  register: result_dns_axfr
+  changed_when: "'dns_axfr_set' in result_dns_axfr.stdout"
+  failed_when: >
+    result_dns_axfr.rc != 0 and
+    "not found" not in (result_dns_axfr.stderr | default("") | lower)
+  when: inventory_hostname in groups['all_dcs'] | default([])
+
+# ------------------------------------------------------------------------------
+# LDAP signing: LDAPServerIntegrity=1 (not enforced, not disabled)
+# Value 1 = "Negotiate signing" — client can request unsigned; NOT enforced.
+# Value 2 = Require signing (blocks NTLM relay to LDAP).
+# Check before setting.
+# ------------------------------------------------------------------------------
+- name: REC-006 - Check LDAPServerIntegrity registry value
+  ansible.windows.win_shell: |
+    $val = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters" `
+              -Name "LDAPServerIntegrity" -ErrorAction SilentlyContinue).LDAPServerIntegrity
+    Write-Output $val
+  register: result_ldap_sign_check
+  changed_when: false
+  failed_when: result_ldap_sign_check.rc != 0
+  when: inventory_hostname in groups['all_dcs'] | default([])
+
+- name: REC-006 - Set LDAPServerIntegrity=1 (signing not enforced)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters'
+    name: LDAPServerIntegrity
+    data: 1
+    type: dword
+  when:
+    - inventory_hostname in groups['all_dcs'] | default([])
+    - result_ldap_sign_check.stdout | trim != '1'
+
+# Extended recon/enum surfaces (absorbed from vuln_rec_enum)
+
+- name: Import extended recon surfaces (all DCs)
+  ansible.builtin.import_tasks: recon_ext.yml
+  when: inventory_hostname in groups['all_dcs'] | default([])
+
+- name: Import enumeration guidance surfaces (dc01)
+  ansible.builtin.import_tasks: enum.yml
+  when: inventory_hostname == 'dc01.corp.local'

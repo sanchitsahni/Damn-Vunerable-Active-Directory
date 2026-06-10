@@ -1,0 +1,13 @@
+---
+galaxy_info:
+  role_name: vuln_recon
+  author: DVAD
+  description: Configures the enumeration and initial-access attack surface (LLMNR, null sessions, SMB signing, guest account)
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Windows
+      versions:
+        - 2019
+        - 2022
+
+dependencies: []

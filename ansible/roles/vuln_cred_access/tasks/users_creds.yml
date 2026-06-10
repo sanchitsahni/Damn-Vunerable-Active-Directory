@@ -1,0 +1,553 @@
+---
+# ==============================================================================
+# vuln_cred_gaps/tasks/users-creds.yml
+# Target: dc01.corp.local (all_dcs group via main.yml guard)
+#
+# CRED-003  Password spray cohort (7 low-priv users, Password123!)
+# CRED-004  Saved Windows credentials + DBeaver config on ws01
+# CRED-008  svc_angela user + GenericWrite from HelpDesk group
+# CRED-009  kevin.malone with AllowReversiblePasswordEncryption
+# CRED-023  david.wallace user + ms-DS-MachineAccountQuota=10 confirm
+# CRED-033  IT_Team group with ms-Mcs-AdmPwd read on Computers OU
+# CRED-034  gMSA gmsa_web$ with PrincipalsAllowedToRetrieveManagedPassword
+# CRED-040  Asset_Owners group with SeTrustedCredManAccessPrivilege
+# CRED-045  svc_toby user + logon task to seed DPAPI master key
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# CRED-003: Password spray cohort
+# Create 7 low-priv users with the common spray password Password123!.
+# Check each user with Get-ADUser before calling New-ADUser.
+# ------------------------------------------------------------------------------
+- name: CRED-003 - Check which spray-cohort users already exist
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $missing = @()
+    foreach ($u in @("{{ spray_users | join('","') }}")) {
+      if (-not (Get-ADUser -Filter "SamAccountName -eq '$u'" -ErrorAction SilentlyContinue)) {
+        $missing += $u
+      }
+    }
+    Write-Output ($missing -join ",")
+  register: result_spray_missing
+  changed_when: false
+  failed_when: result_spray_missing.rc != 0
+
+- name: CRED-003 - Create missing spray-cohort users with Password123!
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $sec = ConvertTo-SecureString "{{ spray_password }}" -AsPlainText -Force
+    $missing = "{{ result_spray_missing.stdout | trim }}".Split(",") | Where-Object { $_ -ne "" }
+    foreach ($u in $missing) {
+      try {
+        New-ADUser -Name $u -SamAccountName $u `
+          -UserPrincipalName "$u@{{ ad_domain }}" `
+          -AccountPassword $sec -Enabled $true `
+          -PasswordNeverExpires $true `
+          -Path "CN=Users,{{ ad_domain_dn }}" -ErrorAction Stop
+        Write-Output "created: $u"
+      } catch {
+        Write-Output "WARN: $u - $($_.Exception.Message)"
+      }
+    }
+  when: result_spray_missing.stdout | trim | length > 0
+  register: result_spray_create
+  failed_when: >
+    result_spray_create.rc != 0 and
+    "already" not in (result_spray_create.stderr | default("") | lower)
+
+# ------------------------------------------------------------------------------
+# CRED-004: Saved credentials on ws01
+# 1) Windows Credentials file stub under Administrator AppData
+# 2) DBeaver credentials-config.json with plaintext sa password
+# Both tasks run against ws01 directly.
+# ------------------------------------------------------------------------------
+- name: CRED-004 - Check Windows Credentials stub directory on ws01
+  ansible.windows.win_stat:
+    path: 'C:\Users\Administrator\AppData\Roaming\Microsoft\Credentials'
+  register: result_wincred_dir
+  when: inventory_hostname == 'ws01.corp.local'
+  changed_when: false
+
+- name: CRED-004 - Ensure Windows Credentials directory exists on ws01
+  ansible.windows.win_file:
+    path: 'C:\Users\Administrator\AppData\Roaming\Microsoft\Credentials'
+    state: directory
+  when:
+    - inventory_hostname == 'ws01.corp.local'
+    - not result_wincred_dir.stat.exists
+
+- name: CRED-004 - Check Windows Credentials blob file on ws01
+  ansible.windows.win_stat:
+    path: 'C:\Users\Administrator\AppData\Roaming\Microsoft\Credentials\DVAD_CRED_BLOB'
+  register: result_wincred_blob
+  when: inventory_hostname == 'ws01.corp.local'
+  changed_when: false
+
+- name: CRED-004 - Drop Windows Credentials blob stub on ws01
+  ansible.windows.win_copy:
+    dest: 'C:\Users\Administrator\AppData\Roaming\Microsoft\Credentials\DVAD_CRED_BLOB'
+    content: |
+      DVAD lab stub credential blob — use Mimikatz dpapi::cred to parse.
+      Credential: sql01.corp.local sa SqlServer2025!
+  when:
+    - inventory_hostname == 'ws01.corp.local'
+    - not result_wincred_blob.stat.exists
+
+- name: CRED-004 - Check DBeaver workspace directory on ws01
+  ansible.windows.win_stat:
+    path: 'C:\Tools\DBeaver\workspace\.dbeaver'
+  register: result_dbeaver_dir
+  when: inventory_hostname == 'ws01.corp.local'
+  changed_when: false
+
+- name: CRED-004 - Ensure DBeaver workspace .dbeaver directory exists on ws01
+  ansible.windows.win_file:
+    path: 'C:\Tools\DBeaver\workspace\.dbeaver'
+    state: directory
+  when:
+    - inventory_hostname == 'ws01.corp.local'
+    - not result_dbeaver_dir.stat.exists
+
+- name: CRED-004 - Check DBeaver credentials-config.json on ws01
+  ansible.windows.win_stat:
+    path: 'C:\Tools\DBeaver\workspace\.dbeaver\credentials-config.json'
+  register: result_dbeaver_creds
+  when: inventory_hostname == 'ws01.corp.local'
+  changed_when: false
+
+- name: CRED-004 - Drop DBeaver credentials-config.json with sa password on ws01
+  ansible.windows.win_copy:
+    dest: 'C:\Tools\DBeaver\workspace\.dbeaver\credentials-config.json'
+    content: "{{ dbeaver_creds_content }}"
+  when:
+    - inventory_hostname == 'ws01.corp.local'
+    - not result_dbeaver_creds.stat.exists
+
+# ------------------------------------------------------------------------------
+# CRED-008 / PER-027: Shadow Credentials surface
+# Create svc_angela user; grant HelpDesk group GenericWrite
+# (msDS-KeyCredentialLink write = GUID 5b47d60f-6150-4db2-a45b-7f9779355d6c).
+# Check ACE presence before adding.
+# ------------------------------------------------------------------------------
+- name: CRED-008 - Check svc_angela user existence
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    if (Get-ADUser -Filter "SamAccountName -eq 'svc_angela'" -ErrorAction SilentlyContinue) {
+      Write-Output "present"
+    } else {
+      Write-Output "absent"
+    }
+  register: result_svc_angela_check
+  changed_when: false
+  failed_when: result_svc_angela_check.rc != 0
+
+- name: CRED-008 - Create svc_angela user
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $sec = ConvertTo-SecureString "DVADlab2024!" -AsPlainText -Force
+    New-ADUser -Name "svc_angela" -SamAccountName "svc_angela" `
+      -UserPrincipalName "svc_angela@{{ ad_domain }}" `
+      -AccountPassword $sec -Enabled $true `
+      -PasswordNeverExpires $true `
+      -Path "CN=Users,{{ ad_domain_dn }}" -ErrorAction Stop
+  when: result_svc_angela_check.stdout | trim == "absent"
+  register: result_svc_angela_create
+  failed_when: >
+    result_svc_angela_create.rc != 0 and
+    "already" not in (result_svc_angela_create.stderr | default("") | lower)
+
+- name: CRED-008 - Check HelpDesk GenericWrite ACE on svc_angela
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $tgt = Get-ADUser -Identity "svc_angela"
+    $grp = Get-ADGroup -Identity "HelpDesk" -ErrorAction SilentlyContinue
+    if (-not $grp) { Write-Output "no_group"; exit 0 }
+    $acl = Get-ACL "AD:\$($tgt.DistinguishedName)"
+    $sid = New-Object System.Security.Principal.SecurityIdentifier ($grp.SID)
+    $match = $acl.Access | Where-Object {
+      $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value -eq $sid.Value -and
+      $_.ActiveDirectoryRights -band [System.DirectoryServices.ActiveDirectoryRights]::GenericWrite
+    }
+    if ($match) { Write-Output "present" } else { Write-Output "absent" }
+  register: result_shadow_ace_check
+  changed_when: false
+  failed_when: result_shadow_ace_check.rc != 0
+
+- name: CRED-008 - Grant HelpDesk GenericWrite on svc_angela (shadow creds surface)
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $tgt = Get-ADUser -Identity "svc_angela"
+    $grp = Get-ADGroup -Identity "HelpDesk" -ErrorAction SilentlyContinue
+    if (-not $grp) {
+      Write-Output "HelpDesk group not found — skipping"
+      exit 0
+    }
+    $sid = New-Object System.Security.Principal.SecurityIdentifier ($grp.SID)
+    $acl = Get-ACL "AD:\$($tgt.DistinguishedName)"
+    # GenericWrite
+    $rule = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+      $sid, "GenericWrite", "Allow"
+    )
+    $acl.AddAccessRule($rule)
+    # Also grant WriteProperty on msDS-KeyCredentialLink specifically
+    $keyCredGuid = [guid]"5b47d60f-6150-4db2-a45b-7f9779355d6c"
+    $ruleKcl = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+      $sid, "WriteProperty", "Allow", $keyCredGuid
+    )
+    $acl.AddAccessRule($ruleKcl)
+    Set-ACL "AD:\$($tgt.DistinguishedName)" $acl
+  when: >
+    result_shadow_ace_check.stdout | trim == "absent" and
+    result_shadow_ace_check.stdout | trim != "no_group"
+  register: result_shadow_ace_set
+  failed_when: result_shadow_ace_set.rc != 0
+
+# ------------------------------------------------------------------------------
+# CRED-009: Reversible password encryption on kevin.malone
+# Check AllowReversiblePasswordEncryption attribute before setting.
+# kevin.malone may already exist (referenced in vuln-cred-access.yml CRED-007);
+# create if absent, then enforce the reversible flag + reset password.
+# ------------------------------------------------------------------------------
+- name: CRED-009 - Check kevin.malone user and reversible encryption attribute
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $u = Get-ADUser -Filter "SamAccountName -eq 'kevin.malone'" `
+      -Properties AllowReversiblePasswordEncryption -ErrorAction SilentlyContinue
+    if (-not $u) {
+      Write-Output "absent"
+    } elseif ($u.AllowReversiblePasswordEncryption -eq $true) {
+      Write-Output "ok"
+    } else {
+      Write-Output "needs_set"
+    }
+  register: result_heimdall_check
+  changed_when: false
+  failed_when: result_heimdall_check.rc != 0
+
+- name: CRED-009 - Create kevin.malone if absent with reversible encryption
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $sec = ConvertTo-SecureString "DVADlab2024!" -AsPlainText -Force
+    New-ADUser -Name "kevin.malone" -SamAccountName "kevin.malone" `
+      -UserPrincipalName "kevin.malone@{{ ad_domain }}" `
+      -AccountPassword $sec -Enabled $true `
+      -PasswordNeverExpires $true `
+      -AllowReversiblePasswordEncryption $true `
+      -Path "CN=Users,{{ ad_domain_dn }}" -ErrorAction Stop
+  when: result_heimdall_check.stdout | trim == "absent"
+  register: result_heimdall_create
+  failed_when: >
+    result_heimdall_create.rc != 0 and
+    "already" not in (result_heimdall_create.stderr | default("") | lower)
+
+- name: CRED-009 - Set AllowReversiblePasswordEncryption on kevin.malone if not set
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    Set-ADUser -Identity "kevin.malone" -AllowReversiblePasswordEncryption $true
+    $sec = ConvertTo-SecureString "DVADlab2024!" -AsPlainText -Force
+    Set-ADAccountPassword -Identity "kevin.malone" -NewPassword $sec -Reset
+  when: result_heimdall_check.stdout | trim == "needs_set"
+  register: result_heimdall_set
+  failed_when: result_heimdall_set.rc != 0
+
+# ------------------------------------------------------------------------------
+# CRED-023: noPac — ensure ms-DS-MachineAccountQuota=10 and david.wallace user
+# MachineAccountQuota must be 10 (default) to allow unprivileged machine account
+# creation. david.wallace is a standard user to demonstrate the quota-creation path.
+# ------------------------------------------------------------------------------
+- name: CRED-023 - Check ms-DS-MachineAccountQuota on domain object
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $val = (Get-ADDomain).DistinguishedName
+    $obj = Get-ADObject -Identity $val -Properties "ms-DS-MachineAccountQuota"
+    Write-Output $obj."ms-DS-MachineAccountQuota"
+  register: result_maq_check
+  changed_when: false
+  failed_when: result_maq_check.rc != 0
+
+- name: CRED-023 - Set ms-DS-MachineAccountQuota=10 if not already 10
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    Set-ADDomain -Identity "{{ ad_domain }}" `
+      -Replace @{"ms-DS-MachineAccountQuota" = 10}
+  when: result_maq_check.stdout | trim != "10"
+  register: result_maq_set
+  failed_when: result_maq_set.rc != 0
+
+- name: CRED-023 - Check david.wallace user existence
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    if (Get-ADUser -Filter "SamAccountName -eq 'david.wallace'" -ErrorAction SilentlyContinue) {
+      Write-Output "present"
+    } else {
+      Write-Output "absent"
+    }
+  register: result_nopac_user_check
+  changed_when: false
+  failed_when: result_nopac_user_check.rc != 0
+
+- name: CRED-023 - Create david.wallace user (standard domain user for noPac demo)
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $sec = ConvertTo-SecureString "DVADlab2024!" -AsPlainText -Force
+    New-ADUser -Name "david.wallace" -SamAccountName "david.wallace" `
+      -UserPrincipalName "david.wallace@{{ ad_domain }}" `
+      -AccountPassword $sec -Enabled $true `
+      -PasswordNeverExpires $true `
+      -Path "CN=Users,{{ ad_domain_dn }}" -ErrorAction Stop
+  when: result_nopac_user_check.stdout | trim == "absent"
+  register: result_nopac_user_create
+  failed_when: >
+    result_nopac_user_create.rc != 0 and
+    "already" not in (result_nopac_user_create.stderr | default("") | lower)
+
+# ------------------------------------------------------------------------------
+# CRED-033: LAPS read — IT_Team group with ms-Mcs-AdmPwd read on Computers OU
+# The instruction asks for IT_Team; existing vuln-cred-access uses Regional_Managers.
+# Create IT_Team if absent, then delegate LAPS read on OU=Computers.
+# ------------------------------------------------------------------------------
+- name: CRED-033 - Check IT_Team group existence
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    if (Get-ADGroup -Filter "SamAccountName -eq 'IT_Team'" -ErrorAction SilentlyContinue) {
+      Write-Output "present"
+    } else {
+      Write-Output "absent"
+    }
+  register: result_it_team_check
+  changed_when: false
+  failed_when: result_it_team_check.rc != 0
+
+- name: CRED-033 - Create IT_Team group if absent
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    New-ADGroup -Name "IT_Team" -SamAccountName "IT_Team" `
+      -GroupScope Global -GroupCategory Security `
+      -Path "CN=Users,{{ ad_domain_dn }}" -ErrorAction Stop
+  when: result_it_team_check.stdout | trim == "absent"
+  register: result_it_team_create
+  failed_when: >
+    result_it_team_create.rc != 0 and
+    "already" not in (result_it_team_create.stderr | default("") | lower)
+
+- name: CRED-033 - Check IT_Team LAPS read ACE on Computers OU
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $grp = Get-ADGroup -Identity "IT_Team"
+    $sid = New-Object System.Security.Principal.SecurityIdentifier ($grp.SID)
+    $ou  = "OU=Computers,{{ ad_domain_dn }}"
+    # OU may not exist — fall back to CN=Computers
+    $target = if (Get-ADObject -Filter "DistinguishedName -eq '$ou'" -ErrorAction SilentlyContinue) {
+      $ou
+    } else {
+      "CN=Computers,{{ ad_domain_dn }}"
+    }
+    $acl = Get-ACL "AD:\$target"
+    $match = $acl.Access | Where-Object {
+      try {
+        $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value -eq $sid.Value -and
+        ($_.ActiveDirectoryRights -band [System.DirectoryServices.ActiveDirectoryRights]::ReadProperty)
+      } catch { $false }
+    }
+    if ($match) { Write-Output "present" } else { Write-Output "absent" }
+  register: result_laps_ace_check
+  changed_when: false
+  failed_when: result_laps_ace_check.rc != 0
+
+- name: CRED-033 - Grant IT_Team ReadProperty on ms-Mcs-AdmPwd / msLAPS-Password
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $grp = Get-ADGroup -Identity "IT_Team"
+    $sid = New-Object System.Security.Principal.SecurityIdentifier ($grp.SID)
+    $ou  = "OU=Computers,{{ ad_domain_dn }}"
+    $target = if (Get-ADObject -Filter "DistinguishedName -eq '$ou'" -ErrorAction SilentlyContinue) {
+      $ou
+    } else {
+      "CN=Computers,{{ ad_domain_dn }}"
+    }
+    $acl = Get-ACL "AD:\$target"
+    $schemaNC = (Get-ADRootDSE).schemaNamingContext
+    foreach ($attr in @("ms-Mcs-AdmPwd", "msLAPS-Password")) {
+      $schema = Get-ADObject -SearchBase $schemaNC `
+        -Filter "lDAPDisplayName -eq '$attr'" -ErrorAction SilentlyContinue
+      if ($schema) {
+        $guid = [guid]$schema.schemaIDGUID
+        $rule = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+          $sid, "ReadProperty", "Allow", $guid,
+          [System.DirectoryServices.ActiveDirectorySecurityInheritance]::Descendents
+        )
+        $acl.AddAccessRule($rule)
+      }
+    }
+    Set-ACL "AD:\$target" $acl
+  when: result_laps_ace_check.stdout | trim == "absent"
+  register: result_laps_ace_set
+  failed_when: result_laps_ace_set.rc != 0
+
+# ------------------------------------------------------------------------------
+# CRED-034: gMSA gmsa_web$ with Regional_Managers allowed to retrieve password
+# KDS root key required; create it with backdated EffectiveTime if absent.
+# Check gMSA existence before creating.
+# ------------------------------------------------------------------------------
+- name: CRED-034 - Check KDS root key existence
+  ansible.windows.win_shell: |
+    $key = Get-KdsRootKey -ErrorAction SilentlyContinue
+    if ($key) { Write-Output "present" } else { Write-Output "absent" }
+  register: result_kds_check
+  changed_when: false
+  failed_when: result_kds_check.rc != 0
+
+- name: CRED-034 - Create KDS root key with backdated effective time
+  ansible.windows.win_shell: |
+    Add-KdsRootKey -EffectiveTime ((Get-Date).AddHours(-10)) -ErrorAction Stop
+  when: result_kds_check.stdout | trim == "absent"
+  register: result_kds_create
+  failed_when: result_kds_create.rc != 0
+
+- name: CRED-034 - Check gmsa_web$ service account existence
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    if (Get-ADServiceAccount -Filter "Name -eq 'gmsa_web'" -ErrorAction SilentlyContinue) {
+      Write-Output "present"
+    } else {
+      Write-Output "absent"
+    }
+  register: result_gmsa_check
+  changed_when: false
+  failed_when: result_gmsa_check.rc != 0
+
+- name: CRED-034 - Create gmsa_web$ gMSA with Regional_Managers retrieval rights
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    New-ADServiceAccount -Name "gmsa_web" `
+      -DNSHostName "web.{{ ad_domain }}" `
+      -PrincipalsAllowedToRetrieveManagedPassword "Regional Managers" `
+      -ErrorAction Stop
+  when: result_gmsa_check.stdout | trim == "absent"
+  register: result_gmsa_create
+  failed_when: >
+    result_gmsa_create.rc != 0 and
+    "already" not in (result_gmsa_create.stderr | default("") | lower)
+
+# ------------------------------------------------------------------------------
+# CRED-040: SeTrustedCredManAccessPrivilege — assign to Asset_Owners group
+# Privilege assignment goes through a secedit export-modify-import cycle since
+# there is no native PowerShell cmdlet for this right.
+# Check the secedit export before modifying.
+# ------------------------------------------------------------------------------
+- name: CRED-040 - Check Asset_Owners group existence
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    if (Get-ADGroup -Filter "SamAccountName -eq 'Asset_Owners'" -ErrorAction SilentlyContinue) {
+      Write-Output "present"
+    } else {
+      Write-Output "absent"
+    }
+  register: result_asset_owners_check
+  changed_when: false
+  failed_when: result_asset_owners_check.rc != 0
+
+- name: CRED-040 - Create Asset_Owners group if absent
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    New-ADGroup -Name "Asset_Owners" -SamAccountName "Asset_Owners" `
+      -GroupScope Global -GroupCategory Security `
+      -Path "CN=Users,{{ ad_domain_dn }}" -ErrorAction Stop
+  when: result_asset_owners_check.stdout | trim == "absent"
+  register: result_asset_owners_create
+  failed_when: >
+    result_asset_owners_create.rc != 0 and
+    "already" not in (result_asset_owners_create.stderr | default("") | lower)
+
+- name: CRED-040 - Check SeTrustedCredManAccessPrivilege current assignment
+  ansible.windows.win_shell: |
+    $tmp = "$env:TEMP\secedit_export_cred.inf"
+    secedit /export /cfg $tmp /areas USER_RIGHTS | Out-Null
+    $content = Get-Content $tmp -ErrorAction SilentlyContinue
+    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+    $line = $content | Select-String "SeTrustedCredManAccessPrivilege"
+    if ($line) { Write-Output $line.Line } else { Write-Output "not_set" }
+  register: result_credman_priv_check
+  changed_when: false
+  failed_when: result_credman_priv_check.rc != 0
+
+- name: CRED-040 - Assign SeTrustedCredManAccessPrivilege to Asset_Owners via secedit
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $grp = Get-ADGroup -Identity "Asset_Owners"
+    $sid = $grp.SID.Value
+    $db  = "$env:TEMP\secedit_credman.sdb"
+    $inf = "$env:TEMP\secedit_credman.inf"
+    $log = "$env:TEMP\secedit_credman.log"
+    # Build minimal INF granting the privilege
+    @"
+    [Unicode]
+    Unicode=yes
+    [Version]
+    signature="`$CHICAGO`$"
+    Revision=1
+    [Privilege Rights]
+    SeTrustedCredManAccessPrivilege = *$sid
+    "@ | Set-Content -Path $inf -Encoding Unicode
+    secedit /configure /db $db /cfg $inf /areas USER_RIGHTS /log $log | Out-Null
+    Remove-Item $inf, $log -Force -ErrorAction SilentlyContinue
+  when: "'Asset_Owners' not in result_credman_priv_check.stdout"
+  register: result_credman_priv_set
+  failed_when: result_credman_priv_set.rc != 0
+
+# ------------------------------------------------------------------------------
+# CRED-045: DPAPI master key seed — svc_toby user + scheduled task that logs on
+# once to trigger Windows DPAPI master key creation under the profile.
+# Check user and task before creating.
+# ------------------------------------------------------------------------------
+- name: CRED-045 - Check svc_toby user existence
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    if (Get-ADUser -Filter "SamAccountName -eq 'svc_toby'" -ErrorAction SilentlyContinue) {
+      Write-Output "present"
+    } else {
+      Write-Output "absent"
+    }
+  register: result_svc_toby_check
+  changed_when: false
+  failed_when: result_svc_toby_check.rc != 0
+
+- name: CRED-045 - Create svc_toby user
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $sec = ConvertTo-SecureString "DVADlab2024!" -AsPlainText -Force
+    New-ADUser -Name "svc_toby" -SamAccountName "svc_toby" `
+      -UserPrincipalName "svc_toby@{{ ad_domain }}" `
+      -AccountPassword $sec -Enabled $true `
+      -PasswordNeverExpires $true `
+      -Path "CN=Users,{{ ad_domain_dn }}" -ErrorAction Stop
+  when: result_svc_toby_check.stdout | trim == "absent"
+  register: result_svc_toby_create
+  failed_when: >
+    result_svc_toby_create.rc != 0 and
+    "already" not in (result_svc_toby_create.stderr | default("") | lower)
+
+- name: CRED-045 - Check DVADDpapiSeed scheduled task existence on dc01
+  ansible.windows.win_shell: |
+    $t = Get-ScheduledTask -TaskName "DVADDpapiSeed" -ErrorAction SilentlyContinue
+    if ($t) { Write-Output "present" } else { Write-Output "absent" }
+  register: result_dpapi_task_check
+  changed_when: false
+  failed_when: result_dpapi_task_check.rc != 0
+
+- name: CRED-045 - Create DVADDpapiSeed one-shot task to seed svc_toby DPAPI keys
+  ansible.windows.win_shell: |
+    # Runs whoami as svc_toby once at boot — enough to create the user profile
+    # and seed the DPAPI master key under %APPDATA%\Microsoft\Protect\<SID>
+    $action  = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c whoami >NUL"
+    $trigger = New-ScheduledTaskTrigger -AtStartup
+    $cred    = (Get-ADUser -Identity "svc_toby").SamAccountName + "@{{ ad_domain }}"
+    Register-ScheduledTask -TaskName "DVADDpapiSeed" `
+      -Action $action -Trigger $trigger `
+      -RunLevel Limited `
+      -User "CORP\svc_toby" -Password "DVADlab2024!" `
+      -Force -ErrorAction Stop | Out-Null
+  when: result_dpapi_task_check.stdout | trim == "absent"
+  register: result_dpapi_task_create
+  failed_when: result_dpapi_task_create.rc != 0

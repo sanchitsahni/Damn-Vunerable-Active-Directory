@@ -1,0 +1,138 @@
+---
+# ==============================================================================
+# ad_domain/tasks/groups.yml
+# Creates security groups and populates memberships for corp.local.
+# Only imported when ad_domain == "corp.local".
+#
+# Intentional misconfigurations preserved:
+#   - HelpDesk has GenericAll on IT Admins (ACL abuse — DF-004)
+#   - Domain Admins contains svc_darryl (privilege escalation path)
+#   - svc_printer/svc_dwight in IT Admins (lateral movement)
+# ==============================================================================
+
+- name: Create corp.local security groups
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $base = "DC=corp,DC=local"
+
+    function Group-Exists($name) {
+      return [bool](Get-ADGroup -Filter "Name -eq '$name'" -ErrorAction SilentlyContinue)
+    }
+
+    $groups = @(
+      @{ Name = "IT Admins";        Scope = "Global";   Path = "OU=Groups,OU=Corp,$base" },
+      @{ Name = "HelpDesk";         Scope = "Global";   Path = "OU=Groups,OU=Corp,$base" },
+      @{ Name = "Accounting";    Scope = "Global";   Path = "OU=Groups,OU=Corp,$base" },
+      @{ Name = "Human Resources";         Scope = "Global";   Path = "OU=Groups,OU=Corp,$base" },
+      @{ Name = "Sales";         Scope = "Global";   Path = "OU=Groups,OU=Corp,$base" },
+      @{ Name = "Warehouse"; Scope = "Global";   Path = "OU=Groups,OU=Corp,$base" },
+      @{ Name = "SQL Admins";       Scope = "DomainLocal"; Path = "OU=Groups,OU=Corp,$base" }
+    )
+
+    $created = 0
+    foreach ($g in $groups) {
+      if (Group-Exists $g.Name) {
+        Write-Output "EXISTS: $($g.Name)"
+        continue
+      }
+      New-ADGroup -Name $g.Name -SamAccountName $g.Name `
+        -GroupCategory Security -GroupScope $g.Scope `
+        -Path $g.Path
+      Write-Output "CREATED: $($g.Name)"
+      $created++
+    }
+    Write-Output "DONE: created=$created"
+  register: groups_result
+  changed_when: "'CREATED:' in groups_result.stdout"
+
+- name: Populate group memberships
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+
+    # Helper — only adds if not already a member
+    function Add-Member-Safe($group, $member) {
+      try {
+        $members = Get-ADGroupMember -Identity $group -ErrorAction SilentlyContinue | Select-Object -ExpandProperty SamAccountName
+        if ($members -notcontains $member) {
+          Add-ADGroupMember -Identity $group -Members $member
+          Write-Output "ADDED: $member -> $group"
+        }
+      } catch {
+        Write-Output "WARN: $member -> $group : $($_.Exception.Message)"
+      }
+    }
+
+    # IT Admins
+    Add-Member-Safe "IT Admins" "andy.bernard"
+    Add-Member-Safe "IT Admins" "dwight.schrute"
+    Add-Member-Safe "IT Admins" "svc_printer"
+    Add-Member-Safe "IT Admins" "svc_dwight"
+
+    # HelpDesk
+    Add-Member-Safe "HelpDesk" "pam.beesly"
+    Add-Member-Safe "HelpDesk" "kelly.kapoor"
+    Add-Member-Safe "HelpDesk" "jim.halpert"
+
+    # Accounting
+    Add-Member-Safe "Accounting" "oscar.martinez"
+    Add-Member-Safe "Accounting" "meredith.palmer"
+    Add-Member-Safe "Accounting" "toby.flenderson"
+
+    # Human Resources
+    Add-Member-Safe "Human Resources" "creed.bratton"
+    Add-Member-Safe "Human Resources" "phyllis.vance"
+    Add-Member-Safe "Human Resources" "angela.martin"
+
+    # Sales
+    Add-Member-Safe "Sales" "ryan.howard"
+    Add-Member-Safe "Sales" "michael.scott"
+    Add-Member-Safe "Sales" "stanley.hudson"
+
+    # Warehouse — svc_darryl is intentionally privileged (DF-006)
+    Add-Member-Safe "Warehouse" "svc_darryl"
+
+    # SQL Admins
+    Add-Member-Safe "SQL Admins" "svc_kevin"
+    Add-Member-Safe "SQL Admins" "andy.bernard"
+
+    # Domain Admins — svc_darryl membership is an intentional vuln (DF-006)
+    Add-Member-Safe "Domain Admins" "svc_darryl"
+    Add-Member-Safe "Domain Admins" "dwight.schrute"
+
+    Write-Output "DONE"
+  register: members_result
+  changed_when: "'ADDED:' in members_result.stdout"
+
+# DF-004: HelpDesk has GenericAll over IT Admins — intentional ACL abuse path.
+# This grants HelpDesk members the ability to add themselves to IT Admins.
+- name: Set GenericAll ACE — HelpDesk over IT Admins (DF-004 intentional vuln)
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+
+    $helpdesk = Get-ADGroup -Identity "HelpDesk"
+    $itAdmins = Get-ADGroup -Identity "IT Admins"
+
+    # Get current ACL on IT Admins
+    $acl = Get-Acl -Path "AD:\$($itAdmins.DistinguishedName)"
+
+    # Check if rule already exists to stay idempotent
+    $existing = $acl.Access | Where-Object {
+      $_.IdentityReference -like "*HelpDesk*" -and
+      $_.ActiveDirectoryRights -eq "GenericAll"
+    }
+
+    if ($existing) {
+      Write-Output "ACE already exists"
+    } else {
+      $sid        = [System.Security.Principal.SecurityIdentifier]$helpdesk.SID
+      $identity   = [System.Security.Principal.IdentityReference]$sid
+      $adRights   = [System.DirectoryServices.ActiveDirectoryRights]::GenericAll
+      $type       = [System.Security.AccessControl.AccessControlType]::Allow
+      $inherit    = [System.DirectoryServices.ActiveDirectorySecurityInheritance]::None
+      $rule       = New-Object System.DirectoryServices.ActiveDirectoryAccessRule($identity, $adRights, $type, $inherit)
+      $acl.AddAccessRule($rule)
+      Set-Acl -Path "AD:\$($itAdmins.DistinguishedName)" -AclObject $acl
+      Write-Output "ACE SET: HelpDesk GenericAll over IT Admins"
+    }
+  register: acl_result
+  changed_when: "'ACE SET' in acl_result.stdout"

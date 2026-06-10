@@ -1,0 +1,13 @@
+---
+galaxy_info:
+  role_name: ad_trust
+  author: DVAD
+  description: Configures forest trusts between corp.local, finance.local, and root.corp with SID filtering disabled
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Windows
+      versions:
+        - 2019
+        - 2022
+
+dependencies: []

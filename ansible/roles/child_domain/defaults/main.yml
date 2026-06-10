@@ -1,0 +1,27 @@
+---
+# ==============================================================================
+# child_domain role defaults
+# ==============================================================================
+
+child_domain: "eu.corp.local"
+child_domain_shortname: "eu"
+parent_domain: "corp.local"
+
+# Static network config for the child DC
+child_dc_ip: "10.10.0.11"
+child_subnet_mask: "255.255.248.0"
+child_gateway: "10.10.0.1"
+# DNS points at the parent DC until this host is promoted
+child_dns: "10.10.0.10"
+
+# Parent DC IP — used for LDAP readiness polling
+parent_dc_ip: "10.10.0.10"
+
+# Credentials of a parent domain admin to authorize child domain creation
+parent_admin_user: "CORP\\Administrator"
+parent_admin_password: "DVADlab2024!"
+
+ad_safe_mode_password: "DVADlab2024!"
+ad_db_path: 'C:\Windows\NTDS'
+ad_log_path: 'C:\Windows\NTDS'
+ad_sysvol_path: 'C:\Windows\SYSVOL'

@@ -10,7 +10,7 @@
 
 ## 1. Executive Summary
 
-DVAD is a **self-deploying, multi-forest Windows Active Directory CTF lab** that provisions 1–8 intentionally misconfigured VMs on QEMU/KVM via a single `./deploy.sh` command. It is the enterprise-security equivalent of DVWA: every "bug" (disabled Defender, weak service accounts, ESC-vulnerable certificate templates, unconstrained delegation, SMB1, ZeroLogon preconditions, etc.) is a deliberate training feature.
+DVAD is a **self-deploying, multi-forest Windows Active Directory CTF lab** that provisions 1–8 intentionally misconfigured VMs on QEMU/KVM via a single `python3 deploy.py` command. It is the enterprise-security equivalent of DVWA: every "bug" (disabled Defender, weak service accounts, ESC-vulnerable certificate templates, unconstrained delegation, SMB1, ZeroLogon preconditions, etc.) is a deliberate training feature.
 
 **Target users:** Red-team operators, blue-team defenders, penetration-testers, CTF organizers, and cybersecurity students who need a reproducible, full-spectrum Active Directory attack surface.
 
@@ -24,7 +24,7 @@ DVAD is a **self-deploying, multi-forest Windows Active Directory CTF lab** that
 
 | # | Goal | Success Criteria |
 |---|---|---|
-| G1 | **One-command deployment** — `./deploy.sh` installs deps, builds networks, downloads Windows media, creates VMs, waits for install, activates Windows, and runs Ansible | Time to first WinRM < 90 min on a modern host |
+| G1 | **One-command deployment** — `python3 deploy.py` installs deps, builds networks, downloads Windows media, creates VMs, waits for install, activates Windows, and runs Ansible | Time to first WinRM < 90 min on a modern host |
 | G2 | **Complete attack-surface coverage** — every major AD / Windows privilege-escalation technique from 2014–2025 is reachable | 382 flag IDs mapped across IA/REC/ENUM/CRED/LAT/PE/PER/DF |
 | G3 | **Multi-forest realism** — parent-child, tree-root, and external trusts with SID filtering disabled | Cross-forest Golden Ticket + ExtraSID attacks work out of the box |
 | G4 | **Reproducible & portable** — runs on Debian/Ubuntu/Fedora/Arch/openSUSE, bare-metal or VPS | CI-free validation via `ansible-playbook --syntax-check` and smoke pings |
@@ -87,7 +87,7 @@ DVAD is a **self-deploying, multi-forest Windows Active Directory CTF lab** that
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Linux Host ( bare-metal / VPS )              │
-│  ./deploy.sh  ──►  7 phases end-to-end                          │
+│  python3 deploy.py  ──►  7 phases end-to-end                          │
 │                                                                 │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
 │  │ dvad-ctf     │  │dvad-finance  │  │ dvad-root    │          │
@@ -211,7 +211,7 @@ All profiles support `--memory`, `--cpus`, `--disk-path`, `--vnc-bind` overrides
 
 ### 7.2 Reliability & Idempotency
 
-- Re-running `./deploy.sh` must skip existing ISOs, existing QCOW2 disks, and existing bridges
+- Re-running `python3 deploy.py` must skip existing ISOs, existing QCOW2 disks, and existing bridges
 - Re-running `ansible-playbook site.yml` must not duplicate users, groups, or GPOs
 - `qemu/vm-create.sh destroy` + `qemu/network/setup-network.sh destroy` must return the host to pre-deploy state
 
@@ -245,7 +245,7 @@ All profiles support `--memory`, `--cpus`, `--disk-path`, `--vnc-bind` overrides
 ### 8.1 First-Time User Journey
 
 1. `git clone` the repo
-2. Run `./deploy.sh`
+2. Run `python3 deploy.py`
 3. Wait 45–90 min; log out/in if prompted for kvm group
 4. Read the printed summary (VNC ports, connection hints)
 5. Open `WALKTHROUGH.md` and execute the "Canonical 5-minute solve"
@@ -262,7 +262,7 @@ ansible-playbook -i inventory.yml playbooks/site.yml -v
 
 ### 8.3 CTF Participant Journey
 
-1. Organizer runs `./deploy.sh` and hands out docs/ + STUDY/ materials
+1. Organizer runs `python3 deploy.py` and hands out docs/ + STUDY/ materials
 2. Participant reads `docs/00-index.md` and sets up Kali tooling
 3. Participant hunts flags in order: REC -> IA -> ENUM -> CRED -> LAT -> PE -> PER -> DF
 4. Participant submits flags to external scoreboard (user-provided)
@@ -383,9 +383,9 @@ DVAD/
 
 A release is considered **ready** when:
 
-1. [ ] `./deploy.sh --single-dc` completes without error in < 20 min
-2. [ ] `./deploy.sh --minimal` completes without error in < 45 min
-3. [ ] `./deploy.sh` (full) completes without error in < 90 min
+1. [ ] `python3 deploy.py --single-dc` completes without error in < 20 min
+2. [ ] `python3 deploy.py --minimal` completes without error in < 45 min
+3. [ ] `python3 deploy.py` (full) completes without error in < 90 min
 4. [ ] `ansible-playbook -i inventory.yml playbooks/site.yml --syntax-check` passes
 5. [ ] The canonical 5-minute solve (password spray -> Kerberoast -> ESC1 -> DCSync -> Golden Ticket) succeeds
 6. [ ] At least one cross-forest pattern (Pattern Q or R from WALKTHROUGH.md) succeeds

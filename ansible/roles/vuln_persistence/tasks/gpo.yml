@@ -1,0 +1,116 @@
+---
+# ==============================================================================
+# vuln_persistence/tasks/gpo.yml
+# Target: dc01.corp.local
+#
+# PER-034  Attacker-writable GPO (DVADBackdoorGPO) linked to corp.local OU
+#          with Domain Users holding GpoEdit rights — anyone can inject logon
+#          scripts or Computer\Preferences payloads.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# PER-034: Create DVADBackdoorGPO if it does not exist, then grant
+# Domain Users GpoEditDeleteModifySecurity permission on it.
+# ------------------------------------------------------------------------------
+- name: PER-034 - Create DVADBackdoorGPO if absent
+  ansible.windows.win_shell: |
+    Import-Module GroupPolicy
+    $gpo = Get-GPO -Name "DVADBackdoorGPO" -ErrorAction SilentlyContinue
+    if (-not $gpo) {
+      $gpo = New-GPO -Name "DVADBackdoorGPO" -Comment "DVAD writable GPO (PER-034)" -ErrorAction Stop
+      Write-Output "changed: GPO created"
+    } else {
+      Write-Output "ok: GPO exists"
+    }
+  register: result_gpo_create
+  changed_when: "'changed:' in result_gpo_create.stdout"
+  failed_when: result_gpo_create.rc != 0
+
+- name: PER-034 - Link DVADBackdoorGPO to corp.local domain root OU
+  ansible.windows.win_shell: |
+    Import-Module GroupPolicy
+    $domain = (Get-ADDomain).DNSRoot
+    # New-GPLink errors if link already exists; treat that as idempotent success
+    try {
+      New-GPLink -Name "DVADBackdoorGPO" -Target "DC=corp,DC=local" -ErrorAction Stop | Out-Null
+      Write-Output "changed: GPO linked"
+    } catch {
+      if ($_.Exception.Message -match "already") {
+        Write-Output "ok: GPO already linked"
+      } else {
+        Write-Error $_.Exception.Message
+      }
+    }
+  register: result_gpo_link
+  changed_when: "'changed:' in result_gpo_link.stdout"
+  failed_when: result_gpo_link.rc != 0
+
+- name: PER-034 - Grant Domain Users GpoEdit rights on DVADBackdoorGPO
+  ansible.windows.win_shell: |
+    Import-Module GroupPolicy
+    try {
+      Set-GPPermission -Name "DVADBackdoorGPO" `
+        -PermissionLevel GpoEditDeleteModifySecurity `
+        -TargetName "Domain Users" -TargetType Group `
+        -ErrorAction Stop
+      Write-Output "changed: Domain Users granted GPO edit"
+    } catch {
+      # Tolerate "already has" style messages
+      if ($_.Exception.Message -match "already") {
+        Write-Output "ok: permission already set"
+      } else {
+        Write-Error $_.Exception.Message
+      }
+    }
+  register: result_gpo_perm
+  changed_when: "'changed:' in result_gpo_perm.stdout"
+  failed_when: result_gpo_perm.rc != 0
+
+# Stage a ScheduledTasks.xml in the GPO so there is an immediate SYSTEM
+# task trigger for participants who exercise the write path.
+- name: PER-034 - Stage ScheduledTasks.xml in DVADBackdoorGPO SYSVOL path
+  ansible.windows.win_shell: |
+    Import-Module GroupPolicy
+    $gpo    = Get-GPO -Name "DVADBackdoorGPO" -ErrorAction Stop
+    $domain = (Get-ADDomain).DNSRoot
+    $dir    = "C:\Windows\SYSVOL\sysvol\$domain\Policies\{$($gpo.Id)}\Machine\Preferences\ScheduledTasks"
+    if (-not (Test-Path $dir)) {
+      New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+    Write-Output $dir
+  register: result_gpo_dir
+  changed_when: false
+  failed_when: result_gpo_dir.rc != 0
+
+- name: PER-034 - Write ScheduledTasks.xml (SYSTEM task stub) into GPO
+  ansible.windows.win_copy:
+    # Dynamic path: we use a fixed GUID placeholder; actual GPO GUID written
+    # separately above. In practice use the SYSVOL path from result_gpo_dir.
+    dest: "{{ result_gpo_dir.stdout | trim }}\\ScheduledTasks.xml"
+    content: |
+      <?xml version="1.0" encoding="utf-8"?>
+      <ScheduledTasks clsid="{CC63F200-7309-4ba0-B154-A71CD118DBCC}">
+        <ImmediateTaskV2 clsid="{9756B581-76EC-4169-9AFC-0CA8D43ADB5F}"
+          name="DVAD-GPO-Backdoor" image="0" changed="2024-01-01 00:00:00"
+          uid="{22222222-2222-2222-2222-222222222222}">
+          <Properties action="C" name="DVAD-GPO-Backdoor"
+            runAs="NT AUTHORITY\SYSTEM" logonType="S4U">
+            <Task version="1.3">
+              <RegistrationInfo><Author>SYSTEM</Author></RegistrationInfo>
+              <Principals>
+                <Principal id="Author">
+                  <UserId>NT AUTHORITY\SYSTEM</UserId>
+                  <RunLevel>HighestAvailable</RunLevel>
+                </Principal>
+              </Principals>
+              <Settings><Enabled>true</Enabled></Settings>
+              <Actions Context="Author">
+                <Exec>
+                  <Command>cmd.exe</Command>
+                  <Arguments>/c rem dvad-backdoor-per034</Arguments>
+                </Exec>
+              </Actions>
+            </Task>
+          </Properties>
+        </ImmediateTaskV2>
+      </ScheduledTasks>

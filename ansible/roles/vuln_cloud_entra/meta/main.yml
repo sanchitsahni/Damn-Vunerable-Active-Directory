@@ -1,0 +1,6 @@
+---
+galaxy_info:
+  role_name: vuln_cloud_entra
+  description: "DVAD — Entra ID/Azure AD hybrid identity attack surfaces: CLO-001..100"
+  min_ansible_version: "2.12"
+dependencies: []

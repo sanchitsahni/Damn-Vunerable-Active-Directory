@@ -1,0 +1,23 @@
+---
+# ==============================================================================
+# vuln_cloud_entra/defaults/main.yml — CLO-001..100
+# Entra ID / Azure AD hybrid identity surfaces
+# ==============================================================================
+
+ad_domain:    "corp.local"
+ad_domain_dn: "DC=corp,DC=local"
+
+# Entra Connect sync account (simulated)
+entra_connect_account: "MSOL_sync"
+entra_connect_password: "EntraSync2024!"
+
+# Tenant stub (no real Azure tenant — note-based surfaces)
+entra_tenant_id:    "00000000-0000-0000-0000-000000000000"
+entra_tenant_domain: "corplab.onmicrosoft.com"
+
+# Simulated Entra app registrations
+entra_app_accounts:
+  - name: "svc_entra_app"
+    password: "EntraApp2024!"
+  - name: "svc_graph_api"
+    password: "GraphApi2024!"

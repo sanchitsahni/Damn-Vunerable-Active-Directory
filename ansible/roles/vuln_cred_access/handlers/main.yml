@@ -1,0 +1,16 @@
+---
+# ==============================================================================
+# vuln_cred_access/handlers/main.yml
+# ==============================================================================
+
+- name: restart spooler
+  ansible.windows.win_service:
+    name: Spooler
+    state: restarted
+  listen: "restart spooler"
+
+- name: restart efs
+  ansible.windows.win_service:
+    name: EFS
+    state: restarted
+  listen: "restart efs"

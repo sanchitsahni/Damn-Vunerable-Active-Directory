@@ -1,0 +1,122 @@
+---
+# ==============================================================================
+# vuln_cloud_entra/tasks/sync_accounts.yml — CLO-001..020
+# Target: dc01.corp.local
+#
+# CLO-001  Entra Connect MSOL sync account (over-privileged)
+# CLO-002  PHS hash sync account (DCSync-capable service account)
+# CLO-003  Pass-through auth agent account
+# CLO-004  AADC sync service account with high AD rights
+# CLO-005  Seamless SSO account (AZUREADSSOACC$)
+# CLO-006  Directory sync account readable without auth
+# CLO-007  MSOL account password reuse detection
+# CLO-008  Entra Connect plaintext credentials in registry/config
+# CLO-009  AAD Password Protection DC Agent — audit mode only
+# CLO-010  Entra Connect admin accounts without MFA (note)
+# ==============================================================================
+
+# CLO-001: MSOL_sync account — over-privileged, used by Entra Connect for PHS
+- name: CLO-001 - Check if MSOL_sync account exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $u = Get-ADUser -Filter "SamAccountName -eq '{{ entra_connect_account }}'" -ErrorAction SilentlyContinue
+    if ($u) { Write-Output "present" } else { Write-Output "absent" }
+  register: clo001_check
+  changed_when: false
+  failed_when: clo001_check.rc != 0
+
+- name: CLO-001 - Create MSOL_sync account (Entra Connect PHS account simulation)
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $p = ConvertTo-SecureString '{{ entra_connect_password }}' -AsPlainText -Force
+    New-ADUser -Name '{{ entra_connect_account }}' `
+      -SamAccountName '{{ entra_connect_account }}' `
+      -AccountPassword $p -Enabled $true -PasswordNeverExpires $true `
+      -Path "CN=Users,{{ ad_domain_dn }}" `
+      -Description "CLO-001: Entra Connect PHS sync account — has DCSync rights by default"
+    Write-Output "changed: MSOL_sync created"
+  register: clo001_set
+  changed_when: "'changed:' in clo001_set.stdout"
+  failed_when: clo001_set.rc != 0
+  when: "'absent' in clo001_check.stdout"
+
+# CLO-002: Grant DCSync rights to MSOL_sync (replicates default Entra Connect behavior)
+- name: CLO-002 - Grant DCSync (GetChanges + GetChangesAll) to MSOL_sync
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    try {
+      $domainDN = "{{ ad_domain_dn }}"
+      $sid = (Get-ADUser -Identity '{{ entra_connect_account }}' -ErrorAction Stop).SID
+      $ace1 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+        $sid,
+        [System.DirectoryServices.ActiveDirectoryRights]::ExtendedRight,
+        [System.Security.AccessControl.AccessControlType]::Allow,
+        [Guid]'1131f6aa-9c07-11d1-f79f-00c04fc2dcd2'
+      )
+      $ace2 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+        $sid,
+        [System.DirectoryServices.ActiveDirectoryRights]::ExtendedRight,
+        [System.Security.AccessControl.AccessControlType]::Allow,
+        [Guid]'1131f6ad-9c07-11d1-f79f-00c04fc2dcd2'
+      )
+      $obj = [ADSI]"LDAP://$domainDN"
+      $obj.ObjectSecurity.AddAccessRule($ace1)
+      $obj.ObjectSecurity.AddAccessRule($ace2)
+      $obj.CommitChanges()
+      Write-Output "changed: DCSync rights granted to MSOL_sync"
+    } catch {
+      Write-Output "WARN: $($_.Exception.Message)"
+    }
+  register: clo002_set
+  changed_when: "'changed:' in clo002_set.stdout"
+  failed_when: clo002_set.rc != 0
+
+# CLO-005: Simulate AZUREADSSOACC$ Kerberos account
+- name: CLO-005 - Check if AZUREADSSOACC$ computer account exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $c = Get-ADComputer -Filter "SamAccountName -eq 'AZUREADSSOACC$'" -ErrorAction SilentlyContinue
+    if ($c) { Write-Output "present" } else { Write-Output "absent" }
+  register: clo005_check
+  changed_when: false
+  failed_when: clo005_check.rc != 0
+
+- name: CLO-005 - Create AZUREADSSOACC$ (Seamless SSO Kerberos account simulation)
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $p = ConvertTo-SecureString 'SsoKerb2024!' -AsPlainText -Force
+    New-ADComputer -Name 'AZUREADSSOACC' -SamAccountName 'AZUREADSSOACC$' `
+      -AccountPassword $p -Enabled $true `
+      -Path "CN=Computers,{{ ad_domain_dn }}" `
+      -Description "CLO-005: Azure AD Seamless SSO Kerberos account — weak static password"
+    Write-Output "changed: AZUREADSSOACC$ created"
+  register: clo005_set
+  changed_when: "'changed:' in clo005_set.stdout"
+  failed_when: clo005_set.rc != 0
+  when: "'absent' in clo005_check.stdout"
+
+# CLO-008: Drop Entra Connect credential storage note
+- name: CLO-008 - Drop Entra Connect credential exposure note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-CLO-008-EntraConnect-Creds.txt'
+    content: |
+      CLO-001..008: Microsoft Entra Connect Attack Surface
+      ======================================================
+      Entra Connect (formerly Azure AD Connect) stores credentials in:
+        - HKLM\SOFTWARE\Microsoft\AD Sync\1.0\... (encrypted, DPAPI)
+        - C:\ProgramData\AADConnect\encrypted.json
+        - ADAM (Azure AD DS LDS instance) on localhost:50000
+
+      Extraction (on the Entra Connect server):
+        Get-ADSyncAutoUpgradeState
+        Get-ADSyncConnector | Select-Object Name,ConnectorTypeName
+        AdSyncConfig -GetCredentials  (FOADSync module)
+
+      Attack tool: AADInternals
+        Import-Module AADInternals
+        $creds = Get-AADIntSyncCredentials
+        # Returns MSOL_xxxx password in plaintext
+
+      MSOL sync account in this lab: {{ entra_connect_account }}
+      Password: {{ entra_connect_password }}
+      Rights: DCSync (CLO-002) — allows dumping all AD password hashes

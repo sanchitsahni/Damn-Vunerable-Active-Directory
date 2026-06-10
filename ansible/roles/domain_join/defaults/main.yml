@@ -1,0 +1,17 @@
+---
+# ==============================================================================
+# domain_join role defaults
+# Override per-host or per-group for non-corp.local members
+# ==============================================================================
+
+domain_to_join: "corp.local"
+domain_user: "Administrator"
+domain_password: "DVADlab2024!"
+domain_netbios: "CORP"
+
+# DNS server — the DC for the domain being joined
+domain_dns_ip: "10.10.0.10"
+
+# Subnet info for member servers (corp.local subnet /21)
+member_subnet_mask: "255.255.248.0"
+member_gateway: "10.10.0.1"

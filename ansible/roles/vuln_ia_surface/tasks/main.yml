@@ -1,0 +1,50 @@
+---
+# ==============================================================================
+# vuln_ia_surface/tasks/main.yml
+#
+# Imports per-host sub-task files guarded by inventory group / hostname.
+# Each sub-task file is self-contained with its own check-before-set logic.
+#
+# Coverage:
+#   dc_surface.yml   — all_dcs        : IA-003,004,005,014,040,041,046 + REC-015
+#   file01_surface.yml — file01        : IA-034,035,036,037,038,044,047,050
+#   ca01_surface.yml — ca01            : IA-039,045,049
+#   sql01_surface.yml — sql01          : IA-011,048
+#   ws01_surface.yml — ws01            : IA-019..022,024,027,033,043,045,047
+#
+# ALL member servers additionally get the WinRM-HTTPS listener (IA-040).
+# ==============================================================================
+
+- name: Import DC surface tasks (all domain controllers)
+  ansible.builtin.import_tasks: dc_surface.yml
+  when: inventory_hostname in groups['all_dcs'] | default([])
+
+- name: Import file01 surface tasks
+  ansible.builtin.import_tasks: file01_surface.yml
+  when: inventory_hostname == 'file01.corp.local'
+
+- name: Import ca01 surface tasks
+  ansible.builtin.import_tasks: ca01_surface.yml
+  when: inventory_hostname == 'ca01.corp.local'
+
+- name: Import sql01 surface tasks
+  ansible.builtin.import_tasks: sql01_surface.yml
+  when: inventory_hostname == 'sql01.corp.local'
+
+- name: Import ws01 surface tasks
+  ansible.builtin.import_tasks: ws01_surface.yml
+  when: inventory_hostname == 'ws01.corp.local'
+
+# Extended initial access surfaces (absorbed from vuln_ia_extended)
+
+- name: Import phishing / coercion file surfaces (ws01)
+  ansible.builtin.import_tasks: ext_phishing.yml
+  when: inventory_hostname == 'ws01.corp.local'
+
+- name: Import extended service IA surfaces (file01 + dc01)
+  ansible.builtin.import_tasks: ext_services.yml
+  when: inventory_hostname in ['file01.corp.local', 'dc01.corp.local']
+
+- name: Import domain misconfiguration IA surfaces (all_dcs)
+  ansible.builtin.import_tasks: ext_misconfig.yml
+  when: inventory_hostname in groups['all_dcs'] | default([])

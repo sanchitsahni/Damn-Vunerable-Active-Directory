@@ -1,0 +1,6 @@
+---
+galaxy_info:
+  role_name: vuln_cve_modern
+  description: "DVAD — 2025-2026 CVE attack surfaces (CLFS, LDAP, NTLM, MSC, PrintSpooler)"
+  min_ansible_version: "2.12"
+dependencies: []

@@ -1,0 +1,115 @@
+---
+# ==============================================================================
+# dns/tasks/main.yml
+# Configures DNS conditional forwarders on every DC so that cross-forest
+# name resolution works without relying on root hints.
+#
+# Each DC gets:
+#   - A conditional forwarder for every OTHER forest's zone
+#   - A general upstream forwarder (8.8.8.8) for internet resolution
+#
+# Run against: all_dcs group (dc01.corp.local, dc01.eu.corp.local,
+#              dc01.finance.local, dc01.root.corp)
+# ==============================================================================
+
+- name: Assert DNS Server service is running
+  ansible.windows.win_service:
+    name: DNS
+    state: started
+  register: dns_svc
+
+# --------------------------------------------------------------------------
+# Conditional forwarders — idempotent via Get-DnsServerConditionalForwarderZone
+# --------------------------------------------------------------------------
+
+- name: Configure conditional forwarder for corp.local
+  ansible.windows.win_shell: |
+    $zone = "corp.local"
+    $master = "{{ corp_dc_ip }}"
+    $existing = Get-DnsServerConditionalForwarderZone -Name $zone -ErrorAction SilentlyContinue
+    if ($existing) {
+      Write-Output "EXISTS: $zone"
+    } else {
+      Add-DnsServerConditionalForwarderZone -Name $zone -MasterServers $master -PassThru
+      Write-Output "CREATED: $zone -> $master"
+    }
+  register: fwd_corp
+  changed_when: "'CREATED' in fwd_corp.stdout"
+  # Skip on dc01.corp.local itself — no need to forward to yourself
+  when: inventory_hostname != "dc01.corp.local"
+
+- name: Configure conditional forwarder for eu.corp.local
+  ansible.windows.win_shell: |
+    $zone = "eu.corp.local"
+    $master = "{{ corp_dc_ip }}"
+    $existing = Get-DnsServerConditionalForwarderZone -Name $zone -ErrorAction SilentlyContinue
+    if ($existing) {
+      Write-Output "EXISTS: $zone"
+    } else {
+      # eu.corp.local is served by the child DC (10.10.0.11) but the parent
+      # DC also resolves it via delegation; forwarding to parent is fine here.
+      Add-DnsServerConditionalForwarderZone -Name $zone -MasterServers "10.10.0.11" -PassThru
+      Write-Output "CREATED: $zone -> 10.10.0.11"
+    }
+  register: fwd_eu
+  changed_when: "'CREATED' in fwd_eu.stdout"
+  when: inventory_hostname not in ["dc01.corp.local", "dc01.eu.corp.local"]
+
+- name: Configure conditional forwarder for finance.local
+  ansible.windows.win_shell: |
+    $zone = "finance.local"
+    $master = "{{ finance_dc_ip }}"
+    $existing = Get-DnsServerConditionalForwarderZone -Name $zone -ErrorAction SilentlyContinue
+    if ($existing) {
+      Write-Output "EXISTS: $zone"
+    } else {
+      Add-DnsServerConditionalForwarderZone -Name $zone -MasterServers $master -PassThru
+      Write-Output "CREATED: $zone -> $master"
+    }
+  register: fwd_finance
+  changed_when: "'CREATED' in fwd_finance.stdout"
+  when: inventory_hostname != "dc01.finance.local"
+
+- name: Configure conditional forwarder for root.corp
+  ansible.windows.win_shell: |
+    $zone = "root.corp"
+    $master = "{{ root_dc_ip }}"
+    $existing = Get-DnsServerConditionalForwarderZone -Name $zone -ErrorAction SilentlyContinue
+    if ($existing) {
+      Write-Output "EXISTS: $zone"
+    } else {
+      Add-DnsServerConditionalForwarderZone -Name $zone -MasterServers $master -PassThru
+      Write-Output "CREATED: $zone -> $master"
+    }
+  register: fwd_root
+  changed_when: "'CREATED' in fwd_root.stdout"
+  when: inventory_hostname != "dc01.root.corp"
+
+# --------------------------------------------------------------------------
+# General upstream forwarder (internet / gateway)
+# --------------------------------------------------------------------------
+
+- name: Set general DNS forwarder to {{ dns_forwarder }}
+  ansible.windows.win_shell: |
+    $fwds = Get-DnsServerForwarder
+    if ($fwds.IPAddress -contains "{{ dns_forwarder }}") {
+      Write-Output "EXISTS: {{ dns_forwarder }}"
+    } else {
+      Add-DnsServerForwarder -IPAddress "{{ dns_forwarder }}"
+      Write-Output "ADDED: {{ dns_forwarder }}"
+    }
+  register: upstream_fwd
+  changed_when: "'ADDED' in upstream_fwd.stdout"
+
+# --------------------------------------------------------------------------
+# Verify resolution works cross-forest
+# --------------------------------------------------------------------------
+
+- name: Verify corp.local resolves from this DC
+  ansible.windows.win_shell: |
+    Resolve-DnsName -Name "dc01.corp.local" -Server 127.0.0.1 -ErrorAction SilentlyContinue |
+      Select-Object -ExpandProperty IPAddress
+  register: dns_verify_corp
+  changed_when: false
+  # Non-fatal — log only; real validation happens end-to-end
+  failed_when: false

@@ -1,0 +1,31 @@
+---
+# ==============================================================================
+# vuln_exchange/defaults/main.yml — SRV-001..080
+# ==============================================================================
+
+ad_domain:    "corp.local"
+ad_domain_dn: "DC=corp,DC=local"
+
+# SQL Server service account
+sql_sa_password: "SqlServer2025!"
+sql_svc_password: "DVADlab2024!"
+
+# SCCM stub config
+sccm_site_code:    "DVA"
+sccm_site_server:  "file01.corp.local"
+sccm_naa_account:  "CORP\\svc_sccm"
+
+# WSUS server (stub — file01 acts as WSUS)
+wsus_server: "file01.corp.local"
+wsus_port:   8530
+
+# Exchange stub — no real Exchange installed; note-based surfaces
+exchange_fqdn: "mail.corp.local"
+exchange_ip:   "10.10.0.13"
+
+# Fake mailbox accounts
+exchange_mailbox_accounts:
+  - name: "svc_exchange"
+    password: "Exchange2024!"
+  - name: "mail_admin"
+    password: "MailAdmin2024!"

@@ -1,0 +1,487 @@
+---
+# ==============================================================================
+# vuln_adcs/tasks/templates.yml
+# Idempotent creation of ESC1-5, ESC13, ESC15 certificate templates in AD.
+#
+# Idempotency pattern for every template:
+#   1. Query the template AD object via Get-ADObject (check task, changed_when:false)
+#   2. Create only when absent.
+#
+# All templates are duplicated from the built-in "User" template (OID subtree
+# already established) then modified for the target ESC condition.
+# ==============================================================================
+
+# ==============================================================================
+# ESC1 — DVADUserESC1
+# Enrollee supplies Subject (CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT = 0x1)
+# + Domain Users can enroll + Client Authentication EKU + no manager approval.
+# Allows requesting a cert with any UPN as the SAN → impersonate any user.
+# ==============================================================================
+- name: ESC1 - Check if DVADUserESC1 template exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $t = Get-ADObject -LDAPFilter "(cn={{ esc1_template }})" `
+           -SearchBase "{{ config_nc }}" -ErrorAction SilentlyContinue
+    if ($t) { Write-Output "present" } else { Write-Output "absent" }
+  register: result_esc1_check
+  changed_when: false
+  failed_when: result_esc1_check.rc != 0
+
+- name: ESC1 - Create DVADUserESC1 template (enrollee supplies subject)
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    Import-Module ADCSAdministration -ErrorAction SilentlyContinue
+
+    $configNC = (Get-ADRootDSE).configurationNamingContext
+    $templatesBase = "CN=Certificate Templates,CN=Public Key Services,CN=Services,$configNC"
+
+    # Duplicate the built-in "User" template object as base
+    $srcDN  = "CN=User,$templatesBase"
+    $src    = Get-ADObject -Identity $srcDN -Properties *
+    $newDN  = "CN={{ esc1_template }},$templatesBase"
+
+    $newAttrs = @{
+      "displayName"                    = "{{ esc1_template }}"
+      "msPKI-Cert-Template-OID"        = "{{ esc1_oid }}"
+      "msPKI-Certificate-Application-Policy" = @("1.3.6.1.5.5.7.3.2")
+      "msPKI-Certificate-Name-Flag"    = [int]1
+      "msPKI-Enrollment-Flag"          = [int]0
+      "msPKI-Minimal-Key-Size"         = [int]2048
+      "msPKI-Private-Key-Flag"         = $src."msPKI-Private-Key-Flag"
+      "msPKI-RA-Signature"             = [int]0
+      "msPKI-Template-Minor-Revision"  = [int]1
+      "msPKI-Template-Schema-Version"  = [int]2
+      "pKIDefaultKeySpec"              = $src."pKIDefaultKeySpec"
+      "pKIExpirationPeriod"            = $src."pKIExpirationPeriod"
+      "pKIExtendedKeyUsage"            = @("1.3.6.1.5.5.7.3.2")
+      "pKIKeyUsage"                    = $src."pKIKeyUsage"
+      "pKIMaxIssuingDepth"             = $src."pKIMaxIssuingDepth"
+      "pKIOverlapPeriod"               = $src."pKIOverlapPeriod"
+      "revision"                       = [int]100
+    }
+
+    New-ADObject -Name "{{ esc1_template }}" -Type "pKICertificateTemplate" `
+      -Path $templatesBase -OtherAttributes $newAttrs -ErrorAction Stop
+
+    # Grant Domain Users Enroll (0x20) + AutoEnroll (0x200) rights on the template
+    $domainUsersSid = (New-Object System.Security.Principal.NTAccount("Domain Users")).Translate([System.Security.Principal.SecurityIdentifier])
+    $templateAcl = Get-ACL "AD:\CN={{ esc1_template }},$templatesBase"
+    # 0x20 = Certificate-Enrollment extended right GUID
+    $enrollGuid = [guid]"0e10c968-78fb-11d2-90d4-00c04f79dc55"
+    $rule = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+      $domainUsersSid, "ExtendedRight", "Allow", $enrollGuid)
+    $templateAcl.AddAccessRule($rule)
+    Set-ACL "AD:\CN={{ esc1_template }},$templatesBase" $templateAcl
+
+    # Publish to CA (certutil fallback in case ADCSAdministration cmdlet not available)
+    Import-Module ADCSAdministration -ErrorAction SilentlyContinue
+    Add-CATemplate -Name "{{ esc1_template }}" -Force -ErrorAction SilentlyContinue
+    certutil -SetCAtemplates "+{{ esc1_template }}" 2>&1 | Out-Null
+    Write-Output "created"
+  when: "'absent' in result_esc1_check.stdout"
+  register: result_esc1_create
+  failed_when: >
+    result_esc1_create.rc != 0 and
+    "already exists" not in (result_esc1_create.stderr | default("") | lower)
+
+# ==============================================================================
+# ESC2 — DVADMachineESC2
+# EKU = Any Purpose (2.5.29.37.0) — certificate can be used for anything,
+# including client auth and code signing. Domain Users can enroll.
+# ==============================================================================
+- name: ESC2 - Check if DVADMachineESC2 template exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $t = Get-ADObject -LDAPFilter "(cn={{ esc2_template }})" `
+           -SearchBase "{{ config_nc }}" -ErrorAction SilentlyContinue
+    if ($t) { Write-Output "present" } else { Write-Output "absent" }
+  register: result_esc2_check
+  changed_when: false
+  failed_when: result_esc2_check.rc != 0
+
+- name: ESC2 - Create DVADMachineESC2 template (Any Purpose EKU)
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $configNC     = (Get-ADRootDSE).configurationNamingContext
+    $templatesBase = "CN=Certificate Templates,CN=Public Key Services,CN=Services,$configNC"
+    $src = Get-ADObject -Identity "CN=User,$templatesBase" -Properties *
+
+    $newAttrs = @{
+      "displayName"                    = "{{ esc2_template }}"
+      "msPKI-Cert-Template-OID"        = "{{ esc2_oid }}"
+      # Any Purpose OID — superset of all EKUs
+      "msPKI-Certificate-Application-Policy" = @("2.5.29.37.0")
+      "msPKI-Certificate-Name-Flag"    = [int]0
+      "msPKI-Enrollment-Flag"          = [int]0
+      "msPKI-Minimal-Key-Size"         = [int]2048
+      "msPKI-Private-Key-Flag"         = $src."msPKI-Private-Key-Flag"
+      "msPKI-RA-Signature"             = [int]0
+      "msPKI-Template-Minor-Revision"  = [int]1
+      "msPKI-Template-Schema-Version"  = [int]2
+      "pKIDefaultKeySpec"              = $src."pKIDefaultKeySpec"
+      "pKIExpirationPeriod"            = $src."pKIExpirationPeriod"
+      "pKIExtendedKeyUsage"            = @("2.5.29.37.0")
+      "pKIKeyUsage"                    = $src."pKIKeyUsage"
+      "pKIMaxIssuingDepth"             = $src."pKIMaxIssuingDepth"
+      "pKIOverlapPeriod"               = $src."pKIOverlapPeriod"
+      "revision"                       = [int]100
+    }
+
+    New-ADObject -Name "{{ esc2_template }}" -Type "pKICertificateTemplate" `
+      -Path $templatesBase -OtherAttributes $newAttrs -ErrorAction Stop
+
+    $domainUsersSid = (New-Object System.Security.Principal.NTAccount("Domain Users")).Translate([System.Security.Principal.SecurityIdentifier])
+    $templateAcl = Get-ACL "AD:\CN={{ esc2_template }},$templatesBase"
+    $enrollGuid  = [guid]"0e10c968-78fb-11d2-90d4-00c04f79dc55"
+    $rule = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+      $domainUsersSid, "ExtendedRight", "Allow", $enrollGuid)
+    $templateAcl.AddAccessRule($rule)
+    Set-ACL "AD:\CN={{ esc2_template }},$templatesBase" $templateAcl
+    Import-Module ADCSAdministration -ErrorAction SilentlyContinue
+    Add-CATemplate -Name "{{ esc2_template }}" -Force -ErrorAction SilentlyContinue
+    certutil -SetCAtemplates "+{{ esc2_template }}" 2>&1 | Out-Null
+    Write-Output "created"
+  when: "'absent' in result_esc2_check.stdout"
+  register: result_esc2_create
+  failed_when: >
+    result_esc2_create.rc != 0 and
+    "already exists" not in (result_esc2_create.stderr | default("") | lower)
+
+# ==============================================================================
+# ESC3 — DVADAgentESC3
+# Certificate Request Agent EKU (1.3.6.1.4.1.311.20.2.1).
+# Holder can enroll on behalf of any user → full impersonation chain.
+# ==============================================================================
+- name: ESC3 - Check if DVADAgentESC3 template exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $t = Get-ADObject -LDAPFilter "(cn={{ esc3_template }})" `
+           -SearchBase "{{ config_nc }}" -ErrorAction SilentlyContinue
+    if ($t) { Write-Output "present" } else { Write-Output "absent" }
+  register: result_esc3_check
+  changed_when: false
+  failed_when: result_esc3_check.rc != 0
+
+- name: ESC3 - Create DVADAgentESC3 template (Certificate Request Agent EKU)
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $configNC      = (Get-ADRootDSE).configurationNamingContext
+    $templatesBase = "CN=Certificate Templates,CN=Public Key Services,CN=Services,$configNC"
+    $src = Get-ADObject -Identity "CN=User,$templatesBase" -Properties *
+
+    $newAttrs = @{
+      "displayName"                    = "{{ esc3_template }}"
+      "msPKI-Cert-Template-OID"        = "{{ esc3_oid }}"
+      # Certificate Request Agent OID — allows enroll-on-behalf-of
+      "msPKI-Certificate-Application-Policy" = @("1.3.6.1.4.1.311.20.2.1")
+      "msPKI-Certificate-Name-Flag"    = [int]0
+      "msPKI-Enrollment-Flag"          = [int]0
+      "msPKI-Minimal-Key-Size"         = [int]2048
+      "msPKI-Private-Key-Flag"         = $src."msPKI-Private-Key-Flag"
+      "msPKI-RA-Signature"             = [int]0
+      "msPKI-Template-Minor-Revision"  = [int]1
+      "msPKI-Template-Schema-Version"  = [int]2
+      "pKIDefaultKeySpec"              = $src."pKIDefaultKeySpec"
+      "pKIExpirationPeriod"            = $src."pKIExpirationPeriod"
+      "pKIExtendedKeyUsage"            = @("1.3.6.1.4.1.311.20.2.1")
+      "pKIKeyUsage"                    = $src."pKIKeyUsage"
+      "pKIMaxIssuingDepth"             = $src."pKIMaxIssuingDepth"
+      "pKIOverlapPeriod"               = $src."pKIOverlapPeriod"
+      "revision"                       = [int]100
+    }
+
+    New-ADObject -Name "{{ esc3_template }}" -Type "pKICertificateTemplate" `
+      -Path $templatesBase -OtherAttributes $newAttrs -ErrorAction Stop
+
+    $domainUsersSid = (New-Object System.Security.Principal.NTAccount("Domain Users")).Translate([System.Security.Principal.SecurityIdentifier])
+    $templateAcl = Get-ACL "AD:\CN={{ esc3_template }},$templatesBase"
+    $enrollGuid  = [guid]"0e10c968-78fb-11d2-90d4-00c04f79dc55"
+    $rule = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+      $domainUsersSid, "ExtendedRight", "Allow", $enrollGuid)
+    $templateAcl.AddAccessRule($rule)
+    Set-ACL "AD:\CN={{ esc3_template }},$templatesBase" $templateAcl
+    Import-Module ADCSAdministration -ErrorAction SilentlyContinue
+    Add-CATemplate -Name "{{ esc3_template }}" -Force -ErrorAction SilentlyContinue
+    certutil -SetCAtemplates "+{{ esc3_template }}" 2>&1 | Out-Null
+    Write-Output "created"
+  when: "'absent' in result_esc3_check.stdout"
+  register: result_esc3_create
+  failed_when: >
+    result_esc3_create.rc != 0 and
+    "already exists" not in (result_esc3_create.stderr | default("") | lower)
+
+# ==============================================================================
+# ESC4 — DVADWriteESC4
+# Normal User template clone, but Domain Users have GenericAll (WriteDacl).
+# Attacker can modify template to add ESC1 conditions → then enroll.
+# ==============================================================================
+- name: ESC4 - Check if DVADWriteESC4 template exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $t = Get-ADObject -LDAPFilter "(cn={{ esc4_template }})" `
+           -SearchBase "{{ config_nc }}" -ErrorAction SilentlyContinue
+    if ($t) { Write-Output "present" } else { Write-Output "absent" }
+  register: result_esc4_check
+  changed_when: false
+  failed_when: result_esc4_check.rc != 0
+
+- name: ESC4 - Create DVADWriteESC4 template with GenericAll for Domain Users
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $configNC      = (Get-ADRootDSE).configurationNamingContext
+    $templatesBase = "CN=Certificate Templates,CN=Public Key Services,CN=Services,$configNC"
+    $src = Get-ADObject -Identity "CN=User,$templatesBase" -Properties *
+
+    $newAttrs = @{
+      "displayName"                    = "{{ esc4_template }}"
+      "msPKI-Cert-Template-OID"        = "{{ esc4_oid }}"
+      "msPKI-Certificate-Application-Policy" = @("1.3.6.1.5.5.7.3.2")
+      "msPKI-Certificate-Name-Flag"    = [int]0
+      "msPKI-Enrollment-Flag"          = [int]0
+      "msPKI-Minimal-Key-Size"         = [int]2048
+      "msPKI-Private-Key-Flag"         = $src."msPKI-Private-Key-Flag"
+      "msPKI-RA-Signature"             = [int]0
+      "msPKI-Template-Minor-Revision"  = [int]1
+      "msPKI-Template-Schema-Version"  = [int]2
+      "pKIDefaultKeySpec"              = $src."pKIDefaultKeySpec"
+      "pKIExpirationPeriod"            = $src."pKIExpirationPeriod"
+      "pKIExtendedKeyUsage"            = @("1.3.6.1.5.5.7.3.2")
+      "pKIKeyUsage"                    = $src."pKIKeyUsage"
+      "pKIMaxIssuingDepth"             = $src."pKIMaxIssuingDepth"
+      "pKIOverlapPeriod"               = $src."pKIOverlapPeriod"
+      "revision"                       = [int]100
+    }
+
+    New-ADObject -Name "{{ esc4_template }}" -Type "pKICertificateTemplate" `
+      -Path $templatesBase -OtherAttributes $newAttrs -ErrorAction Stop
+    Write-Output "template_created"
+  when: "'absent' in result_esc4_check.stdout"
+  register: result_esc4_create
+  failed_when: >
+    result_esc4_create.rc != 0 and
+    "already exists" not in (result_esc4_create.stderr | default("") | lower)
+
+- name: ESC4 - Check if Domain Users already have GenericAll ACE on DVADWriteESC4
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $configNC      = (Get-ADRootDSE).configurationNamingContext
+    $templatesBase = "CN=Certificate Templates,CN=Public Key Services,CN=Services,$configNC"
+    $acl = Get-ACL "AD:\CN={{ esc4_template }},$templatesBase"
+    $domainUsersSid = (New-Object System.Security.Principal.NTAccount("Domain Users")).Translate([System.Security.Principal.SecurityIdentifier])
+    $hasGenericAll = $acl.Access | Where-Object {
+      $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value -eq $domainUsersSid.Value -and
+      $_.ActiveDirectoryRights -band [System.DirectoryServices.ActiveDirectoryRights]::GenericAll
+    }
+    if ($hasGenericAll) { Write-Output "present" } else { Write-Output "absent" }
+  register: result_esc4_acl_check
+  changed_when: false
+  failed_when: result_esc4_acl_check.rc != 0
+
+- name: ESC4 - Grant Domain Users GenericAll on DVADWriteESC4 template
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $configNC      = (Get-ADRootDSE).configurationNamingContext
+    $templatesBase = "CN=Certificate Templates,CN=Public Key Services,CN=Services,$configNC"
+    $acl = Get-ACL "AD:\CN={{ esc4_template }},$templatesBase"
+    $domainUsersSid = (New-Object System.Security.Principal.NTAccount("Domain Users")).Translate([System.Security.Principal.SecurityIdentifier])
+    $rule = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+      $domainUsersSid, "GenericAll", "Allow")
+    $acl.AddAccessRule($rule)
+    Set-ACL "AD:\CN={{ esc4_template }},$templatesBase" $acl
+    Import-Module ADCSAdministration -ErrorAction SilentlyContinue
+    Add-CATemplate -Name "{{ esc4_template }}" -Force -ErrorAction SilentlyContinue
+    certutil -SetCAtemplates "+{{ esc4_template }}" 2>&1 | Out-Null
+    Write-Output "acl_set"
+  when: "'absent' in result_esc4_acl_check.stdout"
+  register: result_esc4_acl_set
+  failed_when: result_esc4_acl_set.rc != 0
+
+# ==============================================================================
+# ESC5 — CA host itself has weak ACLs
+# Grant Domain Users WriteProperty on the CA object in AD.
+# ESC5: attacker with write on the CA object can set the CA's flags directly.
+# ==============================================================================
+- name: ESC5 - Check Domain Users write on CA AD object
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $configNC = (Get-ADRootDSE).configurationNamingContext
+    $caBase   = "CN=Enrollment Services,CN=Public Key Services,CN=Services,$configNC"
+    $caObj    = Get-ADObject -LDAPFilter "(cn={{ ca_name }})" -SearchBase $caBase -ErrorAction SilentlyContinue
+    if (-not $caObj) { Write-Output "ca_not_found"; exit 0 }
+    $acl = Get-ACL "AD:\$($caObj.DistinguishedName)"
+    $domainUsersSid = (New-Object System.Security.Principal.NTAccount("Domain Users")).Translate([System.Security.Principal.SecurityIdentifier])
+    $hasWrite = $acl.Access | Where-Object {
+      $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value -eq $domainUsersSid.Value -and
+      ($_.ActiveDirectoryRights -band [System.DirectoryServices.ActiveDirectoryRights]::WriteProperty)
+    }
+    if ($hasWrite) { Write-Output "present" } else { Write-Output "absent" }
+  register: result_esc5_check
+  changed_when: false
+  failed_when: result_esc5_check.rc != 0
+
+- name: ESC5 - Grant Domain Users WriteProperty on CA enrollment services object
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $configNC = (Get-ADRootDSE).configurationNamingContext
+    $caBase   = "CN=Enrollment Services,CN=Public Key Services,CN=Services,$configNC"
+    $caObj    = Get-ADObject -LDAPFilter "(cn={{ ca_name }})" -SearchBase $caBase
+    $acl = Get-ACL "AD:\$($caObj.DistinguishedName)"
+    $domainUsersSid = (New-Object System.Security.Principal.NTAccount("Domain Users")).Translate([System.Security.Principal.SecurityIdentifier])
+    $rule = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+      $domainUsersSid, "WriteProperty", "Allow")
+    $acl.AddAccessRule($rule)
+    Set-ACL "AD:\$($caObj.DistinguishedName)" $acl
+  when:
+    - "'absent' in result_esc5_check.stdout"
+    - "'ca_not_found' not in result_esc5_check.stdout"
+  register: result_esc5_set
+  failed_when: result_esc5_set.rc != 0
+
+# ==============================================================================
+# ESC13 — DVADIssuanceESC13
+# Issuance policy OID linked to a high-privilege group.
+# When a certificate is issued under this policy, the holder is treated as a
+# member of the linked group (Universal Group Membership).
+# ==============================================================================
+- name: ESC13 - Check if DVADIssuanceESC13 template exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $t = Get-ADObject -LDAPFilter "(cn={{ esc13_template }})" `
+           -SearchBase "{{ config_nc }}" -ErrorAction SilentlyContinue
+    if ($t) { Write-Output "present" } else { Write-Output "absent" }
+  register: result_esc13_check
+  changed_when: false
+  failed_when: result_esc13_check.rc != 0
+
+- name: ESC13 - Create DVADIssuanceESC13 template and link OID to Domain Admins
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $configNC      = (Get-ADRootDSE).configurationNamingContext
+    $templatesBase = "CN=Certificate Templates,CN=Public Key Services,CN=Services,$configNC"
+    $oidBase       = "CN=OID,CN=Public Key Services,CN=Services,$configNC"
+    $src = Get-ADObject -Identity "CN=User,$templatesBase" -Properties *
+
+    # Create a new issuance policy OID object linked to Domain Admins
+    $oidGuid    = [guid]::NewGuid().ToString()
+    $policyOID  = "1.3.6.1.4.1.311.21.8.dvadesc13"
+    $daGroup    = Get-ADGroup -Identity "Domain Admins"
+
+    # OID object in AD (msDS-OIDToGroupLink wires OID → group)
+    $oidName = "DVADIssuancePolicy"
+    $existingOID = Get-ADObject -LDAPFilter "(cn=$oidName)" -SearchBase $oidBase -ErrorAction SilentlyContinue
+    if (-not $existingOID) {
+      New-ADObject -Name $oidName -Type "msPKI-Enterprise-Oid" -Path $oidBase `
+        -OtherAttributes @{
+          "displayName"           = $oidName
+          "msPKI-Cert-Template-OID" = $policyOID
+          "flags"                 = [int]2
+          "msDS-OIDToGroupLink"   = $daGroup.DistinguishedName
+        } -ErrorAction Stop
+    }
+
+    $newAttrs = @{
+      "displayName"                    = "{{ esc13_template }}"
+      "msPKI-Cert-Template-OID"        = "{{ esc13_oid }}"
+      "msPKI-Certificate-Application-Policy" = @("1.3.6.1.5.5.7.3.2")
+      "msPKI-Certificate-Name-Flag"    = [int]0
+      "msPKI-Enrollment-Flag"          = [int]0
+      "msPKI-Minimal-Key-Size"         = [int]2048
+      "msPKI-Private-Key-Flag"         = $src."msPKI-Private-Key-Flag"
+      "msPKI-RA-Signature"             = [int]0
+      "msPKI-Template-Minor-Revision"  = [int]1
+      "msPKI-Template-Schema-Version"  = [int]2
+      # Link issuance policy OID into template
+      "msPKI-Certificate-Policy"       = @($policyOID)
+      "pKIDefaultKeySpec"              = $src."pKIDefaultKeySpec"
+      "pKIExpirationPeriod"            = $src."pKIExpirationPeriod"
+      "pKIExtendedKeyUsage"            = @("1.3.6.1.5.5.7.3.2")
+      "pKIKeyUsage"                    = $src."pKIKeyUsage"
+      "pKIMaxIssuingDepth"             = $src."pKIMaxIssuingDepth"
+      "pKIOverlapPeriod"               = $src."pKIOverlapPeriod"
+      "revision"                       = [int]100
+    }
+
+    New-ADObject -Name "{{ esc13_template }}" -Type "pKICertificateTemplate" `
+      -Path $templatesBase -OtherAttributes $newAttrs -ErrorAction Stop
+
+    $domainUsersSid = (New-Object System.Security.Principal.NTAccount("Domain Users")).Translate([System.Security.Principal.SecurityIdentifier])
+    $templateAcl = Get-ACL "AD:\CN={{ esc13_template }},$templatesBase"
+    $enrollGuid  = [guid]"0e10c968-78fb-11d2-90d4-00c04f79dc55"
+    $rule = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+      $domainUsersSid, "ExtendedRight", "Allow", $enrollGuid)
+    $templateAcl.AddAccessRule($rule)
+    Set-ACL "AD:\CN={{ esc13_template }},$templatesBase" $templateAcl
+    Import-Module ADCSAdministration -ErrorAction SilentlyContinue
+    Add-CATemplate -Name "{{ esc13_template }}" -Force -ErrorAction SilentlyContinue
+    certutil -SetCAtemplates "+{{ esc13_template }}" 2>&1 | Out-Null
+    Write-Output "created"
+  when: "'absent' in result_esc13_check.stdout"
+  register: result_esc13_create
+  failed_when: >
+    result_esc13_create.rc != 0 and
+    "already exists" not in (result_esc13_create.stderr | default("") | lower)
+
+# ==============================================================================
+# ESC15 — DVADNoSecExtESC15 (CVE-2024-49019)
+# Template missing the szOID_NTDS_CA_SECURITY_EXT extension.
+# This extension normally embeds the requester SID; when absent the issued
+# certificate can be used to authenticate as a different principal.
+# msPKI-Template-Schema-Version=1 suppresses the extension on older DCs.
+# ==============================================================================
+- name: ESC15 - Check if DVADNoSecExtESC15 template exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $t = Get-ADObject -LDAPFilter "(cn={{ esc15_template }})" `
+           -SearchBase "{{ config_nc }}" -ErrorAction SilentlyContinue
+    if ($t) { Write-Output "present" } else { Write-Output "absent" }
+  register: result_esc15_check
+  changed_when: false
+  failed_when: result_esc15_check.rc != 0
+
+- name: ESC15 - Create DVADNoSecExtESC15 template (missing NTDS-CA-Security extension)
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $configNC      = (Get-ADRootDSE).configurationNamingContext
+    $templatesBase = "CN=Certificate Templates,CN=Public Key Services,CN=Services,$configNC"
+    $src = Get-ADObject -Identity "CN=User,$templatesBase" -Properties *
+
+    $newAttrs = @{
+      "displayName"                    = "{{ esc15_template }}"
+      "msPKI-Cert-Template-OID"        = "{{ esc15_oid }}"
+      "msPKI-Certificate-Application-Policy" = @("1.3.6.1.5.5.7.3.2")
+      "msPKI-Certificate-Name-Flag"    = [int]1
+      "msPKI-Enrollment-Flag"          = [int]0
+      "msPKI-Minimal-Key-Size"         = [int]2048
+      "msPKI-Private-Key-Flag"         = $src."msPKI-Private-Key-Flag"
+      "msPKI-RA-Signature"             = [int]0
+      "msPKI-Template-Minor-Revision"  = [int]1
+      # Schema version 1 = pre-Vista template; CA will not embed szOID_NTDS_CA_SECURITY_EXT
+      "msPKI-Template-Schema-Version"  = [int]1
+      "pKIDefaultKeySpec"              = $src."pKIDefaultKeySpec"
+      "pKIExpirationPeriod"            = $src."pKIExpirationPeriod"
+      "pKIExtendedKeyUsage"            = @("1.3.6.1.5.5.7.3.2")
+      "pKIKeyUsage"                    = $src."pKIKeyUsage"
+      "pKIMaxIssuingDepth"             = $src."pKIMaxIssuingDepth"
+      "pKIOverlapPeriod"               = $src."pKIOverlapPeriod"
+      "revision"                       = [int]100
+    }
+
+    New-ADObject -Name "{{ esc15_template }}" -Type "pKICertificateTemplate" `
+      -Path $templatesBase -OtherAttributes $newAttrs -ErrorAction Stop
+
+    $domainUsersSid = (New-Object System.Security.Principal.NTAccount("Domain Users")).Translate([System.Security.Principal.SecurityIdentifier])
+    $templateAcl = Get-ACL "AD:\CN={{ esc15_template }},$templatesBase"
+    $enrollGuid  = [guid]"0e10c968-78fb-11d2-90d4-00c04f79dc55"
+    $rule = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+      $domainUsersSid, "ExtendedRight", "Allow", $enrollGuid)
+    $templateAcl.AddAccessRule($rule)
+    Set-ACL "AD:\CN={{ esc15_template }},$templatesBase" $templateAcl
+    Import-Module ADCSAdministration -ErrorAction SilentlyContinue
+    Add-CATemplate -Name "{{ esc15_template }}" -Force -ErrorAction SilentlyContinue
+    certutil -SetCAtemplates "+{{ esc15_template }}" 2>&1 | Out-Null
+    Write-Output "created"
+  when: "'absent' in result_esc15_check.stdout"
+  register: result_esc15_create
+  failed_when: >
+    result_esc15_create.rc != 0 and
+    "already exists" not in (result_esc15_create.stderr | default("") | lower)

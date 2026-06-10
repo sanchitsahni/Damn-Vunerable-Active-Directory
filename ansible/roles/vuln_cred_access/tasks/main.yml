@@ -1,0 +1,253 @@
+---
+# ==============================================================================
+# vuln_cred_access/tasks/main.yml
+# Target: dc01.corp.local (primarily); LmCompatibilityLevel tasks also run on
+#         ws01 + file01 via member_servers group in site.yml.
+#
+# Configures:
+#   CRED-005   LSA RunAsPPL=0, WDigest UseLogonCredential=1 (LSASS dump targets)
+#   CRED-011   LmCompatibilityLevel=1 on ws01 + file01 (NTLMv1 downgrade)
+#   CRED-020   EFSRPC reachable — EFS service running (PetitPotam coercion)
+#   CRED-022   Print Spooler running on DCs + file01 (PrinterBug / SpoolSample)
+#   CRED-048   LDAP signing not enforced (LDAPServerIntegrity=1), channel binding off
+#   CRED-046   NTLMv2 not disabled — verify LmCompatibilityLevel != 5 on DCs
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# CRED-005: LSA not run as Protected Process Light (RunAsPPL=0)
+# Allows LSASS memory dump with SeDebugPrivilege (Mimikatz, ProcDump).
+# Also enables WDigest cleartext credential caching (UseLogonCredential=1).
+# Check values before writing.
+# ------------------------------------------------------------------------------
+- name: CRED-005 - Check LSA RunAsPPL and WDigest registry values
+  ansible.windows.win_shell: |
+    $ppl     = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" `
+                  -Name "RunAsPPL" -ErrorAction SilentlyContinue).RunAsPPL
+    $wdigest = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest" `
+                  -Name "UseLogonCredential" -ErrorAction SilentlyContinue).UseLogonCredential
+    Write-Output "ppl=$ppl wdigest=$wdigest"
+  register: result_lsa_check
+  changed_when: false
+  failed_when: result_lsa_check.rc != 0
+
+- name: CRED-005 - Disable LSA RunAsPPL (allow LSASS dumps)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'
+    name: RunAsPPL
+    data: 0
+    type: dword
+  when: "'ppl=0' not in result_lsa_check.stdout"
+
+- name: CRED-005 - Disable RunAsPPLBoot as well
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'
+    name: RunAsPPLBoot
+    data: 0
+    type: dword
+
+- name: CRED-005 - Enable WDigest UseLogonCredential (cleartext in LSASS)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest'
+    name: UseLogonCredential
+    data: 1
+    type: dword
+  when: "'wdigest=1' not in result_lsa_check.stdout"
+
+# ------------------------------------------------------------------------------
+# CRED-011: LmCompatibilityLevel=1 on workstations / member servers
+# Level 1 = LM + NTLMv1 responses allowed; NTLMv2 accepted.
+# This enables Internal-Monologue / NTLMv1 capture with Responder --lm.
+# Do NOT lower this on DCs (would break Kerberos fallback paths).
+# Only applies when running against member_servers group.
+# ------------------------------------------------------------------------------
+- name: CRED-011 - Check LmCompatibilityLevel on member server
+  ansible.windows.win_shell: |
+    $val = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" `
+              -Name "LmCompatibilityLevel" -ErrorAction SilentlyContinue).LmCompatibilityLevel
+    if ($null -eq $val) { Write-Output "not_set" } else { Write-Output $val }
+  register: result_lmcompat_check
+  changed_when: false
+  failed_when: result_lmcompat_check.rc != 0
+  when: inventory_hostname in groups['member_servers'] | default([])
+
+- name: CRED-011 - Set LmCompatibilityLevel=1 on member server (NTLMv1 allowed)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'
+    name: LmCompatibilityLevel
+    data: "{{ lm_compat_level_members }}"
+    type: dword
+  when:
+    - inventory_hostname in groups['member_servers'] | default([])
+    - result_lmcompat_check.stdout | trim != lm_compat_level_members | string
+
+- name: CRED-011 - Lower NTLM minimum client/server security on member server
+  ansible.windows.win_regedit:
+    path: "{{ item.path }}"
+    name: "{{ item.name }}"
+    data: 0
+    type: dword
+  loop:
+    - { path: 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0', name: 'NtlmMinClientSec' }
+    - { path: 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0', name: 'NtlmMinServerSec' }
+  when: inventory_hostname in groups['member_servers'] | default([])
+
+# ------------------------------------------------------------------------------
+# CRED-020: PetitPotam — ensure EFSRPC is reachable
+# EFS service must be running and set to automatic start.
+# Do NOT disable it — the vulnerability requires it to be accessible.
+# Check service state before starting.
+# ------------------------------------------------------------------------------
+- name: CRED-020 - Check EFS service state
+  ansible.windows.win_service_info:
+    name: EFS
+  register: result_efs_info
+  failed_when: result_efs_info.services | length == 0
+
+- name: CRED-020 - Ensure EFS service is running and set to auto-start
+  ansible.windows.win_service:
+    name: EFS
+    state: started
+    start_mode: auto
+  when: >
+    result_efs_info.services[0].state != 'running' or
+    result_efs_info.services[0].start_mode != 'auto'
+
+# ------------------------------------------------------------------------------
+# CRED-022: Print Spooler on DCs and file01 (PrinterBug / SpoolSample coercion)
+# The Spooler service must be running for MS-RPRN coercion to work.
+# Check service state; only start/configure if not already running.
+# ------------------------------------------------------------------------------
+- name: CRED-022 - Check Print Spooler service state
+  ansible.windows.win_service_info:
+    name: Spooler
+  register: result_spooler_info
+  failed_when: result_spooler_info.services | length == 0
+
+- name: CRED-022 - Ensure Print Spooler is running and set to auto-start
+  ansible.windows.win_service:
+    name: Spooler
+    state: started
+    start_mode: auto
+  when: >
+    result_spooler_info.services[0].state != 'running' or
+    result_spooler_info.services[0].start_mode != 'auto'
+
+# On file01 also install the Print-Server feature if missing
+- name: CRED-022 - Install Print-Server feature on file01 (required for Spooler)
+  ansible.windows.win_feature:
+    name: Print-Server
+    state: present
+  when: inventory_hostname in groups['file_servers'] | default([])
+  register: result_print_feature
+  failed_when: >
+    result_print_feature.failed is defined and result_print_feature.failed and
+    "already installed" not in (result_print_feature.msg | default("") | lower)
+
+# ------------------------------------------------------------------------------
+# CRED-048: LDAP signing not enforced on DCs
+# LDAPServerIntegrity=1 (negotiate, not enforce).
+# LdapEnforceChannelBinding=0 (channel binding off).
+# Both are required for NTLM relay to LDAP (impacket ntlmrelayx → LDAP).
+# Check before set.
+# ------------------------------------------------------------------------------
+- name: CRED-048 - Check LDAP signing and channel binding registry values
+  ansible.windows.win_shell: |
+    $sign = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters" `
+               -Name "LDAPServerIntegrity" -ErrorAction SilentlyContinue).LDAPServerIntegrity
+    $cb   = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters" `
+               -Name "LdapEnforceChannelBinding" -ErrorAction SilentlyContinue).LdapEnforceChannelBinding
+    Write-Output "sign=$sign cb=$cb"
+  register: result_ldap_check
+  changed_when: false
+  failed_when: result_ldap_check.rc != 0
+  when: inventory_hostname in groups['all_dcs'] | default([])
+
+- name: CRED-048 - Set LDAPServerIntegrity=1 (signing not enforced)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters'
+    name: LDAPServerIntegrity
+    data: 1
+    type: dword
+  when:
+    - inventory_hostname in groups['all_dcs'] | default([])
+    - "'sign=1' not in result_ldap_check.stdout"
+
+- name: CRED-048 - Set LdapEnforceChannelBinding=0 (channel binding off)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters'
+    name: LdapEnforceChannelBinding
+    data: 0
+    type: dword
+  when:
+    - inventory_hostname in groups['all_dcs'] | default([])
+    - "'cb=0' not in result_ldap_check.stdout"
+
+# ------------------------------------------------------------------------------
+# CRED-046: Verify NTLMv2 not fully disabled on DCs
+# LmCompatibilityLevel on DCs should be 3 or lower (not 5, which disables NTLMv2).
+# Level 5 would break too many lab attack paths. We want 3 (default AD).
+# Check and correct only if misconfigured.
+# ------------------------------------------------------------------------------
+- name: CRED-046 - Check DC LmCompatibilityLevel (must not be 5 — Responder needs NTLMv2)
+  ansible.windows.win_shell: |
+    $val = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" `
+              -Name "LmCompatibilityLevel" -ErrorAction SilentlyContinue).LmCompatibilityLevel
+    if ($null -eq $val) { Write-Output "3" }  # default = 3 on W2K22
+    else { Write-Output $val }
+  register: result_dc_lmcompat
+  changed_when: false
+  failed_when: result_dc_lmcompat.rc != 0
+  when: inventory_hostname in groups['all_dcs'] | default([])
+
+- name: CRED-046 - Set DC LmCompatibilityLevel=3 if it was set too high
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'
+    name: LmCompatibilityLevel
+    data: 3
+    type: dword
+  when:
+    - inventory_hostname in groups['all_dcs'] | default([])
+    - result_dc_lmcompat.stdout | trim | int > 3
+
+# ------------------------------------------------------------------------------
+# CRED-055: Ensure DCOM is enabled (do not harden)
+# EnableDCOM=Y (default). Explicit set for idempotency.
+# ------------------------------------------------------------------------------
+- name: CRED-055 - Ensure DCOM is enabled (RemoteMonologue coercion precondition)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Microsoft\Ole'
+    name: EnableDCOM
+    data: 'Y'
+    type: string
+
+# ==============================================================================
+# Extended credential surfaces (absorbed from cred_gaps + cred_extended)
+# ==============================================================================
+
+- name: Import user credential gap fills (dc01)
+  ansible.builtin.import_tasks: users_creds.yml
+  when: inventory_hostname == 'dc01.corp.local'
+
+- name: Import ACL-based credential rights (dc01)
+  ansible.builtin.import_tasks: acl_rights.yml
+  when: inventory_hostname == 'dc01.corp.local'
+
+- name: Import credential service surfaces (all_dcs + file01)
+  ansible.builtin.import_tasks: services.yml
+  when: inventory_hostname in groups['all_dcs'] + ['file01.corp.local']
+
+- name: Import file-based credential surfaces (dc01 + file01 + ws01)
+  ansible.builtin.import_tasks: files.yml
+  when: inventory_hostname in ['dc01.corp.local', 'file01.corp.local', 'ws01.corp.local']
+
+- name: Import credential store surfaces (dc01)
+  ansible.builtin.import_tasks: credential_stores.yml
+  when: inventory_hostname == 'dc01.corp.local'
+
+- name: Import extended Kerberos attack surfaces (dc01)
+  ansible.builtin.import_tasks: kerberos.yml
+  when: inventory_hostname == 'dc01.corp.local'
+
+- name: Import browser and key material surfaces (ws01)
+  ansible.builtin.import_tasks: browser_keys.yml
+  when: inventory_hostname == 'ws01.corp.local'

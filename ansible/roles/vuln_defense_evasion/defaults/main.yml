@@ -1,0 +1,26 @@
+---
+# ==============================================================================
+# vuln_defense_evasion/defaults/main.yml — DEF/C2/EXF surfaces
+# ==============================================================================
+
+ad_domain:    "corp.local"
+ad_domain_dn: "DC=corp,DC=local"
+
+# AMSI bypass registry key
+amsi_bypass_dll: 'C:\Tools\amsi_bypass.dll'
+
+# ETW session disable target
+etw_disable_sessions:
+  - 'Microsoft-Windows-Threat-Intelligence'
+  - 'Microsoft-Windows-Security-Auditing'
+
+# PowerShell logging state (intentionally disabled for evasion surface)
+ps_script_block_logging: 0
+ps_module_logging: 0
+ps_transcription: 0
+
+# Defender exclusions (added to create evasion surface)
+defender_exclusions:
+  - 'C:\Tools'
+  - 'C:\Temp'
+  - '%USERPROFILE%\AppData\Local\Temp'

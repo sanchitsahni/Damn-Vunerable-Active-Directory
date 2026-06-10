@@ -1,0 +1,432 @@
+---
+# ==============================================================================
+# vuln_ia_surface/tasks/file01_surface.yml
+# Target: file01.corp.local
+#
+# IA-034 / IA-050   SNMP public (RO) + private (RW) community strings
+# IA-035            IIS FTP server with anonymous authentication
+# IA-036            Telnet server (TlntSvr service)
+# IA-037            Anonymous NFS r/w share (DVAD_NFS)
+# IA-038            SMB1 enabled — FS-SMB1 feature + registry SMB1=1
+# IA-044 / IA-015   Print Spooler running + DVAD-PRN shared printer
+# IA-047            WSD/SSDP services running (FDResPub, SSDPSRV, fdPHost)
+# IA-040            WinRM-HTTPS 5986 self-signed listener
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# IA-034 / IA-050: SNMP — install feature, set community strings.
+# public  = read-only  (SNMP_ACCESS_READ_ONLY  = 4)
+# private = read-write (SNMP_ACCESS_READ_WRITE = 2)
+# Registry path: HKLM\SYSTEM\CurrentControlSet\Services\SNMP\Parameters\ValidCommunities
+# ------------------------------------------------------------------------------
+- name: IA-034 - Check if SNMP-Service Windows feature is installed
+  ansible.windows.win_shell: |
+    $f = Get-WindowsFeature -Name SNMP-Service -ErrorAction SilentlyContinue
+    if ($f -and $f.InstallState -eq 'Installed') {
+      Write-Output "installed"
+    } else {
+      Write-Output "not_installed"
+    }
+  register: result_snmp_feature_check
+  changed_when: false
+  failed_when: result_snmp_feature_check.rc != 0
+
+- name: IA-034 - Install SNMP-Service Windows feature
+  ansible.windows.win_shell: |
+    $result = Install-WindowsFeature -Name SNMP-Service -IncludeManagementTools
+    if ($result.Success) {
+      Write-Output "changed: SNMP-Service installed"
+    } else {
+      Write-Error "Install-WindowsFeature SNMP-Service failed"
+    }
+  register: result_snmp_install
+  changed_when: "'changed:' in result_snmp_install.stdout"
+  failed_when: result_snmp_install.rc != 0
+  when: "'not_installed' in result_snmp_feature_check.stdout"
+
+- name: IA-034 / IA-050 - Set SNMP community strings (public RO, private RW)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\SNMP\Parameters\ValidCommunities'
+    name: "{{ item.name }}"
+    data: "{{ item.access }}"
+    type: dword
+  loop: "{{ ia_snmp_communities }}"
+
+- name: IA-034 - Ensure SNMP service is running
+  ansible.windows.win_shell: |
+    $svc = Get-Service -Name SNMP -ErrorAction SilentlyContinue
+    if ($null -eq $svc) {
+      Write-Output "not_found"
+    } elseif ($svc.Status -ne 'Running') {
+      Set-Service SNMP -StartupType Automatic
+      Start-Service SNMP
+      Write-Output "changed: SNMP started"
+    } else {
+      Write-Output "ok"
+    }
+  register: result_snmp_start
+  changed_when: "'changed:' in result_snmp_start.stdout"
+  failed_when: result_snmp_start.rc != 0
+
+# ------------------------------------------------------------------------------
+# IA-035: Anonymous IIS FTP server.
+# Installs Web-Ftp-Server feature, creates an FTP site with anonymous auth
+# so unauthenticated attackers can connect on TCP 21.
+# ------------------------------------------------------------------------------
+- name: IA-035 - Check if Web-Ftp-Server feature is installed
+  ansible.windows.win_shell: |
+    $f = Get-WindowsFeature -Name Web-Ftp-Server -ErrorAction SilentlyContinue
+    if ($f -and $f.InstallState -eq 'Installed') {
+      Write-Output "installed"
+    } else {
+      Write-Output "not_installed"
+    }
+  register: result_ftp_feature_check
+  changed_when: false
+  failed_when: result_ftp_feature_check.rc != 0
+
+- name: IA-035 - Install Web-Ftp-Server (IIS FTP) feature
+  ansible.windows.win_shell: |
+    $result = Install-WindowsFeature -Name Web-Ftp-Server -IncludeManagementTools
+    if ($result.Success) {
+      Write-Output "changed: Web-Ftp-Server installed"
+    } else {
+      Write-Error "Install-WindowsFeature Web-Ftp-Server failed"
+    }
+  register: result_ftp_install
+  changed_when: "'changed:' in result_ftp_install.stdout"
+  failed_when: result_ftp_install.rc != 0
+  when: "'not_installed' in result_ftp_feature_check.stdout"
+
+- name: IA-035 - Create C:\FTPRoot share directory
+  ansible.windows.win_file:
+    path: 'C:\FTPRoot'
+    state: directory
+
+- name: IA-035 - Create anonymous FTP site via IIS management
+  ansible.windows.win_shell: |
+    Import-Module WebAdministration -ErrorAction Stop
+
+    # Check if DVAD-FTP site already exists
+    $site = Get-WebSite -Name "{{ ia_ftp_site_name }}" -ErrorAction SilentlyContinue
+    if ($site) {
+      Write-Output "ok: FTP site already exists"
+    } else {
+      # Create FTP site
+      New-WebFtpSite -Name "{{ ia_ftp_site_name }}" `
+        -Port {{ ia_ftp_site_port }} `
+        -PhysicalPath "C:\FTPRoot" `
+        -Force -ErrorAction Stop
+
+      # Enable anonymous authentication
+      Set-ItemProperty "IIS:\Sites\{{ ia_ftp_site_name }}" `
+        -Name ftpServer.security.authentication.anonymousAuthentication.enabled `
+        -Value $true
+
+      # Allow anonymous connections (read + write for maximum attack surface)
+      Add-WebConfiguration -Filter system.ftpServer/security/authorization `
+        -Value @{accessType='Allow'; users='?'; permissions='Read,Write'} `
+        -PSPath "IIS:\Sites\{{ ia_ftp_site_name }}" -ErrorAction SilentlyContinue
+
+      # Open firewall port 21
+      $fwRule = Get-NetFirewallRule -DisplayName "FTP 21" -ErrorAction SilentlyContinue
+      if (-not $fwRule) {
+        New-NetFirewallRule -DisplayName "FTP 21" `
+          -Direction Inbound -Protocol TCP -LocalPort 21 -Action Allow | Out-Null
+      }
+
+      Write-Output "changed: FTP site created"
+    }
+  register: result_ftp_site
+  changed_when: "'changed:' in result_ftp_site.stdout"
+  failed_when: result_ftp_site.rc != 0
+
+# ------------------------------------------------------------------------------
+# IA-036: Telnet server — TlntSvr service.
+# Installs TelnetServer feature and ensures the service is running on TCP 23.
+# ------------------------------------------------------------------------------
+- name: IA-036 - Check if TelnetServer feature is installed
+  ansible.windows.win_shell: |
+    $f = Get-WindowsFeature -Name TelnetServer -ErrorAction SilentlyContinue
+    if ($f -and $f.InstallState -eq 'Installed') {
+      Write-Output "installed"
+    } else {
+      Write-Output "not_installed"
+    }
+  register: result_telnet_feature_check
+  changed_when: false
+  failed_when: result_telnet_feature_check.rc != 0
+
+- name: IA-036 - Install TelnetServer Windows feature
+  ansible.windows.win_shell: |
+    $result = Install-WindowsFeature -Name TelnetServer
+    if ($result.Success) {
+      Write-Output "changed: TelnetServer installed"
+    } else {
+      Write-Error "Install-WindowsFeature TelnetServer failed"
+    }
+  register: result_telnet_install
+  changed_when: "'changed:' in result_telnet_install.stdout"
+  failed_when: result_telnet_install.rc != 0
+  when: "'not_installed' in result_telnet_feature_check.stdout"
+
+- name: IA-036 - Check TlntSvr service state
+  ansible.windows.win_shell: |
+    $svc = Get-Service -Name TlntSvr -ErrorAction SilentlyContinue
+    if ($null -eq $svc) { Write-Output "not_found" }
+    else { Write-Output "starttype=$($svc.StartType) status=$($svc.Status)" }
+  register: result_telnet_svc_check
+  changed_when: false
+  failed_when: result_telnet_svc_check.rc != 0
+
+- name: IA-036 - Set TlntSvr to Automatic and start
+  ansible.windows.win_shell: |
+    Set-Service TlntSvr -StartupType Automatic -ErrorAction Stop
+    $svc = Get-Service TlntSvr
+    if ($svc.Status -ne 'Running') {
+      Start-Service TlntSvr -ErrorAction Stop
+      Write-Output "changed: TlntSvr started"
+    } else {
+      Write-Output "ok: TlntSvr running"
+    }
+  register: result_telnet_start
+  changed_when: "'changed:' in result_telnet_start.stdout"
+  failed_when: result_telnet_start.rc != 0
+  when: >
+    'not_found' not in (result_telnet_svc_check.stdout | default('')) and
+    ('Automatic' not in (result_telnet_svc_check.stdout | default('')) or
+     'Running' not in (result_telnet_svc_check.stdout | default('')))
+
+# ------------------------------------------------------------------------------
+# IA-037: Anonymous NFS r/w share.
+# Installs NFS server feature and creates DVAD_NFS with no auth + anon access.
+# ------------------------------------------------------------------------------
+- name: IA-037 - Check if FS-NFS-Service feature is installed
+  ansible.windows.win_shell: |
+    $f = Get-WindowsFeature -Name FS-NFS-Service -ErrorAction SilentlyContinue
+    if ($f -and $f.InstallState -eq 'Installed') {
+      Write-Output "installed"
+    } else {
+      Write-Output "not_installed"
+    }
+  register: result_nfs_feature_check
+  changed_when: false
+  failed_when: result_nfs_feature_check.rc != 0
+
+- name: IA-037 - Install NFS server features
+  ansible.windows.win_shell: |
+    $result = Install-WindowsFeature -Name FS-NFS-Service,NFS-Administration -IncludeManagementTools
+    if ($result.Success) {
+      Write-Output "changed: NFS features installed"
+    } else {
+      Write-Error "Install-WindowsFeature NFS failed"
+    }
+  register: result_nfs_install
+  changed_when: "'changed:' in result_nfs_install.stdout"
+  failed_when: result_nfs_install.rc != 0
+  when: "'not_installed' in result_nfs_feature_check.stdout"
+
+- name: IA-037 - Create NFS share root directory
+  ansible.windows.win_file:
+    path: "{{ ia_nfs_share_path }}"
+    state: directory
+
+- name: IA-037 - Check if DVAD_NFS share already exists
+  ansible.windows.win_shell: |
+    $share = Get-NfsShare -Name "{{ ia_nfs_share_name }}" -ErrorAction SilentlyContinue
+    if ($share) { Write-Output "exists" } else { Write-Output "missing" }
+  register: result_nfs_share_check
+  changed_when: false
+  failed_when: result_nfs_share_check.rc != 0
+
+- name: IA-037 - Create anonymous NFS share (DVAD_NFS)
+  ansible.windows.win_shell: |
+    New-NfsShare -Name "{{ ia_nfs_share_name }}" `
+      -Path "{{ ia_nfs_share_path }}" `
+      -Authentication None `
+      -EnableAnonymousAccess $true `
+      -AnonymousUid 65534 `
+      -AnonymousGid 65534 `
+      -ErrorAction Stop
+    Write-Output "changed: DVAD_NFS share created"
+  register: result_nfs_create
+  changed_when: "'changed:' in result_nfs_create.stdout"
+  failed_when: result_nfs_create.rc != 0
+  when: "'missing' in result_nfs_share_check.stdout"
+
+# ------------------------------------------------------------------------------
+# IA-038: SMB1 — EternalBlue attack surface.
+# Installs FS-SMB1 Windows feature and sets registry SMB1=1.
+# Both checks are independent; the registry write is always idempotent via
+# win_regedit.
+# ------------------------------------------------------------------------------
+- name: IA-038 - Check if FS-SMB1 feature is installed
+  ansible.windows.win_shell: |
+    $f = Get-WindowsFeature -Name FS-SMB1 -ErrorAction SilentlyContinue
+    if ($f -and $f.InstallState -eq 'Installed') {
+      Write-Output "installed"
+    } else {
+      Write-Output "not_installed"
+    }
+  register: result_smb1_feature_check
+  changed_when: false
+  failed_when: result_smb1_feature_check.rc != 0
+
+- name: IA-038 - Install FS-SMB1 Windows feature
+  ansible.windows.win_shell: |
+    $result = Install-WindowsFeature -Name FS-SMB1
+    if ($result.Success) {
+      Write-Output "changed: FS-SMB1 installed"
+    } else {
+      Write-Error "Install-WindowsFeature FS-SMB1 failed"
+    }
+  register: result_smb1_install
+  changed_when: "'changed:' in result_smb1_install.stdout"
+  failed_when: result_smb1_install.rc != 0
+  when: "'not_installed' in result_smb1_feature_check.stdout"
+
+- name: IA-038 - Enable SMB1 via registry (SMB1=1)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'
+    name: SMB1
+    data: 1
+    type: dword
+
+# ------------------------------------------------------------------------------
+# IA-044 / IA-015: Print Spooler running + DVAD-PRN shared printer.
+# Print Spooler must be running for PrinterBug / PrintNightmare coercion.
+# A shared printer makes the Spooler accessible remotely.
+# ------------------------------------------------------------------------------
+- name: IA-044 - Check Print Spooler (Spooler) service state
+  ansible.windows.win_shell: |
+    $svc = Get-Service -Name Spooler -ErrorAction SilentlyContinue
+    if ($null -eq $svc) { Write-Output "not_found" }
+    else { Write-Output "starttype=$($svc.StartType) status=$($svc.Status)" }
+  register: result_spooler_check
+  changed_when: false
+  failed_when: result_spooler_check.rc != 0
+
+- name: IA-044 - Ensure Print Spooler is running and set to Automatic
+  ansible.windows.win_shell: |
+    Set-Service Spooler -StartupType Automatic -ErrorAction Stop
+    $svc = Get-Service Spooler
+    if ($svc.Status -ne 'Running') {
+      Start-Service Spooler -ErrorAction Stop
+      Write-Output "changed: Spooler started"
+    } else {
+      Write-Output "ok: Spooler running"
+    }
+  register: result_spooler_start
+  changed_when: "'changed:' in result_spooler_start.stdout"
+  failed_when: result_spooler_start.rc != 0
+  when: >
+    'not_found' not in (result_spooler_check.stdout | default('')) and
+    ('Automatic' not in (result_spooler_check.stdout | default('')) or
+     'Running' not in (result_spooler_check.stdout | default('')))
+
+- name: IA-044 - Check if DVAD-PRN printer share exists
+  ansible.windows.win_shell: |
+    $printer = Get-Printer -Name "{{ ia_printer_share_name }}" -ErrorAction SilentlyContinue
+    if ($printer) { Write-Output "exists" } else { Write-Output "missing" }
+  register: result_printer_check
+  changed_when: false
+  failed_when: result_printer_check.rc != 0
+
+- name: IA-044 - Create and share DVAD-PRN printer (Generic / Text Only driver)
+  ansible.windows.win_shell: |
+    # Use the built-in Generic / Text Only driver which is always present
+    Add-PrinterDriver -Name "Generic / Text Only" -ErrorAction SilentlyContinue
+    Add-Printer -Name "{{ ia_printer_share_name }}" `
+      -DriverName "Generic / Text Only" `
+      -PortName "FILE:" `
+      -Shared `
+      -ShareName "{{ ia_printer_share_name }}" `
+      -ErrorAction Stop
+    Write-Output "changed: DVAD-PRN created and shared"
+  register: result_printer_create
+  changed_when: "'changed:' in result_printer_create.stdout"
+  failed_when: result_printer_create.rc != 0
+  when: "'missing' in result_printer_check.stdout"
+
+# ------------------------------------------------------------------------------
+# IA-047: WSD / SSDP passive sniff surface.
+# FDResPub (Function Discovery Resource Publication), SSDPSRV (SSDP Discovery),
+# and fdPHost (Function Discovery Provider Host) must be running to expose
+# UPnP/WSD announcements on multicast that attackers can passively sniff.
+# ------------------------------------------------------------------------------
+- name: IA-047 - Check WSD/SSDP service states
+  ansible.windows.win_shell: |
+    $services = @('FDResPub', 'SSDPSRV', 'fdPHost')
+    $states = @()
+    foreach ($name in $services) {
+      $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
+      if ($svc) {
+        $states += "$name=$($svc.StartType)/$($svc.Status)"
+      } else {
+        $states += "$name=not_found"
+      }
+    }
+    Write-Output ($states -join "|")
+  register: result_wsd_check
+  changed_when: false
+  failed_when: result_wsd_check.rc != 0
+
+- name: IA-047 - Set WSD/SSDP services to Automatic and start
+  ansible.windows.win_shell: |
+    $services = @('FDResPub', 'SSDPSRV', 'fdPHost')
+    $changed = $false
+    foreach ($name in $services) {
+      $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
+      if ($null -eq $svc) { continue }
+      if ($svc.StartType -ne 'Automatic') {
+        Set-Service $name -StartupType Automatic -ErrorAction SilentlyContinue
+        $changed = $true
+      }
+      $svc.Refresh()
+      if ($svc.Status -ne 'Running') {
+        Start-Service $name -ErrorAction SilentlyContinue
+        $changed = $true
+      }
+    }
+    if ($changed) { Write-Output "changed: WSD/SSDP services configured" }
+    else          { Write-Output "ok: WSD/SSDP services already running" }
+  register: result_wsd_set
+  changed_when: "'changed:' in result_wsd_set.stdout"
+  failed_when: result_wsd_set.rc != 0
+  when: >
+    'Automatic/Running' not in (result_wsd_check.stdout | default('')) or
+    result_wsd_check.stdout | default('') | regex_findall('Automatic/Running') | length < 3
+
+# ------------------------------------------------------------------------------
+# IA-040: WinRM-HTTPS 5986 self-signed listener on file01.
+# Same pattern as dc_surface.yml — check before create.
+# ------------------------------------------------------------------------------
+- name: IA-040 (file01) - Check if WinRM HTTPS listener exists
+  ansible.windows.win_shell: |
+    $listener = winrm enumerate winrm/config/Listener 2>&1 |
+                  Select-String "Transport = HTTPS"
+    if ($listener) { Write-Output "exists" } else { Write-Output "missing" }
+  register: result_file01_winrm_https_check
+  changed_when: false
+  failed_when: result_file01_winrm_https_check.rc != 0
+
+- name: IA-040 (file01) - Create self-signed cert and WinRM HTTPS listener
+  ansible.windows.win_shell: |
+    $cert = New-SelfSignedCertificate `
+              -DnsName $env:COMPUTERNAME `
+              -CertStoreLocation "Cert:\LocalMachine\My" `
+              -NotAfter (Get-Date).AddYears(10) `
+              -ErrorAction Stop
+    $thumb = $cert.Thumbprint
+    winrm create winrm/config/Listener?Address=*+Transport=HTTPS `
+      "@{Hostname=`"*`";CertificateThumbprint=`"$thumb`"}" | Out-Null
+    $fwRule = Get-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -ErrorAction SilentlyContinue
+    if (-not $fwRule) {
+      New-NetFirewallRule -DisplayName "WinRM HTTPS 5986" `
+        -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow | Out-Null
+    }
+    Write-Output "changed: WinRM HTTPS listener created"
+  register: result_file01_winrm_https_create
+  changed_when: "'changed:' in result_file01_winrm_https_create.stdout"
+  failed_when: result_file01_winrm_https_create.rc != 0
+  when: "'missing' in result_file01_winrm_https_check.stdout"

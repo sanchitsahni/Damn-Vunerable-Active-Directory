@@ -1,0 +1,93 @@
+---
+# ==============================================================================
+# vuln_lateral/tasks/rbcd.yml
+# Target: dc01.corp.local
+#
+# LAT-016  RBCD chain — msDS-AllowedToActOnBehalfOfOtherIdentity set on
+#          FILE01 to allow sql01$ to delegate to it (sql01 → FILE01 relay)
+# LAT-026  KrbRelayUp surface — MachineAccountQuota=10 (lab default) +
+#          each machine account can write its own RBCD attribute so a low-priv
+#          user with a created computer account can relay to itself.
+# LAT-012  SIDFilteringForestAware=$false on external trusts (netdom disables
+#          quarantine so SID History crosses trust boundaries)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# LAT-016: RBCD — sql01$ allowed to delegate to FILE01
+# msDS-AllowedToActOnBehalfOfOtherIdentity is a raw security-descriptor blob;
+# we build it from the SQL01 computer account SID.
+# Check: attribute is absent or does not already include SQL01's SID.
+# ------------------------------------------------------------------------------
+- name: LAT-016 - Check RBCD attribute on FILE01 for SQL01
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $comp = Get-ADComputer -Identity "FILE01" `
+              -Properties "msDS-AllowedToActOnBehalfOfOtherIdentity"
+    if ($comp."msDS-AllowedToActOnBehalfOfOtherIdentity") {
+      # Decode the raw SD and check for SQL01 SID
+      $sd = New-Object System.Security.AccessControl.RawSecurityDescriptor(
+              $comp."msDS-AllowedToActOnBehalfOfOtherIdentity", 0)
+      $sqlSid = (Get-ADComputer -Identity "SQL01").SID
+      $found  = $sd.DiscretionaryAcl | Where-Object { $_.SecurityIdentifier -eq $sqlSid }
+      if ($found) { Write-Output "present" } else { Write-Output "absent" }
+    } else {
+      Write-Output "absent"
+    }
+  register: result_rbcd_lat016_check
+  changed_when: false
+  failed_when: result_rbcd_lat016_check.rc != 0
+
+- name: LAT-016 - Set msDS-AllowedToActOnBehalfOfOtherIdentity on FILE01 for SQL01
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $file01 = Get-ADComputer -Identity "FILE01"
+    $sql01  = Get-ADComputer -Identity "SQL01"
+    # Build a minimal security descriptor granting Allow-GenericAll to SQL01$
+    Set-ADComputer -Identity $file01 `
+      -PrincipalsAllowedToDelegateToAccount $sql01
+    Write-Output "changed: RBCD set on FILE01 for SQL01"
+  when: "'absent' in result_rbcd_lat016_check.stdout"
+  register: result_rbcd_lat016_set
+  failed_when: result_rbcd_lat016_set.rc != 0
+
+# ------------------------------------------------------------------------------
+# LAT-026: MachineAccountQuota=10 (default) — verify/enforce.
+# Also ensure machine accounts have self-write on
+# msDS-AllowedToActOnBehalfOfOtherIdentity (default in Server 2019+).
+# This allows any domain user who owns a machine account to self-RBCD
+# (KrbRelayUp attack surface).
+# ------------------------------------------------------------------------------
+- name: LAT-026 - Enforce MachineAccountQuota=10 on domain
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $dom = Get-ADDomain
+    $cur = (Get-ADObject -Identity $dom.DistinguishedName `
+              -Properties 'ms-DS-MachineAccountQuota').'ms-DS-MachineAccountQuota'
+    if ($cur -ne 10) {
+      Set-ADDomain -Identity $dom -Replace @{'ms-DS-MachineAccountQuota' = 10}
+      Write-Output "changed: MAQ set to 10"
+    } else {
+      Write-Output "ok: MAQ already 10"
+    }
+  register: result_maq
+  changed_when: "'changed:' in result_maq.stdout"
+  failed_when: result_maq.rc != 0
+
+# ------------------------------------------------------------------------------
+# LAT-012: SID filtering disabled on external trusts (SID History crosses boundary)
+# netdom quarantine:no disables SIDFilteringForestAware on the named trust.
+# ------------------------------------------------------------------------------
+- name: LAT-012 - Disable SID filtering (quarantine) on external trusts
+  ansible.windows.win_shell: |
+    $trusts = @("finance.local", "root.corp")
+    foreach ($t in $trusts) {
+      $result = & netdom.exe trust corp.local /domain:$t /quarantine:No 2>&1
+      Write-Output "Trust $t quarantine:No -> $result"
+    }
+  register: result_lat012
+  # netdom exits non-zero when trust is already in desired state; tolerate that
+  failed_when: >
+    result_lat012.rc != 0 and
+    "not found" not in (result_lat012.stdout | default("") | lower) and
+    "does not exist" not in (result_lat012.stdout | default("") | lower)
+  changed_when: false

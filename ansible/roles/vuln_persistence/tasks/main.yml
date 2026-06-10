@@ -1,0 +1,28 @@
+---
+# ==============================================================================
+# vuln_persistence/tasks/main.yml
+# Target: dc01.corp.local
+# ==============================================================================
+
+- name: Import registry persistence tasks (DSRM, IFEO)
+  ansible.builtin.import_tasks: registry.yml
+
+- name: Import ACL persistence tasks (AdminSDHolder, KeyCredentialLink)
+  ansible.builtin.import_tasks: acl.yml
+
+- name: Import GPO backdoor tasks
+  ansible.builtin.import_tasks: gpo.yml
+
+# Extended persistence surfaces (absorbed from vuln_persistence_ext)
+
+- name: Import extended service persistence surfaces (dc01 + ws01)
+  ansible.builtin.import_tasks: services.yml
+  when: inventory_hostname in ['dc01.corp.local', 'ws01.corp.local']
+
+- name: Import extended file persistence surfaces (dc01 + ws01)
+  ansible.builtin.import_tasks: files.yml
+  when: inventory_hostname in ['dc01.corp.local', 'ws01.corp.local']
+
+- name: Import extended registry persistence surfaces (dc01 + ws01)
+  ansible.builtin.import_tasks: registry_ext.yml
+  when: inventory_hostname in ['dc01.corp.local', 'ws01.corp.local']

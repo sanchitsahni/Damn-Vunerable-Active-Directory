@@ -1,0 +1,16 @@
+---
+# ==============================================================================
+# dns role defaults
+# ==============================================================================
+
+# corp.local DNS server
+corp_dc_ip: "10.10.0.10"
+
+# finance.local DNS server
+finance_dc_ip: "10.10.20.10"
+
+# root.corp DNS server
+root_dc_ip: "10.10.30.10"
+
+# Upstream forwarder (e.g. internet-facing resolver or gateway)
+dns_forwarder: "8.8.8.8"

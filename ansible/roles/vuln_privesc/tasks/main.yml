@@ -1,0 +1,51 @@
+---
+# ==============================================================================
+# vuln_privesc/tasks/main.yml
+#
+# Sub-tasks are imported unconditionally; each file uses
+# `when: inventory_hostname ==` guards for host-specific steps.
+#
+# Host → sub-tasks applicable:
+#   dc01.corp.local    -> groups.yml (operator groups), registry.yml (none)
+#   file01.corp.local  -> services.yml, tokens.yml, registry.yml
+#   sql01.corp.local   -> tokens.yml
+#   ws01.corp.local    -> registry.yml, services.yml (minimal)
+# ==============================================================================
+
+- name: Import services tasks
+  ansible.builtin.import_tasks: services.yml
+
+- name: Import token/privilege tasks
+  ansible.builtin.import_tasks: tokens.yml
+
+- name: Import group membership tasks
+  ansible.builtin.import_tasks: groups.yml
+
+- name: Import registry tasks
+  ansible.builtin.import_tasks: registry.yml
+
+# Extended privesc surfaces (absorbed from vuln_privesc_ext + vuln_pe_extended)
+
+- name: Import extended service privesc surfaces
+  ansible.builtin.import_tasks: ext_services.yml
+
+- name: Import extended CVE privesc surfaces (ws01 + file01)
+  ansible.builtin.import_tasks: ext_cves.yml
+  when: inventory_hostname in ['ws01.corp.local', 'file01.corp.local']
+
+- name: Import kernel/BYOVD privesc surfaces
+  ansible.builtin.import_tasks: kernel.yml
+
+- name: Import extended privilege escalation token/right surfaces
+  ansible.builtin.import_tasks: ext_privileges.yml
+
+- name: Import DLL hijack / PATH hijack privesc surfaces (file01 + ws01)
+  ansible.builtin.import_tasks: ext_paths_dlls.yml
+  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+
+- name: Import PE extended registry surfaces
+  ansible.builtin.import_tasks: registry_pe.yml
+
+- name: Import AD privilege escalation surfaces (dc01)
+  ansible.builtin.import_tasks: ad_pe.yml
+  when: inventory_hostname == 'dc01.corp.local'

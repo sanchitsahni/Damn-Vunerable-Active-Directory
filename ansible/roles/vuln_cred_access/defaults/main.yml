@@ -1,0 +1,20 @@
+---
+# ==============================================================================
+# vuln_cred_access/defaults/main.yml
+# ==============================================================================
+
+ad_domain: "corp.local"
+
+# LmCompatibilityLevel for workstations/member servers (NOT DCs).
+# Level 1 = send LM & NTLM; accept NTLMv2 — enables NTLMv1 capture by Responder.
+lm_compat_level_members: 1
+
+# Services that must be running for coercion attacks.
+coercion_services:
+  - Spooler    # PrinterBug / SpoolSample (CRED-022)
+  - EFS        # PetitPotam via EFSRPC (CRED-020)
+
+# Services required on DCs only
+dc_coercion_services:
+  - Spooler
+  - EFS

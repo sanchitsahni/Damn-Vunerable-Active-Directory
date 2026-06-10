@@ -1,0 +1,200 @@
+---
+# ==============================================================================
+# vuln_persistence_ext/tasks/services.yml
+# Target: dc01.corp.local (unless noted)
+#
+# PER-004  Malicious scheduled task (SynchTask — calls schtasks.exe payload)
+# PER-005  COM object persistence via registry hijack entry
+# PER-006  WMI event subscription persistence (WMI filter + consumer + binding)
+# PER-017  Malicious service binary stub (dvad_svc)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# PER-004: Scheduled task persistence
+# Creates a scheduled task that runs under SYSTEM, simulating attacker-planted
+# persistence via schtasks. Triggers on logon + daily at 03:00.
+# ------------------------------------------------------------------------------
+- name: PER-004 - Check if SynchTask scheduled task exists
+  ansible.windows.win_shell: |
+    $t = Get-ScheduledTask -TaskName 'SynchTask' -ErrorAction SilentlyContinue
+    if ($t) { Write-Output "present" } else { Write-Output "absent" }
+  register: per004_check
+  changed_when: false
+  failed_when: per004_check.rc != 0
+
+- name: PER-004 - Create SynchTask scheduled task (PER-004 persistence)
+  ansible.windows.win_shell: |
+    $action  = New-ScheduledTaskAction -Execute 'cmd.exe' `
+                 -Argument '/c echo PER-004-persistence > C:\Flags\FLAG-PER-004-Schtask.txt'
+    $trigger = @(
+      (New-ScheduledTaskTrigger -AtLogOn),
+      (New-ScheduledTaskTrigger -Daily -At '03:00')
+    )
+    $principal = New-ScheduledTaskPrincipal `
+                   -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+    $settings  = New-ScheduledTaskSettingsSet -Hidden
+    Register-ScheduledTask -TaskName 'SynchTask' `
+      -Action $action -Trigger $trigger `
+      -Principal $principal -Settings $settings `
+      -Description 'PER-004: Attacker-planted scheduled task (DVAD lab)' `
+      -Force -ErrorAction Stop | Out-Null
+    Write-Output "changed: SynchTask created"
+  register: per004_set
+  changed_when: "'changed:' in per004_set.stdout"
+  failed_when: per004_set.rc != 0
+  when: "'absent' in per004_check.stdout"
+
+# ------------------------------------------------------------------------------
+# PER-005: COM object hijack persistence via HKCU registry entry.
+# Targets the {BCDE0395-E52F-467C-8E3D-C4579291692E} CLSID (MMDeviceEnumerator).
+# When any process that loads this COM object runs as the infected user, the
+# DLL path in HKCU wins over HKLM (user-level hijack — no admin required).
+# Implemented as a note + registry entry on ws01.
+# ------------------------------------------------------------------------------
+- name: PER-005 - Check COM hijack registry key on dc01
+  ansible.windows.win_shell: |
+    $path = 'HKLM:\SOFTWARE\Classes\CLSID\{BCDE0395-E52F-467C-8E3D-C4579291692E}\InProcServer32'
+    if (Test-Path $path) {
+      $v = (Get-ItemProperty $path -Name "(default)" -ErrorAction SilentlyContinue).'(default)'
+      Write-Output "present: $v"
+    } else {
+      Write-Output "absent"
+    }
+  register: per005_check
+  changed_when: false
+  failed_when: per005_check.rc != 0
+
+- name: PER-005 - Create COM hijack entry (PER-005)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Classes\CLSID\{BCDE0395-E52F-467C-8E3D-C4579291692E}\InProcServer32'
+    name: "(default)"
+    data: 'C:\Tools\dvad_com.dll'
+    type: string
+  when: "'absent' in per005_check.stdout"
+
+- name: PER-005 - Drop COM hijack note file
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-PER-005-COM-Hijack.txt'
+    content: |
+      PER-005: COM Object Hijack Persistence
+      ========================================
+      Registry: HKLM:\SOFTWARE\Classes\CLSID\{BCDE0395-E52F-467C-8E3D-C4579291692E}\InProcServer32
+      Payload:  C:\Tools\dvad_com.dll (place your DLL here)
+
+      This CLSID (MMDeviceEnumerator) is loaded by many Windows processes.
+      When a process loads this CLSID, the DLL at the registry path executes.
+      No admin required for HKCU variant; HKLM variant set here persists across all users.
+
+      Tools: ProcMon to identify COM loads, COMHijackToolkit, Cobalt Strike COM
+
+# ------------------------------------------------------------------------------
+# PER-006: WMI event subscription persistence.
+# Creates a permanent WMI event filter (SystemEventFilter) + consumer (SystemEventConsumer)
+# that triggers cmd.exe every 60 seconds. Survives reboots.
+# WMI subscriptions are a well-known persistence mechanism (T1546.003).
+# ------------------------------------------------------------------------------
+- name: PER-006 - Check if WMI event filter exists
+  ansible.windows.win_shell: |
+    $f = Get-WMIObject -Namespace "root\subscription" `
+           -Class __EventFilter -Filter "Name='SystemEventFilter'" `
+           -ErrorAction SilentlyContinue
+    if ($f) { Write-Output "present" } else { Write-Output "absent" }
+  register: per006_filter_check
+  changed_when: false
+  failed_when: per006_filter_check.rc != 0
+
+- name: PER-006 - Create WMI event filter + consumer + binding (persistence)
+  ansible.windows.win_shell: |
+    # Create event filter — fires every 60 seconds
+    $filterArgs = @{
+      Name      = 'SystemEventFilter'
+      EventNameSpace = 'root\cimv2'
+      QueryLanguage  = 'WQL'
+      Query          = "SELECT * FROM __TimerEvent WHERE TimerID='SystemTimer60s'"
+    }
+    $filter = Set-WmiInstance -Namespace 'root\subscription' `
+                -Class '__EventFilter' -Arguments $filterArgs -ErrorAction Stop
+
+    # Create timer event source
+    $timerArgs = @{
+      TimerID       = 'SystemTimer60s'
+      IntervalBetweenEvents = 60000
+    }
+    Set-WmiInstance -Namespace 'root\subscription' `
+      -Class '__IntervalTimerInstruction' -Arguments $timerArgs `
+      -ErrorAction SilentlyContinue | Out-Null
+
+    # Create command-line consumer
+    $consumerArgs = @{
+      Name                = 'SystemEventConsumer'
+      CommandLineTemplate = 'cmd.exe /c echo PER-006-WMI-persistence >> C:\Flags\FLAG-PER-006-WMI.txt'
+    }
+    $consumer = Set-WmiInstance -Namespace 'root\subscription' `
+                  -Class 'CommandLineEventConsumer' -Arguments $consumerArgs -ErrorAction Stop
+
+    # Create binding
+    $bindArgs = @{
+      Filter   = $filter
+      Consumer = $consumer
+    }
+    Set-WmiInstance -Namespace 'root\subscription' `
+      -Class '__FilterToConsumerBinding' -Arguments $bindArgs -ErrorAction Stop | Out-Null
+
+    Write-Output "changed: WMI persistence subscription created"
+  register: per006_set
+  changed_when: "'changed:' in per006_set.stdout"
+  failed_when: per006_set.rc != 0
+  when: "'absent' in per006_filter_check.stdout"
+
+# ------------------------------------------------------------------------------
+# PER-017: Malicious service binary stub.
+# Creates dvad_svc Windows service pointing to a non-existent binary path.
+# When the binary is placed at C:\Tools\dvad_svc.exe, the service executes it.
+# Unquoted service path vulnerability is also present (space in path, no quotes).
+# ------------------------------------------------------------------------------
+- name: PER-017 - Check if dvad_svc service exists
+  ansible.windows.win_shell: |
+    $s = Get-Service -Name 'dvad_svc' -ErrorAction SilentlyContinue
+    if ($s) { Write-Output "present" } else { Write-Output "absent" }
+  register: per017_check
+  changed_when: false
+  failed_when: per017_check.rc != 0
+
+- name: PER-017 - Create dvad_svc persistence service with unquoted path
+  ansible.windows.win_shell: |
+    # Unquoted service path with spaces — T1574.009
+    sc.exe create dvad_svc `
+      binPath= C:\Program Files\DVAD Service\dvad_svc.exe `
+      DisplayName= "DVAD Synchronization Service" `
+      start= auto `
+      type= own 2>&1
+    sc.exe description dvad_svc "PER-017: Persistence service — unquoted path in C:\Program Files" 2>&1
+    Write-Output "changed: dvad_svc service created"
+  register: per017_set
+  changed_when: "'changed:' in per017_set.stdout"
+  failed_when: per017_set.rc != 0 and 'already exists' not in (per017_set.stderr | default('') | lower)
+  when: "'absent' in per017_check.stdout"
+
+- name: PER-017 - Ensure service binary directory exists
+  ansible.windows.win_file:
+    path: 'C:\Program Files\DVAD Service'
+    state: directory
+  when: inventory_hostname == 'dc01.corp.local'
+
+- name: PER-017 - Drop service persistence note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-PER-017-Service-Persistence.txt'
+    content: |
+      PER-017: Malicious Service + Unquoted Service Path
+      ====================================================
+      Service: dvad_svc
+      Binary:  C:\Program Files\DVAD Service\dvad_svc.exe  (UNQUOTED — no quotes)
+      Start:   Automatic
+
+      Unquoted path: Windows tries these in order before the real binary:
+        C:\Program.exe
+        C:\Program Files\DVAD.exe         ← world-writable C:\ → plant here
+        C:\Program Files\DVAD Service\dvad_svc.exe
+
+      Replace any of the above with a malicious binary. Restart service or reboot.
+      Tools: icacls, PowerUp.ps1 Get-ServiceUnquoted, accesschk.exe

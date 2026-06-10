@@ -1,0 +1,168 @@
+---
+# ==============================================================================
+# vuln_ia_surface/tasks/ca01_surface.yml
+# Target: ca01.corp.local
+#
+# IA-039 / IA-049   IIS WebDAV — Web-DAV-Publishing + Web-Dir-Browsing features,
+#                   WebDAV enabled with write permission (PUT webshell path)
+# IA-045            WebClient service set to Automatic + running
+# IA-040            WinRM-HTTPS 5986 self-signed listener
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# IA-039 / IA-049: IIS WebDAV
+# Web-DAV-Publishing installs the WebDAV module for IIS.
+# Web-Dir-Browsing enables directory listing so PROPFIND reveals file structure.
+# WebDAV write permission (IA-049) allows PUT of .aspx webshells.
+# ------------------------------------------------------------------------------
+- name: IA-039 - Check if Web-DAV-Publishing feature is installed
+  ansible.windows.win_shell: |
+    $f = Get-WindowsFeature -Name Web-DAV-Publishing -ErrorAction SilentlyContinue
+    if ($f -and $f.InstallState -eq 'Installed') {
+      Write-Output "installed"
+    } else {
+      Write-Output "not_installed"
+    }
+  register: result_webdav_feature_check
+  changed_when: false
+  failed_when: result_webdav_feature_check.rc != 0
+
+- name: IA-039 - Install Web-DAV-Publishing and Web-Dir-Browsing IIS features
+  ansible.windows.win_shell: |
+    $result = Install-WindowsFeature `
+      -Name Web-DAV-Publishing,Web-Dir-Browsing,Web-Server `
+      -IncludeManagementTools
+    if ($result.Success) {
+      Write-Output "changed: WebDAV features installed"
+    } else {
+      Write-Error "Install-WindowsFeature WebDAV failed"
+    }
+  register: result_webdav_install
+  changed_when: "'changed:' in result_webdav_install.stdout"
+  failed_when: result_webdav_install.rc != 0
+  when: "'not_installed' in result_webdav_feature_check.stdout"
+
+- name: IA-039 / IA-049 - Check if WebDAV is enabled on Default Web Site
+  ansible.windows.win_shell: |
+    Import-Module WebAdministration -ErrorAction Stop
+    $wdav = Get-WebConfiguration -Filter "system.webServer/webdav/authoring" `
+              -PSPath "IIS:\Sites\Default Web Site" -ErrorAction SilentlyContinue
+    if ($wdav -and $wdav.enabled -eq $true) {
+      Write-Output "enabled"
+    } else {
+      Write-Output "disabled"
+    }
+  register: result_webdav_enabled_check
+  changed_when: false
+  failed_when: result_webdav_enabled_check.rc != 0
+
+- name: IA-039 / IA-049 - Enable WebDAV authoring with write permission on Default Web Site
+  ansible.windows.win_shell: |
+    Import-Module WebAdministration -ErrorAction Stop
+
+    # Enable WebDAV authoring module on Default Web Site
+    Set-WebConfigurationProperty `
+      -Filter "system.webServer/webdav/authoring" `
+      -PSPath "IIS:\Sites\Default Web Site" `
+      -Name enabled -Value $true
+
+    # Add an authoring rule allowing all users read+write (source of IA-049 webshell PUT)
+    $existingRule = Get-WebConfiguration `
+      -Filter "system.webServer/webdav/authoringRules/add[@users='*']" `
+      -PSPath "IIS:\Sites\Default Web Site" -ErrorAction SilentlyContinue
+    if (-not $existingRule) {
+      Add-WebConfiguration `
+        -Filter "system.webServer/webdav/authoringRules" `
+        -PSPath "IIS:\Sites\Default Web Site" `
+        -Value @{users='*'; path='*'; access='Read,Write,Source'}
+    }
+
+    # Enable directory browsing (Web-Dir-Browsing — PROPFIND reveals file listing)
+    Set-WebConfigurationProperty `
+      -Filter "system.webServer/directoryBrowse" `
+      -PSPath "IIS:\Sites\Default Web Site" `
+      -Name enabled -Value $true
+
+    # Disable WebDAV authentication requirement so NTLM relay works (IA-039)
+    Set-WebConfigurationProperty `
+      -Filter "system.webServer/webdav/authoring" `
+      -PSPath "IIS:\Sites\Default Web Site" `
+      -Name "requireSsl" -Value $false
+
+    # Open firewall for HTTP 80
+    $fwRule = Get-NetFirewallRule -DisplayName "HTTP 80" -ErrorAction SilentlyContinue
+    if (-not $fwRule) {
+      New-NetFirewallRule -DisplayName "HTTP 80" `
+        -Direction Inbound -Protocol TCP -LocalPort 80 -Action Allow | Out-Null
+    }
+
+    Write-Output "changed: WebDAV enabled with write permission"
+  register: result_webdav_enable
+  changed_when: "'changed:' in result_webdav_enable.stdout"
+  failed_when: result_webdav_enable.rc != 0
+  when: "'disabled' in result_webdav_enabled_check.stdout"
+
+# ------------------------------------------------------------------------------
+# IA-045: WebClient service — HTTP coercion path.
+# When WebClient is running, UNC paths using http:// trigger authentication
+# to the specified HTTP server, enabling relay attacks via HTTP NTLM.
+# ------------------------------------------------------------------------------
+- name: IA-045 (ca01) - Check WebClient service state
+  ansible.windows.win_shell: |
+    $svc = Get-Service -Name WebClient -ErrorAction SilentlyContinue
+    if ($null -eq $svc) { Write-Output "not_found" }
+    else { Write-Output "starttype=$($svc.StartType) status=$($svc.Status)" }
+  register: result_ca01_webclient_check
+  changed_when: false
+  failed_when: result_ca01_webclient_check.rc != 0
+
+- name: IA-045 (ca01) - Set WebClient to Automatic and start
+  ansible.windows.win_shell: |
+    Set-Service WebClient -StartupType Automatic -ErrorAction Stop
+    $svc = Get-Service WebClient
+    if ($svc.Status -ne 'Running') {
+      Start-Service WebClient -ErrorAction Stop
+      Write-Output "changed: WebClient started on ca01"
+    } else {
+      Write-Output "ok: WebClient running on ca01"
+    }
+  register: result_ca01_webclient_start
+  changed_when: "'changed:' in result_ca01_webclient_start.stdout"
+  failed_when: result_ca01_webclient_start.rc != 0
+  when: >
+    'not_found' not in (result_ca01_webclient_check.stdout | default('')) and
+    ('Automatic' not in (result_ca01_webclient_check.stdout | default('')) or
+     'Running' not in (result_ca01_webclient_check.stdout | default('')))
+
+# ------------------------------------------------------------------------------
+# IA-040: WinRM-HTTPS 5986 self-signed listener on ca01.
+# ------------------------------------------------------------------------------
+- name: IA-040 (ca01) - Check if WinRM HTTPS listener exists
+  ansible.windows.win_shell: |
+    $listener = winrm enumerate winrm/config/Listener 2>&1 |
+                  Select-String "Transport = HTTPS"
+    if ($listener) { Write-Output "exists" } else { Write-Output "missing" }
+  register: result_ca01_winrm_https_check
+  changed_when: false
+  failed_when: result_ca01_winrm_https_check.rc != 0
+
+- name: IA-040 (ca01) - Create self-signed cert and WinRM HTTPS listener
+  ansible.windows.win_shell: |
+    $cert = New-SelfSignedCertificate `
+              -DnsName $env:COMPUTERNAME `
+              -CertStoreLocation "Cert:\LocalMachine\My" `
+              -NotAfter (Get-Date).AddYears(10) `
+              -ErrorAction Stop
+    $thumb = $cert.Thumbprint
+    winrm create winrm/config/Listener?Address=*+Transport=HTTPS `
+      "@{Hostname=`"*`";CertificateThumbprint=`"$thumb`"}" | Out-Null
+    $fwRule = Get-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -ErrorAction SilentlyContinue
+    if (-not $fwRule) {
+      New-NetFirewallRule -DisplayName "WinRM HTTPS 5986" `
+        -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow | Out-Null
+    }
+    Write-Output "changed: WinRM HTTPS listener created on ca01"
+  register: result_ca01_winrm_https_create
+  changed_when: "'changed:' in result_ca01_winrm_https_create.stdout"
+  failed_when: result_ca01_winrm_https_create.rc != 0
+  when: "'missing' in result_ca01_winrm_https_check.stdout"

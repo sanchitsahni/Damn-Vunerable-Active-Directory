@@ -1,0 +1,24 @@
+---
+# ==============================================================================
+# vuln_cve_modern/defaults/main.yml
+# 2025-2026 CVE surface configuration
+# ==============================================================================
+
+ad_domain:    "corp.local"
+ad_domain_dn: "DC=corp,DC=local"
+attacker_ip:  "10.10.0.1"
+
+# CVE-2025-24054: NTLM hash leak via .library-ms (attacker listener IP)
+cve_2025_24054_attacker: "{{ attacker_ip }}"
+
+# CVE-2025-26633: MSC file execution (LOLbin path on ws01)
+cve_2025_26633_msc_drop: 'C:\Tools\dvad_msc_exec.msc'
+
+# CVE-2025-29824: CLFS driver LPE indicator
+cve_2025_29824_note: true
+
+# CVE-2025-21376: Windows LDAP heap overflow — note + LDAP signing check
+cve_2025_21376_note: true
+
+# CVE-2025-32701/32706: CLFS LPE (May 2025 Patch Tuesday)
+cve_2025_clfs_note: true

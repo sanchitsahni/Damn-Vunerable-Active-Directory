@@ -1,0 +1,279 @@
+---
+# ==============================================================================
+# vuln_privesc_ext/tasks/services.yml
+# Targets: file01, sql01, ws01, dc01 (per-task guards)
+#
+# PE-009   Writable service binary path (svc_phyllis on file01)
+# PE-010   AlwaysInstallElevated registry keys (ws01 + file01)
+# PE-013   SeDebugPrivilege for Domain Users (dc01)
+# PE-014   SeBackupPrivilege for Backup_Operators (dc01)
+# PE-015   Weak service DACL — Authenticated Users can modify svc_dvad_weak
+# PE-016   Unquoted service path (file01) — svc_pathsvc
+# PE-017   DLL hijack via writable service binary directory (sql01)
+# PE-020   Scheduled task runs as SYSTEM with world-writable script
+# PE-025   Named pipe impersonation surface (svc_named_pipe service)
+# PE-028   Token impersonation — SeImpersonatePrivilege on IIS/SQL accounts
+# PE-029   User-writeable SYSTEM PATH entry (%TEMP%)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# PE-010: AlwaysInstallElevated — both HKLM + HKCU must be 1 for MSI to install
+# as SYSTEM. Set on ws01 and file01.
+# ------------------------------------------------------------------------------
+- name: PE-010 - Check AlwaysInstallElevated HKLM on ws01/file01
+  ansible.windows.win_shell: |
+    $v = (Get-ItemProperty `
+            -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer' `
+            -Name 'AlwaysInstallElevated' -ErrorAction SilentlyContinue).AlwaysInstallElevated
+    if ($null -eq $v) { Write-Output "not_set" } else { Write-Output $v }
+  register: pe010_hklm_check
+  changed_when: false
+  failed_when: pe010_hklm_check.rc != 0
+  when: inventory_hostname in ['ws01.corp.local', 'file01.corp.local']
+
+- name: PE-010 - Set AlwaysInstallElevated HKLM=1
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer'
+    name: AlwaysInstallElevated
+    data: 1
+    type: dword
+  when:
+    - inventory_hostname in ['ws01.corp.local', 'file01.corp.local']
+    - pe010_hklm_check.stdout | trim != '1'
+
+- name: PE-010 - Set AlwaysInstallElevated HKCU=1
+  ansible.windows.win_regedit:
+    path: 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Installer'
+    name: AlwaysInstallElevated
+    data: 1
+    type: dword
+  when: inventory_hostname in ['ws01.corp.local', 'file01.corp.local']
+
+# ------------------------------------------------------------------------------
+# PE-015: Weak service DACL — Authenticated Users have SERVICE_ALL_ACCESS on
+# svc_dvad_weak. Allows config change (binpath) to any Authenticated User.
+# ------------------------------------------------------------------------------
+- name: PE-015 - Check if svc_dvad_weak service exists
+  ansible.windows.win_shell: |
+    $s = Get-Service -Name 'svc_dvad_weak' -ErrorAction SilentlyContinue
+    if ($s) { Write-Output "present" } else { Write-Output "absent" }
+  register: pe015_check
+  changed_when: false
+  failed_when: pe015_check.rc != 0
+  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+
+- name: PE-015 - Create svc_dvad_weak service with world-accessible DACL
+  ansible.windows.win_shell: |
+    # Create service pointing to a benign binary
+    sc.exe create svc_dvad_weak `
+      binPath= "C:\Windows\System32\cmd.exe /k echo weak" `
+      DisplayName= "DVAD Weak Service" `
+      start= disabled `
+      type= own 2>&1
+    # Grant Authenticated Users full control (SC_MANAGER_ALL_ACCESS, SERVICE_ALL_ACCESS)
+    sc.exe sdset svc_dvad_weak `
+      "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;RPWPCR;;;AU)" 2>&1
+    Write-Output "changed: svc_dvad_weak created with weak DACL"
+  register: pe015_set
+  changed_when: "'changed:' in pe015_set.stdout"
+  failed_when: pe015_set.rc != 0 and 'already exists' not in (pe015_set.stdout | default('') | lower)
+  when:
+    - inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+    - "'absent' in pe015_check.stdout"
+
+# ------------------------------------------------------------------------------
+# PE-016: Unquoted service path — svc_pathsvc on file01.
+# Binary path contains a space and no quotes → Windows probes C:\Program.exe etc.
+# ------------------------------------------------------------------------------
+- name: PE-016 - Check if svc_pathsvc service exists
+  ansible.windows.win_shell: |
+    $s = Get-Service -Name 'svc_pathsvc' -ErrorAction SilentlyContinue
+    if ($s) { Write-Output "present" } else { Write-Output "absent" }
+  register: pe016_check
+  changed_when: false
+  failed_when: pe016_check.rc != 0
+  when: inventory_hostname == 'file01.corp.local'
+
+- name: PE-016 - Create svc_pathsvc with unquoted service path
+  ansible.windows.win_shell: |
+    sc.exe create svc_pathsvc `
+      binPath= C:\Program Files\DVAD Path Service\svc_pathsvc.exe `
+      DisplayName= "DVAD Path Service" `
+      start= auto `
+      type= own 2>&1
+    Write-Output "changed: svc_pathsvc created with unquoted path"
+  register: pe016_set
+  changed_when: "'changed:' in pe016_set.stdout"
+  failed_when: pe016_set.rc != 0 and 'already exists' not in (pe016_set.stdout | default('') | lower)
+  when:
+    - inventory_hostname == 'file01.corp.local'
+    - "'absent' in pe016_check.stdout"
+
+- name: PE-016 - Ensure unquoted service directory exists (world-writable)
+  ansible.windows.win_shell: |
+    $dir = 'C:\Program Files\DVAD Path Service'
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+    icacls $dir /grant "Everyone:(OI)(CI)F" /T /C /Q 2>&1 | Out-Null
+    Write-Output "changed: directory world-writable"
+  register: pe016_dir
+  changed_when: "'changed:' in pe016_dir.stdout"
+  when: inventory_hostname == 'file01.corp.local'
+
+# ------------------------------------------------------------------------------
+# PE-017: DLL hijack via writable service binary directory on sql01.
+# The sql01 SQL Server service binary directory is world-writable.
+# Any DLL placed there (e.g., MSVCR120.dll) loads into the SYSTEM process.
+# ------------------------------------------------------------------------------
+- name: PE-017 - Check MSSQL binary directory ACL
+  ansible.windows.win_shell: |
+    $dir = 'C:\Program Files\Microsoft SQL Server\MSSQL15.MSSQLSERVER\MSSQL\Binn'
+    if (Test-Path $dir) {
+      $acl = (Get-ACL $dir).Access | Where-Object {
+        $_.IdentityReference -match "Everyone|Authenticated|Users" -and
+        $_.FileSystemRights -match "Write|FullControl"
+      }
+      if ($acl) { Write-Output "writable" } else { Write-Output "not_writable" }
+    } else {
+      Write-Output "dir_not_found"
+    }
+  register: pe017_check
+  changed_when: false
+  failed_when: pe017_check.rc != 0
+  when: inventory_hostname == 'sql01.corp.local'
+
+- name: PE-017 - Make MSSQL Binn directory world-writable (DLL hijack surface)
+  ansible.windows.win_shell: |
+    $dir = 'C:\Program Files\Microsoft SQL Server\MSSQL15.MSSQLSERVER\MSSQL\Binn'
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    icacls $dir /grant "Everyone:(OI)(CI)F" /T /C /Q 2>&1 | Out-Null
+    Write-Output "changed: MSSQL Binn world-writable"
+  register: pe017_set
+  changed_when: "'changed:' in pe017_set.stdout"
+  failed_when: pe017_set.rc != 0
+  when:
+    - inventory_hostname == 'sql01.corp.local'
+    - "'not_writable' in pe017_check.stdout or 'dir_not_found' in pe017_check.stdout"
+
+# ------------------------------------------------------------------------------
+# PE-020: Scheduled task runs as SYSTEM with world-writable script.
+# Any user who can write to the script path can execute code as SYSTEM.
+# ------------------------------------------------------------------------------
+- name: PE-020 - Check if dvad_privesc task exists
+  ansible.windows.win_shell: |
+    $t = Get-ScheduledTask -TaskName 'DvadPrivesc' -ErrorAction SilentlyContinue
+    if ($t) { Write-Output "present" } else { Write-Output "absent" }
+  register: pe020_check
+  changed_when: false
+  failed_when: pe020_check.rc != 0
+  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+
+- name: PE-020 - Create SYSTEM scheduled task with writable script
+  ansible.windows.win_shell: |
+    # Create world-writable script
+    $scriptPath = 'C:\Tools\dvad_privesc.ps1'
+    if (-not (Test-Path $scriptPath)) {
+      Set-Content $scriptPath '# PE-020: Replace this content to execute as SYSTEM'
+    }
+    icacls $scriptPath /grant "Everyone:(F)" /C /Q 2>&1 | Out-Null
+
+    $action    = New-ScheduledTaskAction -Execute 'powershell.exe' `
+                   -Argument "-NonInteractive -File $scriptPath"
+    $trigger   = New-ScheduledTaskTrigger -Daily -At '04:00'
+    $principal = New-ScheduledTaskPrincipal `
+                   -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+    $settings  = New-ScheduledTaskSettingsSet -Hidden
+    Register-ScheduledTask -TaskName 'DvadPrivesc' `
+      -Action $action -Trigger $trigger `
+      -Principal $principal -Settings $settings `
+      -Description 'PE-020: SYSTEM task with world-writable script' `
+      -Force | Out-Null
+    Write-Output "changed: DvadPrivesc task created"
+  register: pe020_set
+  changed_when: "'changed:' in pe020_set.stdout"
+  failed_when: pe020_set.rc != 0
+  when:
+    - inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+    - "'absent' in pe020_check.stdout"
+
+# ------------------------------------------------------------------------------
+# PE-025: Named pipe impersonation — svc_named_pipe service creates an
+# accessible named pipe. Any connecting client's token can be impersonated.
+# ------------------------------------------------------------------------------
+- name: PE-025 - Check if svc_named_pipe service exists
+  ansible.windows.win_shell: |
+    $s = Get-Service -Name 'svc_named_pipe' -ErrorAction SilentlyContinue
+    if ($s) { Write-Output "present" } else { Write-Output "absent" }
+  register: pe025_check
+  changed_when: false
+  failed_when: pe025_check.rc != 0
+  when: inventory_hostname in ['file01.corp.local', 'sql01.corp.local']
+
+- name: PE-025 - Create named pipe service and note file
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-PE-025-NamedPipe.txt'
+    content: |
+      PE-025: Named Pipe Impersonation
+      ==================================
+      Vector: Create a named pipe server as a low-priv user, wait for SYSTEM to connect.
+      The connecting SYSTEM process's token can be impersonated via ImpersonateNamedPipeClient().
+
+      Tools: PrintSpoofer, RogueWinRM, GodPotato, PipeSeeker
+      Prereq: SeImpersonatePrivilege or SeAssignPrimaryTokenPrivilege (granted via PE-028)
+
+      Service accounts on this machine (sql01/file01) have SeImpersonatePrivilege by default.
+      IIS AppPool, SQL Server Agent accounts → same privilege.
+  when:
+    - inventory_hostname in ['file01.corp.local', 'sql01.corp.local']
+    - "'absent' in pe025_check.stdout"
+
+# ------------------------------------------------------------------------------
+# PE-028: SeImpersonatePrivilege for IIS + SQL service accounts.
+# Granted via Local Security Policy / secedit template.
+# ------------------------------------------------------------------------------
+- name: PE-028 - Grant SeImpersonatePrivilege to Network Service + local accounts
+  ansible.windows.win_shell: |
+    $tmpCfg = "$env:TEMP\secedit_impersonate.cfg"
+    $tmpDb  = "$env:TEMP\secedit_impersonate.sdb"
+    secedit /export /cfg $tmpCfg /quiet 2>&1 | Out-Null
+    $content = Get-Content $tmpCfg -Raw
+
+    if ($content -match 'SeImpersonatePrivilege') {
+      $content = $content -replace `
+        '(SeImpersonatePrivilege\s*=\s*.*)',
+        'SeImpersonatePrivilege = *S-1-5-6,*S-1-5-20,*S-1-5-19,*S-1-5-32-544,*S-1-5-32-551'
+    } else {
+      $content += "`nSeImpersonatePrivilege = *S-1-5-6,*S-1-5-20,*S-1-5-19,*S-1-5-32-544"
+    }
+    Set-Content -Path $tmpCfg -Value $content
+    secedit /configure /db $tmpDb /cfg $tmpCfg /quiet 2>&1 | Out-Null
+    Remove-Item $tmpCfg, $tmpDb -ErrorAction SilentlyContinue
+    Write-Output "changed: SeImpersonatePrivilege configured"
+  register: pe028_set
+  changed_when: "'changed:' in pe028_set.stdout"
+  failed_when: pe028_set.rc != 0
+  when: inventory_hostname in ['file01.corp.local', 'sql01.corp.local']
+
+# ------------------------------------------------------------------------------
+# PE-029: Writable SYSTEM PATH entry — %TEMP% added to system PATH.
+# Any authenticated user can write to %TEMP%\ and plant a DLL or EXE.
+# ------------------------------------------------------------------------------
+- name: PE-029 - Check if %TEMP% is in system PATH
+  ansible.windows.win_shell: |
+    $p = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
+    if ($p -match '%TEMP%|\\Temp') { Write-Output "present" } else { Write-Output "absent" }
+  register: pe029_check
+  changed_when: false
+  failed_when: pe029_check.rc != 0
+  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+
+- name: PE-029 - Add %TEMP% to system PATH (PE-029)
+  ansible.windows.win_shell: |
+    $current = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
+    [Environment]::SetEnvironmentVariable('PATH', "$current;%TEMP%", 'Machine')
+    Write-Output "changed: %TEMP% added to PATH"
+  register: pe029_set
+  changed_when: "'changed:' in pe029_set.stdout"
+  failed_when: pe029_set.rc != 0
+  when:
+    - inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+    - "'absent' in pe029_check.stdout"

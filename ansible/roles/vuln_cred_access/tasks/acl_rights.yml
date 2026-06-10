@@ -1,0 +1,251 @@
+---
+# ==============================================================================
+# vuln_cred_gaps/tasks/acl-rights.yml
+# Target: dc01.corp.local (all_dcs guard in main.yml)
+#
+# CRED-013  svc_darryl GetChanges + GetChangesAll (DCSync) on domain NC
+# CRED-014  svc_darryl2 GenericAll on DC computer object
+# CRED-017  RBCD: dvad_rbcd$ machine account with delegation on file01
+# CRED-026  ADIDNS write for Authenticated Users
+# CRED-065  DPAPI backup key readable via LSARPC (no special config — note only)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# CRED-013 / CRED-014: DCSync-capable users
+# GetChanges (DS-Replication-Get-Changes) + GetChangesAll required for DCSync.
+# Grant both to svc_darryl. GenericAll on dc01 computer object for svc_darryl2.
+# ------------------------------------------------------------------------------
+- name: CRED-013 - Check if svc_darryl exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $u = Get-ADUser -Filter "SamAccountName -eq 'svc_darryl'" -ErrorAction SilentlyContinue
+    if ($u) { Write-Output "present" } else { Write-Output "absent" }
+  register: cred013_user_check
+  changed_when: false
+  failed_when: cred013_user_check.rc != 0
+
+- name: CRED-013 - Create svc_darryl user
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $p = ConvertTo-SecureString 'Darryl2024!' -AsPlainText -Force
+    New-ADUser -Name 'svc_darryl' -SamAccountName 'svc_darryl' `
+      -AccountPassword $p -Enabled $true -PasswordNeverExpires $true `
+      -Path "CN=Users,{{ ad_domain_dn }}" `
+      -Description "CRED-013: DCSync surface — has DS-Replication-Get-Changes rights"
+  when: "'absent' in cred013_user_check.stdout"
+
+- name: CRED-013 - Check GetChanges right on domain NC
+  ansible.windows.win_shell: |
+    $dse = [ADSI]"LDAP://dc01.{{ ad_domain }}/RootDSE"
+    $domainNC = $dse.defaultNamingContext
+    $acl = (Get-ACL "AD:$domainNC").Access
+    $user = "{{ ad_domain_dn | replace('DC=','') | replace(',','.') | upper }}\svc_darryl"
+    $found = $acl | Where-Object {
+      $_.IdentityReference -like "*svc_darryl*" -and
+      $_.ActiveDirectoryRights -match "ExtendedRight"
+    }
+    if ($found) { Write-Output "present" } else { Write-Output "absent" }
+  register: cred013_right_check
+  changed_when: false
+  failed_when: cred013_right_check.rc != 0
+
+- name: CRED-013 - Grant DCSync rights (GetChanges + GetChangesAll) to svc_darryl
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $domainDN = (Get-ADDomain -ErrorAction Stop).DistinguishedName
+    $sid = (Get-ADUser -Identity 'svc_darryl' -ErrorAction Stop).SID
+
+    # DS-Replication-Get-Changes: {1131f6aa-9c07-11d1-f79f-00c04fc2dcd2}
+    # DS-Replication-Get-Changes-All: {1131f6ad-9c07-11d1-f79f-00c04fc2dcd2}
+    $ace1 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+      $sid,
+      [System.DirectoryServices.ActiveDirectoryRights]::ExtendedRight,
+      [System.Security.AccessControl.AccessControlType]::Allow,
+      [Guid]'1131f6aa-9c07-11d1-f79f-00c04fc2dcd2'
+    )
+    $ace2 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+      $sid,
+      [System.DirectoryServices.ActiveDirectoryRights]::ExtendedRight,
+      [System.Security.AccessControl.AccessControlType]::Allow,
+      [Guid]'1131f6ad-9c07-11d1-f79f-00c04fc2dcd2'
+    )
+    $obj = [ADSI]"LDAP://$domainDN"
+    $obj.ObjectSecurity.AddAccessRule($ace1)
+    $obj.ObjectSecurity.AddAccessRule($ace2)
+    $obj.CommitChanges()
+    Write-Output "changed: DCSync rights granted to svc_darryl"
+  register: cred013_right_set
+  changed_when: "'changed:' in cred013_right_set.stdout"
+  failed_when: cred013_right_set.rc != 0
+  when: "'absent' in cred013_right_check.stdout"
+
+- name: CRED-014 - Check if svc_darryl2 user exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $u = Get-ADUser -Filter "SamAccountName -eq 'svc_darryl2'" -ErrorAction SilentlyContinue
+    if ($u) { Write-Output "present" } else { Write-Output "absent" }
+  register: cred014_user_check
+  changed_when: false
+  failed_when: cred014_user_check.rc != 0
+
+- name: CRED-014 - Create svc_darryl2 user
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $p = ConvertTo-SecureString 'Darryl2024!' -AsPlainText -Force
+    New-ADUser -Name 'svc_darryl2' -SamAccountName 'svc_darryl2' `
+      -AccountPassword $p -Enabled $true -PasswordNeverExpires $true `
+      -Path "CN=Users,{{ ad_domain_dn }}" `
+      -Description "CRED-014: GenericAll on DC01 computer object"
+  when: "'absent' in cred014_user_check.stdout"
+
+- name: CRED-014 - Grant GenericAll on DC01 computer object to svc_darryl2
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    try {
+      $dc = Get-ADComputer -Identity 'dc01' -ErrorAction Stop
+      $sid = (Get-ADUser -Identity 'svc_darryl2' -ErrorAction Stop).SID
+      $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+        $sid,
+        [System.DirectoryServices.ActiveDirectoryRights]::GenericAll,
+        [System.Security.AccessControl.AccessControlType]::Allow
+      )
+      $obj = [ADSI]"LDAP://$($dc.DistinguishedName)"
+      $obj.ObjectSecurity.AddAccessRule($ace)
+      $obj.CommitChanges()
+      Write-Output "changed: GenericAll on DC01 granted to svc_darryl2"
+    } catch {
+      Write-Output "WARN: $($_.Exception.Message)"
+    }
+  register: cred014_acl_set
+  changed_when: "'changed:' in cred014_acl_set.stdout"
+  failed_when: cred014_acl_set.rc != 0
+
+# ------------------------------------------------------------------------------
+# CRED-017: RBCD — dvad_rbcd$ has msDS-AllowedToActOnBehalfOfOtherIdentity on
+# file01.corp.local. Enables S4U2Self+S4U2Proxy from dvad_rbcd$ to file01.
+# ------------------------------------------------------------------------------
+- name: CRED-017 - Check if dvad_rbcd$ machine account exists
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $c = Get-ADComputer -Filter "SamAccountName -eq 'dvad_rbcd$'" -ErrorAction SilentlyContinue
+    if ($c) { Write-Output "present" } else { Write-Output "absent" }
+  register: cred017_machine_check
+  changed_when: false
+  failed_when: cred017_machine_check.rc != 0
+
+- name: CRED-017 - Create dvad_rbcd$ machine account
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $p = ConvertTo-SecureString 'RbcdDvad2024!' -AsPlainText -Force
+    New-ADComputer -Name 'dvad_rbcd' -SamAccountName 'dvad_rbcd$' `
+      -AccountPassword $p -Enabled $true `
+      -Path "CN=Computers,{{ ad_domain_dn }}" `
+      -Description "CRED-017: RBCD attacker machine account"
+  when: "'absent' in cred017_machine_check.stdout"
+
+- name: CRED-017 - Check RBCD attribute on file01
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $f = Get-ADComputer -Identity 'file01' -Properties 'msDS-AllowedToActOnBehalfOfOtherIdentity' -ErrorAction SilentlyContinue
+    if ($f -and $f.'msDS-AllowedToActOnBehalfOfOtherIdentity') {
+      Write-Output "present"
+    } else {
+      Write-Output "absent"
+    }
+  register: cred017_rbcd_check
+  changed_when: false
+  failed_when: cred017_rbcd_check.rc != 0
+
+- name: CRED-017 - Set RBCD on file01 for dvad_rbcd$
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    try {
+      $attacker = Get-ADComputer -Identity 'dvad_rbcd' -ErrorAction Stop
+      $target   = Get-ADComputer -Identity 'file01' -ErrorAction Stop
+      Set-ADComputer -Identity $target -PrincipalsAllowedToDelegateToAccount $attacker
+      Write-Output "changed: RBCD set on file01 for dvad_rbcd$"
+    } catch {
+      Write-Output "WARN: $($_.Exception.Message)"
+    }
+  register: cred017_rbcd_set
+  changed_when: "'changed:' in cred017_rbcd_set.stdout"
+  failed_when: cred017_rbcd_set.rc != 0
+  when: "'absent' in cred017_rbcd_check.stdout"
+
+# ------------------------------------------------------------------------------
+# CRED-026: ADIDNS write rights for Authenticated Users.
+# The MicrosoftDNS zone object ACL is modified to allow Authenticated Users
+# CreateChild/WriteProperty so any domain user can add DNS records (ADIDNS abuse).
+# ------------------------------------------------------------------------------
+- name: CRED-026 - Check ADIDNS write ACL for Authenticated Users
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $zoneDN = "DC=corp.local,CN=MicrosoftDNS,DC=DomainDnsZones,{{ ad_domain_dn }}"
+    try {
+      $acl = Get-ACL "AD:$zoneDN" -ErrorAction Stop
+      $found = $acl.Access | Where-Object {
+        $_.IdentityReference -match "Authenticated Users" -and
+        $_.ActiveDirectoryRights -match "CreateChild"
+      }
+      if ($found) { Write-Output "present" } else { Write-Output "absent" }
+    } catch {
+      Write-Output "zone_not_found"
+    }
+  register: cred026_check
+  changed_when: false
+  failed_when: >
+    cred026_check.rc != 0 and
+    'zone_not_found' not in (cred026_check.stdout | default(''))
+
+- name: CRED-026 - Grant Authenticated Users CreateChild/WriteProperty on ADIDNS zone
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $zoneDN = "DC=corp.local,CN=MicrosoftDNS,DC=DomainDnsZones,{{ ad_domain_dn }}"
+    try {
+      $sid = New-Object System.Security.Principal.SecurityIdentifier(
+        [System.Security.Principal.WellKnownSidType]::AuthenticatedUserSid, $null)
+      $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+        $sid,
+        [System.DirectoryServices.ActiveDirectoryRights]"CreateChild,WriteProperty",
+        [System.Security.AccessControl.AccessControlType]::Allow
+      )
+      $obj = [ADSI]"LDAP://$zoneDN"
+      $obj.ObjectSecurity.AddAccessRule($ace)
+      $obj.CommitChanges()
+      Write-Output "changed: ADIDNS write granted to Authenticated Users"
+    } catch {
+      Write-Output "WARN: $($_.Exception.Message)"
+    }
+  register: cred026_set
+  changed_when: "'changed:' in cred026_set.stdout"
+  failed_when: >
+    cred026_set.rc != 0 and
+    'zone_not_found' not in (cred026_set.stderr | default('') | lower)
+  when: >
+    'absent' in (cred026_check.stdout | default('')) and
+    'zone_not_found' not in (cred026_check.stdout | default(''))
+
+# ------------------------------------------------------------------------------
+# CRED-065: DPAPI domain backup key — note file only.
+# The backup key is always present on the PDC emulator; no additional config
+# needed. Note explains how to extract via impacket dpapi.py or Mimikatz.
+# ------------------------------------------------------------------------------
+- name: CRED-065 - Drop DPAPI backup key extraction note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\FLAG-CRED-065-DPAPI-BackupKey.txt'
+    content: |
+      CRED-065: DPAPI Domain Backup Key
+      ====================================
+      The DPAPI domain backup key is stored on the PDC emulator (dc01.corp.local).
+      Any Domain Admin can extract it. Once extracted it decrypts ALL domain user
+      DPAPI-protected secrets (browser passwords, WiFi keys, vault credentials).
+
+      Extraction:
+        impacket-dpapi backupkeys --target dc01.corp.local \
+          --account Administrator --password DVADlab2024! --export
+
+        mimikatz# lsadump::backupkeys /system:dc01.corp.local /export
+
+      Use with:
+        impacket-dpapi credential --masterkey <blob> --backupkeys <key.pvk>
+  when: inventory_hostname == 'dc01.corp.local'

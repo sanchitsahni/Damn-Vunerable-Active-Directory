@@ -1,0 +1,238 @@
+---
+# ==============================================================================
+# ad_domain/tasks/users.yml
+# Creates all lab users in corp.local.
+# Only imported when ad_domain == "corp.local".
+#
+# Intentional misconfigurations preserved:
+#   - svc_michael: DoNotRequirePreAuth=true (AS-REP roasting — DF-002)
+#   - svc_phyllis:    PasswordNeverExpires + weak SPN (Kerberoasting — DF-001)
+#   - svc_darryl:    PasswordNeverExpires (persistence account)
+#   - Many accounts: PasswordNeverExpires intentional for stable lab targets
+# ==============================================================================
+
+- name: Create corp.local users
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $base = "DC=corp,DC=local"
+
+    # Helper — returns $true if user already exists
+    function User-Exists($sam) {
+      return [bool](Get-ADUser -Filter "SamAccountName -eq '$sam'" -ErrorAction SilentlyContinue)
+    }
+
+    $users = @(
+      # ---- Regular lab users (Office / Dunder Mifflin theme) ----
+      @{
+        Sam  = "pam.beesly"
+        Name = "Pam Beesly"
+        UPN  = "pam.beesly@corp.local"
+        Pwd  = "Alice1234!"
+        Path = "OU=Users,OU=Corp,$base"
+        Opts = @{}
+      },
+      @{
+        Sam  = "oscar.martinez"
+        Name = "Oscar Martinez"
+        UPN  = "oscar.martinez@corp.local"
+        Pwd  = "Bob12345!"
+        Path = "OU=Users,OU=Corp,$base"
+        Opts = @{}
+      },
+      @{
+        Sam  = "michael.scott"
+        Name = "Michael Scott"
+        UPN  = "michael.scott@corp.local"
+        Pwd  = "WorldsBestBoss1!"
+        Path = "OU=Users,OU=Corp,$base"
+        Opts = @{}
+      },
+      @{
+        Sam  = "dwight.schrute"
+        Name = "Dwight Schrute"
+        UPN  = "dwight.schrute@corp.local"
+        Pwd  = "BeetFarm2024!"
+        Path = "OU=Users,OU=Corp,$base"
+        Opts = @{}
+      },
+      @{
+        Sam  = "ryan.howard"
+        Name = "Ryan Howard"
+        UPN  = "ryan.howard@corp.local"
+        Pwd  = "TempWorker1!"
+        Path = "OU=Users,OU=Corp,$base"
+        Opts = @{}
+      },
+      @{
+        Sam  = "andy.bernard"
+        Name = "Andy Bernard"
+        UPN  = "andy.bernard@corp.local"
+        Pwd  = "AndrewB2024!"
+        Path = "OU=Users,OU=Corp,$base"
+        Opts = @{}
+      },
+      @{
+        Sam  = "stanley.hudson"
+        Name = "Stanley Hudson"
+        UPN  = "stanley.hudson@corp.local"
+        Pwd  = "Stanley2024!"
+        Path = "OU=Users,OU=Corp,$base"
+        Opts = @{}
+      },
+      # ---- Generic users for recon/enumeration surface ----
+      @{
+        Sam  = "jim.halpert"
+        Name = "Jim Halpert"
+        UPN  = "jim.halpert@corp.local"
+        Pwd  = "User1234!"
+        Path = "OU=Users,OU=Corp,$base"
+        Opts = @{}
+      },
+      @{
+        Sam  = "kelly.kapoor"
+        Name = "Kelly Kapoor"
+        UPN  = "kelly.kapoor@corp.local"
+        Pwd  = "User1234!"
+        Path = "OU=Users,OU=Corp,$base"
+        Opts = @{}
+      },
+      @{
+        Sam  = "meredith.palmer"
+        Name = "Meredith Palmer"
+        UPN  = "meredith.palmer@corp.local"
+        Pwd  = "User1234!"
+        Path = "OU=Users,OU=Corp,$base"
+        Opts = @{}
+      },
+      @{
+        Sam  = "toby.flenderson"
+        Name = "Toby Flenderson"
+        UPN  = "toby.flenderson@corp.local"
+        Pwd  = "User1234!"
+        Path = "OU=Users,OU=Corp,$base"
+        Opts = @{}
+      },
+      @{
+        Sam  = "creed.bratton"
+        Name = "Creed Bratton"
+        UPN  = "creed.bratton@corp.local"
+        Pwd  = "User1234!"
+        Path = "OU=Users,OU=Corp,$base"
+        Opts = @{}
+      },
+      @{
+        Sam  = "phyllis.vance"
+        Name = "Phyllis Vance"
+        UPN  = "phyllis.vance@corp.local"
+        Pwd  = "User1234!"
+        Path = "OU=Users,OU=Corp,$base"
+        Opts = @{}
+      },
+      @{
+        Sam  = "angela.martin"
+        Name = "Angela Martin"
+        UPN  = "angela.martin@corp.local"
+        Pwd  = "User1234!"
+        Path = "OU=Users,OU=Corp,$base"
+        Opts = @{}
+      },
+      # ---- Service accounts in dedicated OU ----
+      @{
+        Sam  = "svc_printer"
+        Name = "svc_printer"
+        UPN  = "svc_printer@corp.local"
+        Pwd  = "Printer2024!"
+        Path = "OU=ServiceAccounts,OU=Corp,$base"
+        Opts = @{ PasswordNeverExpires = $true }
+      },
+      @{
+        Sam  = "svc_dwight"
+        Name = "svc_dwight"
+        UPN  = "svc_dwight@corp.local"
+        Pwd  = "BeetFarm1!"
+        Path = "OU=ServiceAccounts,OU=Corp,$base"
+        Opts = @{ PasswordNeverExpires = $true }
+      },
+      @{
+        Sam  = "svc_creed"
+        Name = "svc_creed"
+        UPN  = "svc_creed@corp.local"
+        Pwd  = "Creed123"
+        Path = "OU=ServiceAccounts,OU=Corp,$base"
+        Opts = @{ PasswordNeverExpires = $true }
+      },
+      # DF-002: AS-REP roasting target — DoNotRequirePreAuth intentional
+      @{
+        Sam  = "svc_michael"
+        Name = "svc_michael"
+        UPN  = "svc_michael@corp.local"
+        Pwd  = "NoPreauth1!"
+        Path = "OU=ServiceAccounts,OU=Corp,$base"
+        Opts = @{ PasswordNeverExpires = $true; DoesNotRequirePreAuth = $true }
+      },
+      # Backup account — intentionally over-privileged for DF-006
+      @{
+        Sam  = "svc_darryl"
+        Name = "svc_darryl"
+        UPN  = "svc_darryl@corp.local"
+        Pwd  = "Darryl2024!"
+        Path = "OU=ServiceAccounts,OU=Corp,$base"
+        Opts = @{ PasswordNeverExpires = $true }
+      },
+      # DF-001: Kerberoasting target — weak password + SPN set after creation
+      @{
+        Sam  = "svc_phyllis"
+        Name = "svc_phyllis"
+        UPN  = "svc_phyllis@corp.local"
+        Pwd  = "Password1"
+        Path = "OU=ServiceAccounts,OU=Corp,$base"
+        Opts = @{ PasswordNeverExpires = $true }
+      },
+      # SQL service account — SPN set after creation
+      @{
+        Sam  = "svc_kevin"
+        Name = "svc_kevin"
+        UPN  = "svc_kevin@corp.local"
+        Pwd  = "Kevin1234"
+        Path = "OU=ServiceAccounts,OU=Corp,$base"
+        Opts = @{ PasswordNeverExpires = $true }
+      }
+    )
+
+    $created = 0
+    foreach ($u in $users) {
+      if (User-Exists $u.Sam) {
+        Write-Output "EXISTS: $($u.Sam)"
+        continue
+      }
+
+      $params = @{
+        Name              = $u.Name
+        SamAccountName    = $u.Sam
+        UserPrincipalName = $u.UPN
+        AccountPassword   = (ConvertTo-SecureString $u.Pwd -AsPlainText -Force)
+        Enabled           = $true
+        Path              = $u.Path
+      }
+      # Merge optional attributes
+      foreach ($k in $u.Opts.Keys) { $params[$k] = $u.Opts[$k] }
+
+      New-ADUser @params
+      Write-Output "CREATED: $($u.Sam)"
+      $created++
+    }
+
+    # ---- SPNs for Kerberoasting targets (DF-001) ----
+    # Set outside the loop so they're always applied even on re-runs
+    $spns = @{
+      "svc_phyllis" = "HTTP/legacy.corp.local"
+      "svc_kevin"  = "MSSQLSvc/sql01.corp.local:1433"
+      "svc_dwight" = "HTTP/dwight.corp.local"
+    }
+    foreach ($sam in $spns.Keys) {
+      Set-ADUser -Identity $sam -ServicePrincipalNames @{Add=$spns[$sam]} -ErrorAction SilentlyContinue
+    }
+
+    Write-Output "DONE: created=$created"
+  register: users_result
+  changed_when: "'CREATED:' in users_result.stdout"

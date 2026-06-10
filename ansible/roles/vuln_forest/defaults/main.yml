@@ -1,0 +1,16 @@
+---
+# ==============================================================================
+# vuln_forest/defaults/main.yml
+# ==============================================================================
+
+# Known lab password for child-domain krbtgt (ExtraSID / DF-007)
+child_krbtgt_password: "KrbtgtEU2024!"
+
+# SPN added to svc_dwight for cross-forest Kerberoasting (DF-010)
+crossforest_spn: "HTTP/crossforest.finance.local"
+
+# Trust names to disable SID filtering on (DF-008)
+corp_trust_targets:
+  - finance.local
+  - root.corp
+  - eu.corp.local

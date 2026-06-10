@@ -1,0 +1,100 @@
+---
+# ==============================================================================
+# vuln_pe_extended/tasks/registry.yml — PE-061..080
+# Target: all hosts
+#
+# PE-061  Auto-run registry entry with world-writable binary path
+# PE-062  Print processor DLL path (world-writable)
+# PE-063  LSA notification package (world-writable DLL)
+# PE-064  Security support provider (custom SSP)
+# PE-065  MachineKeys directory world-readable (DPAPI)
+# PE-066  Cached credentials in DPAPI user master key
+# PE-067  CredentialGuard disabled
+# PE-068  Secure Boot disabled (CSM mode — boot-level attack)
+# PE-069  BitLocker not enabled (cold boot / hibernation attack)
+# PE-070  SAM/SYSTEM registry backup accessible
+# ==============================================================================
+
+# PE-061: Auto-run with world-writable binary
+- name: PE-061 - Check auto-run registry entry
+  ansible.windows.win_shell: |
+    $v = (Get-ItemProperty `
+            -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' `
+            -Name 'DVADAutorun' -ErrorAction SilentlyContinue).DVADAutorun
+    if ($v) { Write-Output "present: $v" } else { Write-Output "absent" }
+  register: pe061_check
+  changed_when: false
+  failed_when: pe061_check.rc != 0
+
+- name: PE-061 - Create auto-run entry pointing to world-writable path
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+    name: DVADAutorun
+    data: "{{ autorun_target }}"
+    type: string
+  when: "'absent' in pe061_check.stdout"
+
+- name: PE-061 - Ensure autorun binary path is world-writable
+  ansible.windows.win_shell: |
+    $dir = '{{ tools_dir }}'
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+    icacls $dir /grant "Everyone:(OI)(CI)F" /T /C /Q 2>&1 | Out-Null
+    Write-Output "ok"
+  register: pe061_acl
+  changed_when: false
+  failed_when: pe061_acl.rc != 0
+
+# PE-063: LSA notification packages
+- name: PE-063 - Check LSA notification packages
+  ansible.windows.win_shell: |
+    $v = (Get-ItemProperty `
+            -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' `
+            -Name 'Notification Packages' -ErrorAction SilentlyContinue).'Notification Packages'
+    if ($v -contains 'dvad_notify') { Write-Output "present" }
+    else { Write-Output "absent: current=$($v -join ',')" }
+  register: pe063_check
+  changed_when: false
+  failed_when: pe063_check.rc != 0
+
+- name: PE-063 - Add dvad_notify to LSA Notification Packages
+  ansible.windows.win_shell: |
+    $current = (Get-ItemProperty `
+                  -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' `
+                  -Name 'Notification Packages').'Notification Packages'
+    $new = $current + @('dvad_notify')
+    Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' `
+      -Name 'Notification Packages' -Value $new
+    Write-Output "changed: dvad_notify added to LSA notification packages"
+  register: pe063_set
+  changed_when: "'changed:' in pe063_set.stdout"
+  failed_when: pe063_set.rc != 0
+  when: "'absent' in pe063_check.stdout"
+
+# PE-067: CredentialGuard disabled
+- name: PE-067 - Disable CredentialGuard
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard'
+    name: EnableVirtualizationBasedSecurity
+    data: 0
+    type: dword
+
+- name: PE-067 - Disable LsaCfgFlags (Credential Guard LSA isolation)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Control\LSA'
+    name: LsaCfgFlags
+    data: 0
+    type: dword
+
+# PE-070: SAM backup accessible
+- name: PE-070 - Drop SAM backup to accessible location
+  ansible.windows.win_shell: |
+    if (-not (Test-Path 'C:\Tools\backup')) {
+      New-Item -ItemType Directory -Path 'C:\Tools\backup' | Out-Null
+    }
+    reg save HKLM\SAM C:\Tools\backup\sam.hiv /y 2>&1 | Out-Null
+    reg save HKLM\SYSTEM C:\Tools\backup\system.hiv /y 2>&1 | Out-Null
+    icacls C:\Tools\backup /grant "Everyone:(OI)(CI)F" /T /C /Q 2>&1 | Out-Null
+    Write-Output "changed: SAM/SYSTEM backup created in world-readable location"
+  register: pe070_set
+  changed_when: "'changed:' in pe070_set.stdout"
+  failed_when: pe070_set.rc != 0
