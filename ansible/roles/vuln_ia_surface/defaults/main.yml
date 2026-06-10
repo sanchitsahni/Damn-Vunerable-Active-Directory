@@ -21,7 +21,7 @@ ia_sysvol_script_content: |
 ia_attacker_ip: "10.10.0.1"
 
 # NFS share details (IA-037)
-ia_nfs_share_name: "DVAD_NFS"
+ia_nfs_share_name: "DUNDER_NFS"
 ia_nfs_share_path: 'C:\Shares\NFS'
 
 # FTP site name (IA-035)

@@ -63,16 +63,16 @@ create_bridge() {
         info "Bridge ${name} already exists."
     else
         log "Creating bridge ${name} (${gw_cidr})..."
-        sudo ip link add name "${name}" type bridge
-        sudo ip addr add "${gw_cidr}" dev "${name}"
-        sudo ip link set "${name}" up
+        sudo -n ip link add name "${name}" type bridge
+        sudo -n ip addr add "${gw_cidr}" dev "${name}"
+        sudo -n ip link set "${name}" up
         log "Bridge ${name} up."
     fi
 
     # Register with qemu-bridge-helper so unprivileged QEMU can attach tap ifaces
-    sudo mkdir -p /etc/qemu
-    if ! sudo grep -qx "allow ${name}" /etc/qemu/bridge.conf 2>/dev/null; then
-        echo "allow ${name}" | sudo tee -a /etc/qemu/bridge.conf >/dev/null
+    sudo -n mkdir -p /etc/qemu
+    if ! sudo -n grep -qx "allow ${name}" /etc/qemu/bridge.conf 2>/dev/null; then
+        echo "allow ${name}" | sudo -n tee -a /etc/qemu/bridge.conf >/dev/null
         info "Registered ${name} in /etc/qemu/bridge.conf"
     fi
 }
@@ -86,7 +86,7 @@ setup_ip_forwarding() {
     current="$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo 0)"
     if [[ "${current}" != "1" ]]; then
         log "Enabling IPv4 forwarding..."
-        sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null
+        sudo -n sysctl -w net.ipv4.ip_forward=1 >/dev/null
     else
         info "IPv4 forwarding already enabled."
     fi
@@ -113,37 +113,37 @@ setup_nat() {
     if command -v nft &>/dev/null; then
         # nftables path
         # Create the dvad table + chains only once
-        if ! sudo nft list table inet dvad &>/dev/null 2>&1; then
-            sudo nft add table inet dvad
-            sudo nft add chain inet dvad postrouting \
+        if ! sudo -n nft list table inet dvad &>/dev/null 2>&1; then
+            sudo -n nft add table inet dvad
+            sudo -n nft add chain inet dvad postrouting \
                 '{ type nat hook postrouting priority srcnat; policy accept; }'
-            sudo nft add chain inet dvad forward \
+            sudo -n nft add chain inet dvad forward \
                 '{ type filter hook forward priority 0; policy accept; }'
         fi
 
         # Masquerade from each lab subnet to the internet
         for subnet in "10.10.0.0/24" "10.20.0.0/24" "10.30.0.0/24" "10.0.2.0/24"; do
             local rule="ip saddr ${subnet} oifname \"${out_iface}\" masquerade"
-            if ! sudo nft list chain inet dvad postrouting 2>/dev/null | grep -qF "ip saddr ${subnet}"; then
-                sudo nft add rule inet dvad postrouting ${rule}
+            if ! sudo -n nft list chain inet dvad postrouting 2>/dev/null | grep -qF "ip saddr ${subnet}"; then
+                sudo -n nft add rule inet dvad postrouting ${rule}
                 info "Added nft masquerade rule: ${subnet} → ${out_iface}"
             fi
         done
     else
         # iptables fallback
         for subnet in "10.10.0.0/24" "10.20.0.0/24" "10.30.0.0/24" "10.0.2.0/24"; do
-            if ! sudo iptables -t nat -C POSTROUTING \
+            if ! sudo -n iptables -t nat -C POSTROUTING \
                     -s "${subnet}" -o "${out_iface}" -j MASQUERADE 2>/dev/null; then
-                sudo iptables -t nat -A POSTROUTING \
+                sudo -n iptables -t nat -A POSTROUTING \
                     -s "${subnet}" -o "${out_iface}" -j MASQUERADE
                 info "Added iptables masquerade rule: ${subnet} → ${out_iface}"
             fi
         done
         for br in "${BRIDGE_CTF}" "${BRIDGE_FINANCE}" "${BRIDGE_ROOT}" "${BRIDGE_NAT}"; do
-            sudo iptables -C FORWARD -i "${br}" -j ACCEPT 2>/dev/null || \
-                sudo iptables -A FORWARD -i "${br}" -j ACCEPT
-            sudo iptables -C FORWARD -o "${br}" -j ACCEPT 2>/dev/null || \
-                sudo iptables -A FORWARD -o "${br}" -j ACCEPT
+            sudo -n iptables -C FORWARD -i "${br}" -j ACCEPT 2>/dev/null || \
+                sudo -n iptables -A FORWARD -i "${br}" -j ACCEPT
+            sudo -n iptables -C FORWARD -o "${br}" -j ACCEPT 2>/dev/null || \
+                sudo -n iptables -A FORWARD -o "${br}" -j ACCEPT
         done
     fi
 }
@@ -159,21 +159,21 @@ setup_cross_bridge_routes() {
 
     # Route 10.20.0.0/24 via dvad-finance bridge gateway (already on-link)
     if ! ip route show dev "${BRIDGE_FINANCE}" | grep -q "10.20.0.0/24" 2>/dev/null; then
-        sudo ip route add 10.20.0.0/24 dev "${BRIDGE_FINANCE}" src "${GW_FINANCE}" 2>/dev/null || true
+        sudo -n ip route add 10.20.0.0/24 dev "${BRIDGE_FINANCE}" src "${GW_FINANCE}" 2>/dev/null || true
         info "Route 10.20.0.0/24 → ${BRIDGE_FINANCE}"
     fi
 
     # Route 10.30.0.0/24 via dvad-root bridge gateway
     if ! ip route show dev "${BRIDGE_ROOT}" | grep -q "10.30.0.0/24" 2>/dev/null; then
-        sudo ip route add 10.30.0.0/24 dev "${BRIDGE_ROOT}" src "${GW_ROOT}" 2>/dev/null || true
+        sudo -n ip route add 10.30.0.0/24 dev "${BRIDGE_ROOT}" src "${GW_ROOT}" 2>/dev/null || true
         info "Route 10.30.0.0/24 → ${BRIDGE_ROOT}"
     fi
 
     # Allow forwarding between the bridges (kernel may drop inter-bridge traffic)
     if command -v nft &>/dev/null; then
-        if ! sudo nft list table inet dvad &>/dev/null 2>&1; then
-            sudo nft add table inet dvad
-            sudo nft add chain inet dvad forward \
+        if ! sudo -n nft list table inet dvad &>/dev/null 2>&1; then
+            sudo -n nft add table inet dvad
+            sudo -n nft add chain inet dvad forward \
                 '{ type filter hook forward priority 0; policy accept; }'
         fi
         # Accept forwarding from ctf → finance and ctf → root (trust-attack paths)
@@ -185,8 +185,8 @@ setup_cross_bridge_routes() {
             local in_br="${pair%%:*}"
             local out_br="${pair##*:}"
             local rule="iifname \"${in_br}\" oifname \"${out_br}\" accept"
-            if ! sudo nft list chain inet dvad forward 2>/dev/null | grep -qF "iifname \"${in_br}\" oifname \"${out_br}\""; then
-                sudo nft add rule inet dvad forward ${rule}
+            if ! sudo -n nft list chain inet dvad forward 2>/dev/null | grep -qF "iifname \"${in_br}\" oifname \"${out_br}\""; then
+                sudo -n nft add rule inet dvad forward ${rule}
             fi
         done
     else
@@ -198,8 +198,8 @@ setup_cross_bridge_routes() {
             "${BRIDGE_ROOT}:${BRIDGE_CTF}"; do
             local in_br="${pair%%:*}"
             local out_br="${pair##*:}"
-            sudo iptables -C FORWARD -i "${in_br}" -o "${out_br}" -j ACCEPT 2>/dev/null || \
-                sudo iptables -A FORWARD -i "${in_br}" -o "${out_br}" -j ACCEPT
+            sudo -n iptables -C FORWARD -i "${in_br}" -o "${out_br}" -j ACCEPT 2>/dev/null || \
+                sudo -n iptables -A FORWARD -i "${in_br}" -o "${out_br}" -j ACCEPT
         done
     fi
 
@@ -283,14 +283,14 @@ start_dnsmasq() {
         old_pid="$(cat "${DNSMASQ_PID}")"
         if kill -0 "${old_pid}" 2>/dev/null; then
             warn "Stopping existing dnsmasq (PID: ${old_pid})..."
-            sudo kill "${old_pid}" 2>/dev/null || true
+            sudo -n kill "${old_pid}" 2>/dev/null || true
             sleep 1
         fi
         rm -f "${DNSMASQ_PID}"
     fi
 
     log "Starting dnsmasq..."
-    sudo dnsmasq \
+    sudo -n dnsmasq \
         --conf-file="${DNSMASQ_CONF}" \
         --pid-file="${DNSMASQ_PID}" \
         --log-facility="${DNSMASQ_LOG}"
@@ -365,27 +365,27 @@ destroy() {
         pid="$(cat "${DNSMASQ_PID}")"
         if kill -0 "${pid}" 2>/dev/null; then
             log "Stopping dnsmasq (PID: ${pid})..."
-            sudo kill "${pid}" 2>/dev/null || true
+            sudo -n kill "${pid}" 2>/dev/null || true
         fi
     fi
     # Belt-and-suspenders: kill any stray dvad dnsmasq processes
-    sudo pkill -f "dnsmasq.*dvad" 2>/dev/null || true
+    sudo -n pkill -f "dnsmasq.*dvad" 2>/dev/null || true
     rm -rf "${DNSMASQ_DIR}"
 
     # Remove bridges
     for br in "${BRIDGE_CTF}" "${BRIDGE_FINANCE}" "${BRIDGE_ROOT}" "${BRIDGE_NAT}"; do
         if ip link show "${br}" &>/dev/null 2>&1; then
             log "Removing bridge ${br}..."
-            sudo ip link set "${br}" down 2>/dev/null || true
-            sudo ip link delete "${br}" 2>/dev/null || true
+            sudo -n ip link set "${br}" down 2>/dev/null || true
+            sudo -n ip link delete "${br}" 2>/dev/null || true
         fi
     done
 
     # Remove firewall rules
     if command -v nft &>/dev/null; then
-        if sudo nft list table inet dvad &>/dev/null 2>&1; then
+        if sudo -n nft list table inet dvad &>/dev/null 2>&1; then
             log "Removing nftables dvad table..."
-            sudo nft delete table inet dvad
+            sudo -n nft delete table inet dvad
         fi
     else
         # Best-effort iptables cleanup
@@ -393,7 +393,7 @@ destroy() {
         out_iface="$(outbound_iface || true)"
         if [[ -n "${out_iface}" ]]; then
             for subnet in "10.10.0.0/24" "10.20.0.0/24" "10.30.0.0/24" "10.0.2.0/24"; do
-                sudo iptables -t nat -D POSTROUTING \
+                sudo -n iptables -t nat -D POSTROUTING \
                     -s "${subnet}" -o "${out_iface}" -j MASQUERADE 2>/dev/null || true
             done
         fi
@@ -402,7 +402,7 @@ destroy() {
     # Remove qemu-bridge-helper entries
     for br in "${BRIDGE_CTF}" "${BRIDGE_FINANCE}" "${BRIDGE_ROOT}" "${BRIDGE_NAT}"; do
         if [[ -f /etc/qemu/bridge.conf ]]; then
-            sudo sed -i "/^allow ${br}$/d" /etc/qemu/bridge.conf 2>/dev/null || true
+            sudo -n sed -i "/^allow ${br}$/d" /etc/qemu/bridge.conf 2>/dev/null || true
         fi
     done
 

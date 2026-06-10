@@ -1,0 +1,113 @@
+---
+# ==============================================================================
+# vuln_traffic_sim/tasks/main.yml
+# Target: ws01.corp.local (and optionally file01 for cross-subnet traffic)
+#
+# Deploys dunder-traffic.ps1 + three scheduled tasks (one per domain user).
+# Each task runs an infinite PS loop that opens SMB shares every 30 s:
+#   - Real hosts (file01, dc01, sql01) → ntlmrelayx relay targets
+#   - Fake hostnames                   → LLMNR/NBNS → Responder NTLMv2 capture
+#   - WPAD probes                      → proxy auth abuse
+#
+# Attack chains enabled:
+#   Responder -I <iface> -wrf       → captures NTLMv2 from fake-host probes
+#   ntlmrelayx -tf targets.txt -smb2support → relays real-host auths
+# ==============================================================================
+
+- name: Traffic sim - Create install directory
+  ansible.windows.win_file:
+    path: "{{ traffic_sim_install_dir }}"
+    state: directory
+
+- name: Traffic sim - Deploy dunder-traffic.ps1
+  ansible.windows.win_copy:
+    src: dunder-traffic.ps1
+    dest: "{{ traffic_sim_script }}"
+
+- name: Traffic sim - Unblock script (allow execution without prompt)
+  ansible.windows.win_shell: |
+    Unblock-File -Path "{{ traffic_sim_script }}" -ErrorAction SilentlyContinue
+  changed_when: false
+
+# ── One scheduled task per domain user ────────────────────────────────────────
+# Each task starts at boot and runs indefinitely (script loops internally).
+# Running as domain user ensures their NTLMv2 hash is sent on each UNC access.
+
+- name: Traffic sim - Create scheduled task for {{ item.username }}
+  community.windows.win_scheduled_task:
+    name: "{{ item.task_name }}"
+    description: >
+      Dunder Mifflin — {{ item.username }} simulated workstation traffic.
+      Generates SMB NTLM auth every {{ traffic_sim_interval }}s for relay/capture practice.
+    actions:
+      - path: powershell.exe
+        arguments: >-
+          -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass
+          -File "{{ traffic_sim_script }}"
+          -Identity "{{ item.username }}"
+          -IntervalSeconds {{ traffic_sim_interval }}
+    triggers:
+      - type: boot                  # start when machine boots
+        delay: PT2M                 # wait 2 min for domain auth to be available
+      - type: registration          # also start immediately when task is registered
+    username: "{{ ad_domain_netbios }}\\{{ item.username }}"
+    password: "{{ item.password }}"
+    logon_type: password
+    run_level: limited              # no elevation needed
+    multiple_instances: ignore_new  # only one instance at a time
+    restart_count: 99
+    restart_interval: PT30S        # restart 30 s after crash
+    execution_time_limit: PT0S     # no time limit (runs forever)
+    enabled: true
+    state: present
+  loop: "{{ traffic_sim_users }}"
+  loop_control:
+    label: "{{ item.task_name }}"
+
+# ── Start tasks immediately (don't wait for reboot) ───────────────────────────
+
+- name: Traffic sim - Start task {{ item.task_name }} now
+  ansible.windows.win_shell: |
+    $task = Get-ScheduledTask -TaskName "{{ item.task_name }}" -ErrorAction SilentlyContinue
+    if ($task -and $task.State -ne 'Running') {
+        Start-ScheduledTask -TaskName "{{ item.task_name }}"
+        Write-Output "changed: started {{ item.task_name }}"
+    } else {
+        Write-Output "ok: already running or not found"
+    }
+  register: _start_result
+  changed_when: "'changed:' in _start_result.stdout"
+  loop: "{{ traffic_sim_users }}"
+  loop_control:
+    label: "{{ item.task_name }}"
+
+# ── Verify ────────────────────────────────────────────────────────────────────
+
+- name: Traffic sim - Verify tasks registered
+  ansible.windows.win_shell: |
+    $tasks = @("{{ traffic_sim_users | map(attribute='task_name') | join('","') }}")
+    $missing = @()
+    foreach ($t in $tasks) {
+        if (-not (Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue)) {
+            $missing += $t
+        }
+    }
+    if ($missing.Count -gt 0) {
+        Write-Error "Missing tasks: $($missing -join ', ')"
+        exit 1
+    }
+    Write-Output "ok: all traffic sim tasks registered"
+  changed_when: false
+
+- name: Traffic sim - Check log file exists (task has run at least once)
+  ansible.windows.win_stat:
+    path: "{{ traffic_sim_log }}"
+  register: _log_stat
+  changed_when: false
+  failed_when: false
+
+- name: Traffic sim - Log status
+  ansible.builtin.debug:
+    msg: >-
+      Traffic sim log:
+      {{ 'present (' + (_log_stat.stat.size | string) + ' bytes)' if _log_stat.stat.exists else 'not yet created — tasks may need a minute to start' }}

@@ -93,7 +93,7 @@
 - name: PE-019 - Drop SYSTEM-only flag (readable via SeBackupPrivilege)
   ansible.windows.win_copy:
     dest: 'C:\Flags\dc-system-only.txt'
-    content: "FLAG{PE-019_BACKUP_OPERATORS_READ_PATH}"
+    content: "DUNDER{PE-019_BACKUP_OPERATORS_READ_PATH}\r\nNothing stresses me out. Except having to seek the approval of my inferiors. — Dwight Schrute\r\n"
   when: inventory_hostname == 'dc01.corp.local'
 
 - name: PE-019 - Lock flag to SYSTEM and Admins only

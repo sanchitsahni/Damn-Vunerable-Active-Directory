@@ -205,21 +205,24 @@
   ansible.windows.win_copy:
     dest: 'C:\Flags\forest\df-003-dcsync.txt'
     content: |
-      FLAG{DF-003_DCSYNC_ALL_HASHES}
+      DUNDER{DF-003_DCSYNC_ALL_HASHES}
+      "You have no idea how high I can fly." — Michael Scott
       Hint: michael.scott holds Replicating Directory Changes + All.
 
 - name: DF-009 - Drop FSP hijack flag
   ansible.windows.win_copy:
     dest: 'C:\Flags\forest\df-009-fsp.txt'
     content: |
-      FLAG{DF-009_FSP_HIJACK_DOMAIN_ADMINS}
+      DUNDER{DF-009_FSP_HIJACK_DOMAIN_ADMINS}
+      "Identity theft is not a joke, Jim! Millions of families suffer every year!" — Dwight Schrute
       Hint: FINANCE\Administrator is a corp.local Domain Admin via FSP.
 
 - name: DF-010 - Drop cross-forest Kerberoast flag
   ansible.windows.win_copy:
     dest: 'C:\Flags\forest\df-010-crossforest-kerb.txt'
     content: |
-      FLAG{DF-010_CROSS_FOREST_KERBEROAST}
+      DUNDER{DF-010_CROSS_FOREST_KERBEROAST}
+      "I am better than you have ever been or ever will be." — Dwight Schrute
       Hint: svc_dwight has SPN reachable from finance.local.
 
 - name: Lock forest flag directory to SYSTEM/Admins

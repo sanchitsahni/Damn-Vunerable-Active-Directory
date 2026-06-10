@@ -16,9 +16,8 @@ packer {
 # ==============================================================================
 variable "iso_url" {
   type        = string
-  description = "Windows 10 ISO URL or local path — must be Desktop Experience (full GUI)"
-  # Win10 22H2 eval — requires registration but no key
-  default = "https://go.microsoft.com/fwlink/?LinkId=821363"
+  description = "Windows 10 ISO — deploy.py phase 0 downloads to media/ first. Must be Desktop Experience (full GUI)."
+  default     = "../media/windows-10.iso"
 }
 
 variable "iso_checksum" {

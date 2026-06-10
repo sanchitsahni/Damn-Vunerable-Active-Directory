@@ -7,8 +7,8 @@
 # ==============================================================================
 set -euo pipefail
 
-DVAD_HOME="${DVAD_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-VM_DIR="${CFG_DISK_PATH:-${DVAD_HOME}/vms}"
+DUNDER_HOME="${DUNDER_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+VM_DIR="${CFG_DISK_PATH:-${DUNDER_HOME}/vms}"
 MAX_WAIT_MINUTES="${MAX_WAIT_MINUTES:-30}"
 POLL_INTERVAL=20
 

@@ -6,10 +6,10 @@ set -euo pipefail
 IFS=$'\n\t'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DVAD_HOME="${DVAD_HOME:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+DUNDER_HOME="${DUNDER_HOME:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 
 # Default packer output dir (can be overridden via --packer-output)
-PACKER_OUTPUT="${DVAD_HOME}/packer-output"
+PACKER_OUTPUT="${DUNDER_HOME}/packer-output"
 
 # ==============================================================================
 # Logging helpers
@@ -461,7 +461,7 @@ Usage: $(basename "$0") [OPTIONS] COMMAND [ARGS]
 
 Options:
   --packer-output <dir>   Directory containing packer-output/ subdirs
-                          (default: ${DVAD_HOME}/packer-output)
+                          (default: ${DUNDER_HOME}/packer-output)
   --profile <profile>     VM profile: full | minimal | single-dc (default: full)
 
 Commands:

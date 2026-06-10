@@ -6,13 +6,13 @@ set -euo pipefail
 IFS=$'\n\t'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DVAD_HOME="${DVAD_HOME:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+DUNDER_HOME="${DUNDER_HOME:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 
 # Default packer output dir (can be overridden via --packer-output)
-PACKER_OUTPUT="${DVAD_HOME}/packer-output"
+PACKER_OUTPUT="${DUNDER_HOME}/packer-output"
 
 # Per-VM runtime state lives here
-VM_STATE_DIR="${DVAD_HOME}/vms"
+VM_STATE_DIR="${DUNDER_HOME}/vms"
 
 VNC_BIND="127.0.0.1"
 
@@ -135,9 +135,9 @@ ensure_tap() {
     fi
 
     log "Creating TAP interface ${tap} on bridge ${bridge}..."
-    sudo ip tuntap add dev "${tap}" mode tap
-    sudo ip link set "${tap}" master "${bridge}"
-    sudo ip link set "${tap}" up
+    sudo -n ip tuntap add dev "${tap}" mode tap
+    sudo -n ip link set "${tap}" master "${bridge}"
+    sudo -n ip link set "${tap}" up
 }
 
 # destroy_tap <vm_name>
@@ -145,8 +145,8 @@ destroy_tap() {
     local vm_name="$1"
     local tap="dvad-${vm_name}"
     if ip link show "${tap}" &>/dev/null 2>&1; then
-        sudo ip link set "${tap}" down 2>/dev/null || true
-        sudo ip link delete "${tap}" 2>/dev/null || true
+        sudo -n ip link set "${tap}" down 2>/dev/null || true
+        sudo -n ip link delete "${tap}" 2>/dev/null || true
     fi
 }
 
@@ -460,7 +460,7 @@ Usage: $(basename "$0") [OPTIONS] COMMAND [ARGS]
 
 Options:
   --packer-output <dir>   Directory containing packer-output/ subdirs
-                          (default: ${DVAD_HOME}/packer-output)
+                          (default: ${DUNDER_HOME}/packer-output)
   --profile <profile>     VM profile: full | minimal | single-dc (default: full)
 
 Commands:

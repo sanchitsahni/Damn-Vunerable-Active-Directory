@@ -28,39 +28,37 @@ Lab-wide password is `DVADlab2024!` (in `ansible/inventory.yml` and `providers/q
 ## Common commands
 
 ```bash
-python3 deploy.py                                            # interactive wizard
-python3 deploy.py --profile minimal --provider qemu --yes   # corp.local only (5 VMs)
+python3 deploy.py                                            # interactive menu (GOAD-style)
+python3 deploy.py --profile minimal --provider qemu --yes   # corp.local only, no prompts
 python3 deploy.py --profile single-dc --provider qemu --yes # 1 VM smoke test
 python3 deploy.py --ram 24 --disk-path /mnt/vms --yes
+python3 deploy.py --phase 5 --yes                           # restart from Ansible
+python3 deploy.py --destroy --yes                           # tear down everything
 
-# Re-run only Ansible after VMs are up (note: inventory.yml at ansible/ root, NOT inventory/hosts.yml):
+# Re-run only Ansible after VMs are up:
 cd ansible && ansible-playbook -i inventory.yml playbooks/site.yml -v
 
 # Syntax / dry-run checks (closest thing to a "test"):
-ansible-playbook -i inventory.yml playbooks/site.yml --syntax-check
-ansible-playbook -i inventory.yml playbooks/site.yml --check
-
-# Tear down:
-bash qemu/vm-create.sh destroy
-bash qemu/network/setup-network.sh destroy
+ansible-playbook -i ansible/inventory.yml ansible/playbooks/site.yml --syntax-check
+ansible-playbook -i ansible/inventory.yml ansible/playbooks/site.yml --check
 ```
 
 **No test suite, no linter, no formatter, no CI exists.** Validation is "run it and watch it boot." Don't claim a change is verified unless it has actually been booted, or syntax-checked for Ansible.
 
 ## Architecture in one screen
 
-- `qemu/vm-create.sh` defines each VM (RAM, CPU, MAC, VNC port, bridge), generates a per-VM `autounattend.xml` + `post-install.ps1`, and packs them into a small ISO injected alongside the Windows install media. Per-VM state lives in `vms/<name>.{pid,mon,log,installed}`. The `.installed` marker is what switches `launch_vm` from install-mode (with ISOs attached) to boot-mode.
-- `qemu/network/setup-network.sh` creates Linux bridges + a project-local dnsmasq under `/tmp/dvad-dnsmasq/` with static leases keyed off the MACs in `vm-create.sh`.
-- `ansible/playbooks/site.yml` is the master playbook. It deliberately mixes `import_tasks: tasks/<name>.yml` (imperative AD setup) and `import_role: <name>` (vulnerability injection). Both styles are intentional. **Phases 6–9 are the vulnerability injection phases — they are the whole point of the lab.**
+- `providers/qemu/vm-create.sh` defines each VM (RAM, CPU, MAC, VNC port, bridge), generates a per-VM `autounattend.xml` + `post-install.ps1`, and packs them into a small ISO injected alongside the Windows install media. Per-VM state lives in `vms/<name>.{pid,mon,log,installed}`. The `.installed` marker switches `launch_vm` from install-mode (with ISOs attached) to boot-mode.
+- `providers/qemu/network-setup.sh` creates Linux bridges + a project-local dnsmasq under `/tmp/dvad-dnsmasq/` with static leases keyed off the MACs in `vm-create.sh`.
+- `ansible/playbooks/site.yml` is the master playbook. It deliberately mixes `import_tasks: tasks/<name>.yml` (imperative AD setup) and `import_role: <name>` (vulnerability injection). Both styles are intentional. **Roles in `roles/vuln_*` are the vulnerability injection phases — they are the whole point of the lab.**
 - Ansible connection is **WinRM/NTLM on 5985 (HTTP, cert validation off)**. Targets must have finished `post-install.ps1` (which enables WinRM and disables the firewall) before any play succeeds; `scripts/wait-vms.sh` waits on the `.installed` marker.
 
 ## Host setup gotchas
 
-- KVM + libvirt + `swtpm` + OVMF required. `deploy.sh` installs these per distro (apt/dnf/pacman/zypper).
+- KVM + libvirt + `swtpm` + OVMF required. `scripts/setup-deps.sh` installs these per distro (apt/dnf/pacman/zypper).
 - User is added to `kvm` and `libvirt` groups by the script — but a **logout/login is required** before the same shell can launch VMs without sudo on `/dev/kvm`.
 - Bridge creation, dnsmasq, nftables/iptables rules **require sudo**; the script calls `sudo` directly rather than running as root.
 - Windows ISO + virtio-win ISO land in `media/` (~5GB). Re-runs are idempotent; existing ISOs are skipped.
-- Default VM disk path is `./vms` unless `--disk-path` is passed. (The duplicate `qemu/vm_defs/vm-create.sh` uses `/var/lib/libvirt/images/ad-ctf` — another reason to ignore it.)
+- Default VM disk path is `./vms` unless `--disk-path` is passed to `deploy.py`.
 
 ## Editing conventions
 

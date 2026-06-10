@@ -79,14 +79,14 @@
 
 - name: CRED-004 - Check Windows Credentials blob file on ws01
   ansible.windows.win_stat:
-    path: 'C:\Users\Administrator\AppData\Roaming\Microsoft\Credentials\DVAD_CRED_BLOB'
+    path: 'C:\Users\Administrator\AppData\Roaming\Microsoft\Credentials\DUNDER_CRED_BLOB'
   register: result_wincred_blob
   when: inventory_hostname == 'ws01.corp.local'
   changed_when: false
 
 - name: CRED-004 - Drop Windows Credentials blob stub on ws01
   ansible.windows.win_copy:
-    dest: 'C:\Users\Administrator\AppData\Roaming\Microsoft\Credentials\DVAD_CRED_BLOB'
+    dest: 'C:\Users\Administrator\AppData\Roaming\Microsoft\Credentials\DUNDER_CRED_BLOB'
     content: |
       DVAD lab stub credential blob — use Mimikatz dpapi::cred to parse.
       Credential: sql01.corp.local sa SqlServer2025!

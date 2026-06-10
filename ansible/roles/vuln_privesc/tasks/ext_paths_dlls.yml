@@ -4,11 +4,11 @@
 # Targets: file01.corp.local (PE-009/010/041/042), ws01.corp.local (PE-010/023)
 #
 # PE-009  DLL hijacking: C:\Tools in system PATH + version.dll placeholder
-#         + DVADApp.exe placeholder that loads version.dll at startup
+#         + DunderApp.exe placeholder that loads version.dll at startup
 # PE-010  PATH hijacking: C:\Tools already in PATH (PE-009); also add
 #         C:\Users\Public\ to user PATH on ws01
 # PE-023  Startup folder writable by Domain Users
-# PE-041  Modifiable service path folder: C:\Program Files\DVADSvc2\ writable
+# PE-041  Modifiable service path folder: C:\Program Files\DunderSvc2\ writable
 #         by Authenticated Users + service.exe placeholder
 # PE-042  Modifiable registry service path: DVADRegSvc with writable ImagePath key
 # PE-025  Token privilege helper files: token_helper.exe + privileges.txt
@@ -34,13 +34,13 @@
 - name: PE-009 - Plant version.dll placeholder in C:\Tools
   ansible.windows.win_copy:
     dest: 'C:\Tools\version.dll'
-    content: "DVAD_PLACEHOLDER: replace with malicious version.dll for DLL hijack (PE-009)\r\n"
+    content: "DUNDER_PLACEHOLDER: replace with malicious version.dll for DLL hijack (PE-009)\r\n"
   when: inventory_hostname == 'file01.corp.local'
 
-- name: PE-009 - Plant DVADApp.exe placeholder (loads version.dll on start)
+- name: PE-009 - Plant DunderApp.exe placeholder (loads version.dll on start)
   ansible.windows.win_copy:
-    dest: 'C:\Tools\DVADApp.exe'
-    content: "DVAD_PLACEHOLDER: DVADApp.exe loads version.dll from its own directory.\r\nReplace version.dll to hijack execution context.\r\n"
+    dest: 'C:\Tools\DunderApp.exe'
+    content: "DUNDER_PLACEHOLDER: DunderApp.exe loads version.dll from its own directory.\r\nReplace version.dll to hijack execution context.\r\n"
   when: inventory_hostname == 'file01.corp.local'
 
 - name: PE-009 - Prepend C:\Tools to system PATH (DLL search-order hijack)
@@ -57,12 +57,12 @@
   changed_when: "'changed:' in result_pe009_path.stdout"
   failed_when: result_pe009_path.rc != 0
 
-- name: PE-009 - Verify version.dll and DVADApp.exe present and PATH configured
+- name: PE-009 - Verify version.dll and DunderApp.exe present and PATH configured
   ansible.windows.win_shell: |
     $dllOk = Test-Path "C:\Tools\version.dll"
-    $appOk = Test-Path "C:\Tools\DVADApp.exe"
+    $appOk = Test-Path "C:\Tools\DunderApp.exe"
     $pathOk = [Environment]::GetEnvironmentVariable("PATH","Machine") -like "*C:\Tools*"
-    Write-Output "version.dll: $dllOk | DVADApp.exe: $appOk | PATH: $pathOk"
+    Write-Output "version.dll: $dllOk | DunderApp.exe: $appOk | PATH: $pathOk"
     if (-not $dllOk -or -not $appOk -or -not $pathOk) { exit 1 }
   when: inventory_hostname == 'file01.corp.local'
   register: result_pe009_check
@@ -145,7 +145,7 @@
 - name: PE-025 - Place token_helper.exe placeholder in C:\Tools
   ansible.windows.win_copy:
     dest: 'C:\Tools\token_helper.exe'
-    content: "DVAD_PLACEHOLDER: token_helper.exe — impersonation/privilege demo tool\r\n"
+    content: "DUNDER_PLACEHOLDER: token_helper.exe — impersonation/privilege demo tool\r\n"
   when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
 
 - name: PE-025 - Place privileges.txt listing available lab privileges
@@ -189,50 +189,50 @@
 
 # ------------------------------------------------------------------------------
 # PE-041: Modifiable service path folder
-# C:\Program Files\DVADSvc2\ is writable by Authenticated Users and contains
+# C:\Program Files\DunderSvc2\ is writable by Authenticated Users and contains
 # a service binary. Authenticated Users can overwrite service.exe and wait for
 # the next service restart to execute code as SYSTEM.
 # ------------------------------------------------------------------------------
-- name: PE-041 - Create C:\Program Files\DVADSvc2 service folder
+- name: PE-041 - Create C:\Program Files\DunderSvc2 service folder
   ansible.windows.win_file:
-    path: 'C:\Program Files\DVADSvc2'
+    path: 'C:\Program Files\DunderSvc2'
     state: directory
   when: inventory_hostname == 'file01.corp.local'
 
-- name: PE-041 - Stage DVADSvc2 placeholder service binary
+- name: PE-041 - Stage DunderSvc2 placeholder service binary
   ansible.windows.win_copy:
-    dest: 'C:\Program Files\DVADSvc2\service.exe'
-    content: "DVAD_PLACEHOLDER: DVADSvc2 service binary — overwrite to escalate (PE-041)\r\n"
+    dest: 'C:\Program Files\DunderSvc2\service.exe'
+    content: "DUNDER_PLACEHOLDER: DunderSvc2 service binary — overwrite to escalate (PE-041)\r\n"
   when: inventory_hostname == 'file01.corp.local'
 
-- name: PE-041 - Create DVADSvc2 service
+- name: PE-041 - Create DunderSvc2 service
   ansible.windows.win_shell: |
-    $svc = Get-Service -Name "DVADSvc2" -ErrorAction SilentlyContinue
+    $svc = Get-Service -Name "DunderSvc2" -ErrorAction SilentlyContinue
     if (-not $svc) {
-      sc.exe create DVADSvc2 `
-        binpath= "C:\Program Files\DVADSvc2\service.exe" `
+      sc.exe create DunderSvc2 `
+        binpath= "C:\Program Files\DunderSvc2\service.exe" `
         start= auto | Out-Null
-      Write-Output "changed: DVADSvc2 created"
+      Write-Output "changed: DunderSvc2 created"
     } else {
-      Write-Output "ok: DVADSvc2 already exists"
+      Write-Output "ok: DunderSvc2 already exists"
     }
   when: inventory_hostname == 'file01.corp.local'
   register: result_dvadsvc2_create
   changed_when: "'changed:' in result_dvadsvc2_create.stdout"
   failed_when: result_dvadsvc2_create.rc != 0
 
-- name: PE-041 - Grant Authenticated Users full control on DVADSvc2 folder
+- name: PE-041 - Grant Authenticated Users full control on DunderSvc2 folder
   ansible.windows.win_shell: |
-    icacls "C:\Program Files\DVADSvc2" `
+    icacls "C:\Program Files\DunderSvc2" `
       /grant "NT AUTHORITY\Authenticated Users:(OI)(CI)F" 2>$null | Out-Null
   when: inventory_hostname == 'file01.corp.local'
   changed_when: false
 
-- name: PE-041 - Verify DVADSvc2 folder + service + ACL
+- name: PE-041 - Verify DunderSvc2 folder + service + ACL
   ansible.windows.win_shell: |
-    $folderOk = Test-Path "C:\Program Files\DVADSvc2\service.exe"
-    $svcOk    = [bool](Get-Service "DVADSvc2" -ErrorAction SilentlyContinue)
-    $acl      = icacls "C:\Program Files\DVADSvc2" 2>$null | Out-String
+    $folderOk = Test-Path "C:\Program Files\DunderSvc2\service.exe"
+    $svcOk    = [bool](Get-Service "DunderSvc2" -ErrorAction SilentlyContinue)
+    $acl      = icacls "C:\Program Files\DunderSvc2" 2>$null | Out-String
     $aclOk    = $acl -like "*Authenticated Users*"
     Write-Output "folder: $folderOk | service: $svcOk | ACL: $aclOk"
     if (-not $folderOk -or -not $svcOk -or -not $aclOk) { exit 1 }
@@ -252,7 +252,7 @@
     # Placeholder binary (reuse toolsvc.exe location for simplicity)
     $binPath = "C:\Tools\dvadregsvc.exe"
     if (-not (Test-Path $binPath)) {
-      Set-Content -Path $binPath -Value "DVAD_PLACEHOLDER" -Force
+      Set-Content -Path $binPath -Value "DUNDER_PLACEHOLDER" -Force
     }
     $svc = Get-Service -Name "DVADRegSvc" -ErrorAction SilentlyContinue
     if (-not $svc) {

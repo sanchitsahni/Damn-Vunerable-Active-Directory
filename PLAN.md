@@ -170,7 +170,7 @@ Trusts:
 | IA-034 | SNMP public/private community RO+RW | N/A | UDP 161 reachable | `public`/`private` communities on every server |
 | IA-035 | Anonymous IIS FTP on file01 | N/A | TCP 21 reachable | `Web-Ftp-Server` installed, anon allowed |
 | IA-036 | Telnet brute on file01 | N/A | TCP 23 reachable | `TlntSvr` running |
-| IA-037 | Anonymous NFS r/w share on file01 | N/A | TCP/UDP 2049 reachable | `DVAD_NFS` export with `EnableAnonymousAccess=$true` |
+| IA-037 | Anonymous NFS r/w share on file01 | N/A | TCP/UDP 2049 reachable | `DUNDER_NFS` export with `EnableAnonymousAccess=$true` |
 | IA-038 | SMB1 / EternalBlue surface on file01 | MS17-010 | TCP 445 reachable | `FS-SMB1` enabled + reg `SMB1=1` (file01 only) |
 | IA-039 | IIS WebDAV PROPFIND + relay endpoint on ca01 | N/A | HTTP 80 reachable | `Web-DAV-Publishing` + `Web-Dir-Browsing` on ca01 |
 | IA-040 | WinRM-HTTPS (5986) self-signed cert | N/A | TCP 5986 reachable | Self-signed listener on every host |

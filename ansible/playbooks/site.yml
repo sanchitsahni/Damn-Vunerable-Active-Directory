@@ -265,4 +265,21 @@
   roles:
     - role: vuln_web_apps
 
+# ============================================================================
+# Phase 17: Victim traffic simulation (ws01)
+# Deploys three scheduled tasks (pam.beesly, jim.halpert, dwight.schrute) that
+# open SMB shares every 30 s — real hosts for ntlmrelayx, fake hostnames for
+# LLMNR/Responder NTLMv2 capture.  Must run AFTER domain_join so user accounts
+# and domain trust are in place.
+# ============================================================================
+- name: Phase 17 — Victim traffic simulation (ws01)
+  hosts: ws01.corp.local
+  gather_facts: false
+  tags:
+    - vuln_traffic_sim
+    - traffic_sim
+    - phase17
+  roles:
+    - role: vuln_traffic_sim
+
 # (Phase 17-18 surfaces absorbed into vuln_cred_access, vuln_lateral, vuln_forest in phases 8-10)

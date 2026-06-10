@@ -63,7 +63,7 @@
       <UserData>
         <AcceptEula>true</AcceptEula>
         <FullName>Administrator</FullName>
-        <Organization>DVAD-Lab</Organization>
+        <Organization>DunderMifflin</Organization>
         <ProductKey>
           <!-- KMS client key for Server 2019 Standard — public, eval use -->
           <Key>N69G4-B89J2-4G8F4-WWYCC-J464C</Key>
@@ -83,19 +83,6 @@
     <component name="Microsoft-Windows-ErrorReportingCore" processorArchitecture="amd64"
                publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
       <DisableWER>1</DisableWER>
-    </component>
-    <component name="Microsoft-Windows-ServerManager-SvrMgrNc" processorArchitecture="amd64"
-               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
-      <DoNotOpenServerManagerAtLogon>true</DoNotOpenServerManagerAtLogon>
-    </component>
-    <component name="Microsoft-Windows-IE-ESC" processorArchitecture="amd64"
-               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
-      <IEHardenAdmin>false</IEHardenAdmin>
-      <IEHardenUser>false</IEHardenUser>
-    </component>
-    <component name="Microsoft-Windows-OutOfBoxExperience" processorArchitecture="amd64"
-               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
-      <DoNotOpenInitialConfigurationTasksAtLogon>true</DoNotOpenInitialConfigurationTasksAtLogon>
     </component>
   </settings>
 

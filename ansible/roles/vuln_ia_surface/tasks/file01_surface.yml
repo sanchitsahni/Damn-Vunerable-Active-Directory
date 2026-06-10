@@ -6,7 +6,7 @@
 # IA-034 / IA-050   SNMP public (RO) + private (RW) community strings
 # IA-035            IIS FTP server with anonymous authentication
 # IA-036            Telnet server (TlntSvr service)
-# IA-037            Anonymous NFS r/w share (DVAD_NFS)
+# IA-037            Anonymous NFS r/w share (DUNDER_NFS)
 # IA-038            SMB1 enabled — FS-SMB1 feature + registry SMB1=1
 # IA-044 / IA-015   Print Spooler running + DVAD-PRN shared printer
 # IA-047            WSD/SSDP services running (FDResPub, SSDPSRV, fdPHost)
@@ -199,7 +199,7 @@
 
 # ------------------------------------------------------------------------------
 # IA-037: Anonymous NFS r/w share.
-# Installs NFS server feature and creates DVAD_NFS with no auth + anon access.
+# Installs NFS server feature and creates DUNDER_NFS with no auth + anon access.
 # ------------------------------------------------------------------------------
 - name: IA-037 - Check if FS-NFS-Service feature is installed
   ansible.windows.win_shell: |
@@ -231,7 +231,7 @@
     path: "{{ ia_nfs_share_path }}"
     state: directory
 
-- name: IA-037 - Check if DVAD_NFS share already exists
+- name: IA-037 - Check if DUNDER_NFS share already exists
   ansible.windows.win_shell: |
     $share = Get-NfsShare -Name "{{ ia_nfs_share_name }}" -ErrorAction SilentlyContinue
     if ($share) { Write-Output "exists" } else { Write-Output "missing" }
@@ -239,7 +239,7 @@
   changed_when: false
   failed_when: result_nfs_share_check.rc != 0
 
-- name: IA-037 - Create anonymous NFS share (DVAD_NFS)
+- name: IA-037 - Create anonymous NFS share (DUNDER_NFS)
   ansible.windows.win_shell: |
     New-NfsShare -Name "{{ ia_nfs_share_name }}" `
       -Path "{{ ia_nfs_share_path }}" `
@@ -248,7 +248,7 @@
       -AnonymousUid 65534 `
       -AnonymousGid 65534 `
       -ErrorAction Stop
-    Write-Output "changed: DVAD_NFS share created"
+    Write-Output "changed: DUNDER_NFS share created"
   register: result_nfs_create
   changed_when: "'changed:' in result_nfs_create.stdout"
   failed_when: result_nfs_create.rc != 0

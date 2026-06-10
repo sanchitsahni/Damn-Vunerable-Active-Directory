@@ -1,0 +1,23 @@
+---
+# vuln_traffic_sim/defaults/main.yml
+# Victim simulation — generates NTLM auth traffic for Responder/ntlmrelayx practice.
+
+traffic_sim_interval: 30          # seconds between traffic rounds
+traffic_sim_install_dir: 'C:\DunderLab'
+traffic_sim_script: 'C:\DunderLab\dunder-traffic.ps1'
+traffic_sim_log: 'C:\DunderLab\traffic-sim.log'
+
+ad_domain_netbios: "CORP"
+
+# Accounts that run traffic tasks — pulled from ad_domain users
+# Each gets its own scheduled task running as that user
+traffic_sim_users:
+  - username: "pam.beesly"
+    password: "Alice1234!"
+    task_name: "DunderTraffic-Accounting"
+  - username: "jim.halpert"
+    password: "User1234!"
+    task_name: "DunderTraffic-Sales"
+  - username: "dwight.schrute"
+    password: "BeetFarm2024!"
+    task_name: "DunderTraffic-Assistant"

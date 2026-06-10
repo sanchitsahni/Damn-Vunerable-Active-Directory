@@ -16,8 +16,8 @@ packer {
 # ==============================================================================
 variable "iso_url" {
   type        = string
-  description = "Windows Server 2019 eval ISO URL or local path"
-  default     = "https://go.microsoft.com/fwlink/p/?LinkID=2195167&clcid=0x409&culture=en-us&country=US"
+  description = "Windows Server 2019 eval ISO — deploy.py phase 0 downloads to media/ first"
+  default     = "../media/windows-server-2019.iso"
 }
 
 variable "iso_checksum" {

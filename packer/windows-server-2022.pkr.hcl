@@ -16,9 +16,10 @@ packer {
 # ==============================================================================
 variable "iso_url" {
   type        = string
-  description = "Windows Server 2022 eval ISO URL or local path"
-  # Microsoft eval ISO (direct download — no key required for eval)
-  default = "https://go.microsoft.com/fwlink/p/?LinkID=2195280&clcid=0x409&culture=en-us&country=US"
+  description = "Windows Server 2022 eval ISO — deploy.py phase 0 downloads to media/ first"
+  # Uses local file pre-downloaded by phase_download_media (IPv4 + retry).
+  # Override with the go.microsoft.com URL only if you want packer to download directly.
+  default = "../media/windows-server-2022.iso"
 }
 
 variable "iso_checksum" {
