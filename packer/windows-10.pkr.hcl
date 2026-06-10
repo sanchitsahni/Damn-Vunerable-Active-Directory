@@ -80,15 +80,15 @@ source "qemu" "win10" {
   headless       = true
   net_device     = "e1000"
 
-  floppy_files = [
-    "${path.root}/http/autounattend-win10.xml",
-    "${path.root}/scripts/setup-winrm.ps1",
-  ]
+  floppy_content = {
+    "Autounattend.xml" = file("${path.root}/http/autounattend-win10.xml")
+    "setup-winrm.ps1"  = file("${path.root}/scripts/setup-winrm.ps1")
+  }
   floppy_label = "UNATTEND"
 
-  qemuargs = [
-    ["-drive", "file=${var.virtio_iso},media=cdrom,if=ide,index=2"],
-  ]
+  # NOTE: no qemuargs "-drive" override — it would wipe packer's auto-generated
+  # disk + bootable install-ISO drives (causes "boot failed code 0004").
+  # Runtime uses ide-hd + e1000e (in-box drivers), so virtio-win is unneeded here.
 
   communicator   = "winrm"
   winrm_username = local.winrm_user
@@ -119,10 +119,10 @@ source "virtualbox-iso" "win10" {
   cpus      = var.cpus
   headless  = true
 
-  floppy_files = [
-    "${path.root}/http/autounattend-win10.xml",
-    "${path.root}/scripts/setup-winrm.ps1",
-  ]
+  floppy_content = {
+    "Autounattend.xml" = file("${path.root}/http/autounattend-win10.xml")
+    "setup-winrm.ps1"  = file("${path.root}/scripts/setup-winrm.ps1")
+  }
 
   gfx_controller       = "vmsvga"
   gfx_vram_size        = 128
@@ -178,7 +178,7 @@ build {
       "wevtutil cl System",
       "wevtutil cl Application",
       "wevtutil cl Security",
-      "del /f /q C:\\Windows\\Temp\\* 2>nul",
+      // Do NOT del %TEMP% here — packer runs this script from there (self-delete -> build fail).
     ]
   }
 

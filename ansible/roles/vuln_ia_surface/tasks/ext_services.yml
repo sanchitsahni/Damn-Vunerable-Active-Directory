@@ -48,7 +48,7 @@
   ansible.windows.win_shell: |
     Import-Module WebAdministration -ErrorAction SilentlyContinue
     Set-WebConfigurationProperty /system.webServer/directoryBrowse `
-      -Name enabled -Value True -PSPath 'IIS:\' -ErrorAction SilentlyContinue
+      -Name enabled -Value True -PSPath 'MACHINE/WEBROOT/APPHOST' -ErrorAction SilentlyContinue
     Write-Output "changed: directory browsing enabled"
   register: ia076_set
   changed_when: "'changed:' in ia076_set.stdout"
@@ -60,7 +60,7 @@
   ansible.windows.win_shell: |
     Import-Module WebAdministration -ErrorAction SilentlyContinue
     Set-WebConfigurationProperty /system.webServer/webdav/authoring `
-      -Name enabled -Value True -PSPath 'IIS:\' -ErrorAction SilentlyContinue
+      -Name enabled -Value True -PSPath 'MACHINE/WEBROOT/APPHOST' -ErrorAction SilentlyContinue
     Write-Output "changed: WebDAV authoring enabled"
   register: ia078_set
   changed_when: "'changed:' in ia078_set.stdout"

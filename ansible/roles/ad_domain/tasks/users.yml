@@ -223,11 +223,16 @@
     }
 
     # ---- SPNs for Kerberoasting targets (DF-001) ----
-    # Set outside the loop so they're always applied even on re-runs
+    # Set outside the loop so they are always applied even on re-runs
     $spns = @{
-      "svc_phyllis" = "HTTP/legacy.corp.local"
-      "svc_kevin"  = "MSSQLSvc/sql01.corp.local:1433"
-      "svc_dwight" = "HTTP/dwight.corp.local"
+      "svc_phyllis"   = "HTTP/legacy.corp.local"
+      "svc_kevin"     = "MSSQLSvc/sql01.corp.local:1433"
+      "svc_dwight"    = "HTTP/dwight.corp.local"
+      # michael.scott holds GenericAll-on-domain (LAT-021), Schema Admins/DCShadow
+      # (CRED-015) and ExtraSID (DF-007). Give it an SPN so a sprayed domain user
+      # can Kerberoast it and crack "WorldsBestBoss1!" (in wordlists) — otherwise
+      # those three high-value techniques have no acquisition path = unexploitable.
+      "michael.scott" = "HTTP/mgmt.corp.local"
     }
     foreach ($sam in $spns.Keys) {
       Set-ADUser -Identity $sam -ServicePrincipalNames @{Add=$spns[$sam]} -ErrorAction SilentlyContinue

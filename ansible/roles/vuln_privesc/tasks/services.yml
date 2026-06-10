@@ -41,7 +41,7 @@
 
 - name: PE-007 - Grant C:\ write to BUILTIN\Users (plant unquoted-path binary)
   ansible.windows.win_shell: |
-    icacls "C:\" /grant "BUILTIN\Users:(W)" 2>$null | Out-Null
+    icacls C:\ /grant "BUILTIN\Users:(W)" 2>$null | Out-Null
   when: inventory_hostname == 'file01.corp.local'
   changed_when: false
 

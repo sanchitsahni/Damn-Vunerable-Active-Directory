@@ -53,10 +53,10 @@ VM_DEFS=(
     ["file01"]="52:54:00:01:01:04|1536|20|2|5904|dvad-ctf|server2019"
     ["sql01"]="52:54:00:01:01:05|2048|25|2|5905|dvad-ctf|server2022"
     ["ws01"]="52:54:00:01:01:06|2048|30|2|5906|dvad-ctf|win10"
-    # finance.local segment — bridge dvad-finance
-    ["dc01fin"]="52:54:00:02:01:01|1536|25|2|5907|dvad-finance|server2022"
-    # root.corp segment — bridge dvad-root
-    ["dc01root"]="52:54:00:03:01:01|1536|25|2|5908|dvad-root|server2022"
+    # finance.local segment — single bridge dvad-ctf (10.10.20.x)
+    ["dc01fin"]="52:54:00:02:01:01|1536|25|2|5907|dvad-ctf|server2022"
+    # root.corp segment — single bridge dvad-ctf (10.10.30.x)
+    ["dc01root"]="52:54:00:03:01:01|1536|25|2|5908|dvad-ctf|server2022"
 )
 
 # Ordered name → FQDN mapping (associative arrays are unordered in Bash)
@@ -235,13 +235,13 @@ launch_vm() {
         -smp           "cpus=${vm_cpu}" \
         -m             "${vm_ram}M" \
         -drive         "file=${disk_path},if=none,id=drive0,format=qcow2,cache=writeback" \
-        -device        "ide-hd,drive=drive0,bus=ide.0,bootindex=1" \
+        -device        "ahci,id=ahci0" \
+        -device        "ide-hd,drive=drive0,bus=ahci0.0,bootindex=1" \
         -netdev        "tap,id=net0,ifname=${tap},script=no,downscript=no" \
         -device        "e1000e,netdev=net0,mac=${vm_mac}" \
         -display       none \
         -vnc           "${vnc_display}" \
         -vga           std \
-        -device        "virtio-balloon-pci" \
         -rtc           "base=localtime" \
         -boot          "order=c" \
         -daemonize \
@@ -400,8 +400,8 @@ get_vm_ip() {
         file01)   echo "10.10.0.13"  ;;
         sql01)    echo "10.10.0.14"  ;;
         ws01)     echo "10.10.0.100" ;;
-        dc01fin)  echo "10.20.0.10"  ;;
-        dc01root) echo "10.30.0.10"  ;;
+        dc01fin)  echo "10.10.20.10" ;;
+        dc01root) echo "10.10.30.10" ;;
         *)
             err "No IP mapping for VM: ${vm_name}"
             return 1

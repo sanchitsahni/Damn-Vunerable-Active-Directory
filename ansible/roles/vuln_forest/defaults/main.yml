@@ -3,6 +3,13 @@
 # vuln_forest/defaults/main.yml
 # ==============================================================================
 
+# corp.local domain DN (used for New-ADUser -Path)
+ad_domain_dn: "DC=corp,DC=local"
+
+# DF-005: developer2 account granted DsAddSidHistory extended right
+developer2_user: "developer2"
+developer2_password: "DVADlab2024!"
+
 # Known lab password for child-domain krbtgt (ExtraSID / DF-007)
 child_krbtgt_password: "KrbtgtEU2024!"
 

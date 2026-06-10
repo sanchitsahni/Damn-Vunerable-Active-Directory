@@ -160,7 +160,7 @@
         -Direction Inbound -Protocol TCP -LocalPort 3389 -Action Allow | Out-Null
       Write-Output "changed: RDP firewall rule added"
     } else {
-      # Ensure it's enabled
+      # Ensure it is enabled
       Enable-NetFirewallRule -DisplayName "Remote Desktop - User Mode (TCP-In)" `
         -ErrorAction SilentlyContinue
       Write-Output "ok: RDP firewall rule exists"
@@ -195,7 +195,7 @@
 
 # ------------------------------------------------------------------------------
 # IA-045: WebClient service on ws01 (HTTP coercion path).
-# WebClient is typically installed on workstations; ensure it's auto-start.
+# WebClient is typically installed on workstations; ensure it is auto-start.
 # ------------------------------------------------------------------------------
 - name: IA-045 (ws01) - Check WebClient service state
   ansible.windows.win_shell: |

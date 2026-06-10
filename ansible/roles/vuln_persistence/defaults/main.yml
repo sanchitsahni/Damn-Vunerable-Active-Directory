@@ -1,0 +1,7 @@
+---
+# ==============================================================================
+# vuln_persistence/defaults/main.yml
+# ==============================================================================
+
+# Tools directory used by persistence surfaces (e.g. netsh helper DLL, PER-007)
+tools_dir: 'C:\Tools'

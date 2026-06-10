@@ -44,18 +44,18 @@ VIRTIO_WIN_URL = (
 WINDOWS_ISOS = [
     {
         "filename": "windows-server-2022.iso",
-        "url": "https://go.microsoft.com/fwlink/p/?LinkID=2195280&clcid=0x409&culture=en-us&country=US",
-        "size_hint": "~5.4 GB",
+        "url": "https://software-static.download.prss.microsoft.com/sg/download/888969d5-f34g-4e03-ac9d-1f9786c66749/SERVER_EVAL_x64FRE_en-us.iso",
+        "size_hint": "~4.7 GB",
     },
     {
         "filename": "windows-server-2019.iso",
-        "url": "https://go.microsoft.com/fwlink/p/?LinkID=2195167&clcid=0x409&culture=en-us&country=US",
-        "size_hint": "~5.0 GB",
+        "url": "https://software-static.download.prss.microsoft.com/dbazure/988969d5-f34g-4e03-ac9d-1f9786c66749/17763.3650.221105-1748.rs5_release_svc_refresh_SERVER_EVAL_x64FRE_en-us.iso",
+        "size_hint": "~5.3 GB",
     },
     {
         "filename": "windows-10.iso",
-        "url": "https://go.microsoft.com/fwlink/?LinkId=821363",
-        "size_hint": "~5.8 GB",
+        "url": "https://software-static.download.prss.microsoft.com/dbazure/988969d5-f34g-4e03-ac9d-1f9786c66750/19045.2006.220908-0225.22h2_release_svc_refresh_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso",
+        "size_hint": "~5.2 GB",
     },
 ]
 
@@ -87,6 +87,23 @@ def warn(msg): print(f"{Y}[!]{NC} {msg}")
 def err(msg):  print(f"{R}[x]{NC} {msg}")
 def info(msg): print(f"{B}[*]{NC} {msg}")
 def step(msg): print(f"\n{C}{BLD}[>>]{NC} {msg}")
+
+
+def _human_size(num_bytes: float) -> str:
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if num_bytes < 1024:
+            return f"{num_bytes:.0f}{unit}" if unit in ("B", "KB") else f"{num_bytes:.1f}{unit}"
+        num_bytes /= 1024
+    return f"{num_bytes:.1f}PB"
+
+
+def _human_time(secs: float) -> str:
+    secs = int(secs)
+    h, rem = divmod(secs, 3600)
+    m, s   = divmod(rem, 60)
+    if h: return f"{h}h{m:02d}m"
+    if m: return f"{m}m{s:02d}s"
+    return f"{s}s"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -204,12 +221,18 @@ def pause():
 # Banner + status bar
 # ─────────────────────────────────────────────────────────────────────────────
 
+_BANNER_W = 62
+
+def _box_line(text: str) -> str:
+    pad = _BANNER_W - len(text)
+    return "║" + text + " " * max(0, pad) + "║"
+
 def print_banner():
-    print(f"\n{C}{BLD}", end="")
-    print("╔══════════════════════════════════════════════════════════════╗")
-    print("║      DUNDER  ·  Dunder Mifflin Vulnerable Active Directory   ║")
-    print("║      CTF / Red-Team Lab  ·  deploy.py                        ║")
-    print("╚══════════════════════════════════════════════════════════════╝")
+    print(f"\n{C}{BLD}")
+    print("╔" + "═" * _BANNER_W + "╗")
+    print(_box_line("   DUNDER  ·  Dunder Mifflin Vulnerable Active Directory"))
+    print(_box_line("   CTF / Red-Team Lab  ·  deploy.py"))
+    print("╚" + "═" * _BANNER_W + "╝")
     print(NC, end="")
 
 
@@ -241,14 +264,16 @@ def vm_status_quick(cfg: dict) -> str:
 # Phase functions
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _download_file(label: str, url: str, dest: Path) -> bool:
+_MIN_ISO_MB = 200  # anything under 200 MB is a corrupt/partial download
+
+def _download_file(label: str, url: str, dest: Path, min_mb: int = _MIN_ISO_MB) -> bool:
     """Download url → dest. IPv4-only, 5 retries, resume support. wget preferred."""
-    if dest.exists() and dest.stat().st_size > 0:
-        size_mb = dest.stat().st_size // (1024 ** 2)
-        log(f"{dest.name} already present ({size_mb} MB) — skipping")
-        return True
     if dest.exists():
-        warn(f"{dest.name} exists but is empty — re-downloading")
+        size_mb = dest.stat().st_size // (1024 ** 2)
+        if size_mb >= min_mb:
+            log(f"{dest.name} already present ({size_mb} MB) — skipping")
+            return True
+        warn(f"{dest.name} exists but only {size_mb} MB (need ≥{min_mb} MB) — re-downloading")
 
     info(f"Downloading {label} → {dest}")
 
@@ -320,58 +345,227 @@ PACKER_OUTPUT_DIRS = {
 }
 
 
-def _packer_output_exists(tpl: str, provider: str) -> bool:
-    """True if this template's output dir is non-empty — already built."""
+# A real Windows base image is multi-GB. Anything smaller is a partial/aborted
+# build (qemu pre-allocates a ~200 KB qcow2 shell before the OS installs).
+_MIN_IMAGE_MB = 1000
+
+
+def _packer_output_dir(tpl: str, provider: str):
     subdir = PACKER_OUTPUT_DIRS.get((tpl, provider))
     if not subdir:
+        return None
+    return DUNDER_HOME / "packer-output" / subdir
+
+
+def _packer_output_built(tpl: str, provider: str) -> bool:
+    """True only if a fully-built image (≥ _MIN_IMAGE_MB) is present."""
+    out_dir = _packer_output_dir(tpl, provider)
+    if not out_dir or not out_dir.exists():
         return False
-    out_dir = DUNDER_HOME / "packer-output" / subdir
-    if not out_dir.exists():
-        return False
-    files = list(out_dir.iterdir())
-    return len(files) > 0
+    ext = "*.qcow2" if provider == "qemu" else "*.ova"
+    for f in out_dir.glob(ext):
+        if f.stat().st_size >= _MIN_IMAGE_MB * 1024 * 1024:
+            return True
+    return False
+
+
+# Ordered packer-output substrings → human-readable build stage.
+_BUILD_STAGES = [
+    ("Retrieving ISO",        "preparing install media"),
+    ("Starting VM",           "booting Windows installer"),
+    ("Typing the boot",       "booting Windows installer"),
+    ("Waiting for WinRM",     "installing Windows (long step — wait for WinRM)"),
+    ("Connected to WinRM",    "WinRM up — connecting"),
+    ("Provisioning with",     "running provisioners"),
+    ("Gracefully halting",    "shutting down VM"),
+    ("Converting hard drive", "finalizing qcow2 image"),
+    ("Converting",            "finalizing image"),
+]
+
+
+class BuildMonitor:
+    """Runs one packer build via Popen, tees output to a log file, and prints a
+    live status line: elapsed · stage · disk size (proof-of-life) · VNC port."""
+
+    def __init__(self, tpl: str, out_dir: Path, log_path: Path, inline: bool = True):
+        self.tpl      = tpl
+        self.name     = tpl.replace(".pkr.hcl", "")
+        self.vm_hint  = self.name + "-base"          # qemu -name <hint>.qcow2
+        self.out_dir  = out_dir
+        self.log_path = log_path
+        self.inline   = inline                       # False in parallel mode
+        self.stage    = "starting"
+        self.vnc      = None
+        self.start    = time.time()
+        self._lock    = threading.Lock()
+        self._done    = threading.Event()
+
+    def _reader(self, proc, log_fh):
+        import re
+        vnc_re = re.compile(r"VNC[^\d]*(127\.0\.0\.1:\d+)")
+        for raw in iter(proc.stdout.readline, ""):
+            log_fh.write(raw)
+            log_fh.flush()
+            line = raw.rstrip("\n")
+            for key, label in _BUILD_STAGES:
+                if key in line:
+                    with self._lock:
+                        self.stage = label
+                    break
+            m = vnc_re.search(line)
+            if m:
+                with self._lock:
+                    self.vnc = m.group(1)
+        self._done.set()
+
+    def _qcow_size(self) -> int:
+        try:
+            sizes = [f.stat().st_size for f in self.out_dir.glob("*.qcow2")]
+            return max(sizes) if sizes else 0
+        except Exception:
+            return 0
+
+    def _find_vnc_via_ps(self):
+        """Fallback: scan the qemu child process for its -vnc display."""
+        try:
+            out = subprocess.check_output(["ps", "-eo", "args"], text=True)
+        except Exception:
+            return None
+        for ln in out.splitlines():
+            if "qemu-system" in ln and self.vm_hint in ln and "-vnc" in ln:
+                parts = ln.split()
+                try:
+                    disp = parts[parts.index("-vnc") + 1]      # e.g. 127.0.0.1:52
+                    host, _, d = disp.rpartition(":")
+                    return f"{host or '127.0.0.1'}:{5900 + int(d)}"
+                except (ValueError, IndexError):
+                    return None
+        return None
+
+    def run(self, cmd, cwd, env) -> bool:
+        log_fh = open(self.log_path, "w", buffering=1)
+        proc = subprocess.Popen(
+            cmd, cwd=str(cwd), env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1,
+        )
+        rt = threading.Thread(target=self._reader, args=(proc, log_fh), daemon=True)
+        rt.start()
+
+        last_size = 0
+        flat_ticks = 0
+        hb = 0
+        while not self._done.wait(timeout=6):
+            with self._lock:
+                stage, vnc = self.stage, self.vnc
+            if not vnc:
+                vnc = self._find_vnc_via_ps()
+                if vnc:
+                    with self._lock:
+                        self.vnc = vnc
+            size    = self._qcow_size()
+            elapsed = _human_time(time.time() - self.start)
+            grow    = f"{G}▲{NC}" if size > last_size else f"{DIM}·{NC}"
+            # Stuck detection: disk flat for >10 min while supposedly installing
+            if size == last_size and size > 0:
+                flat_ticks += 1
+            else:
+                flat_ticks = 0
+            stuck = f"  {Y}(disk flat {_human_time(flat_ticks*6)} — check VNC){NC}" if flat_ticks >= 100 else ""
+            vnc_s = f" · {C}VNC {vnc}{NC}" if vnc else ""
+            line  = (f"  {C}{BLD}[{self.name}]{NC} {elapsed} · {stage} · "
+                     f"disk {_human_size(size)} {grow}{vnc_s}{stuck}")
+            if IS_TTY and self.inline:
+                print("\r\033[K" + line, end="", flush=True)
+            else:
+                hb += 1
+                if hb % 5 == 0:   # ~every 30s in non-TTY / parallel mode
+                    print(line)
+            last_size = size
+
+        proc.wait()
+        rt.join(timeout=2)
+        log_fh.close()
+        if IS_TTY and self.inline:
+            print()  # close off the \r status line
+        return proc.returncode == 0
 
 
 def phase_packer_build(cfg: dict) -> bool:
-    step("Phase 1: Packer — building base images (parallel)")
+    step("Phase 1: Packer — building base images")
     packer_dir = DUNDER_HOME / "packer"
     only_flag  = "*.qemu.*" if cfg["provider"] == "qemu" else "*.virtualbox-iso.*"
+    log_dir    = DUNDER_HOME / "packer-output" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
     results    = {}
 
+    info(f"Live build logs: {log_dir}/<template>.log  (tail -f to watch full output)")
+
     def build_template(tpl: str):
-        # Skip if output already exists (idempotent re-runs)
-        if _packer_output_exists(tpl, cfg["provider"]):
-            out_dir = PACKER_OUTPUT_DIRS.get((tpl, cfg["provider"]), "?")
-            log(f"packer build {tpl} — skipped (packer-output/{out_dir} already present)")
+        provider = cfg["provider"]
+        out_dir  = _packer_output_dir(tpl, provider)
+
+        # Skip only if a fully-built image already exists (idempotent re-runs).
+        if _packer_output_built(tpl, provider):
+            log(f"packer build {tpl} — skipped ({out_dir.name} already built)")
             results[tpl] = True
             return
 
+        # Remove any partial/aborted output dir — packer refuses to build if the
+        # output directory already exists, even when empty/incomplete.
+        if out_dir and out_dir.exists():
+            warn(f"packer {tpl} — removing partial output {out_dir.name} before rebuild")
+            shutil.rmtree(out_dir, ignore_errors=True)
+
         tpl_path = packer_dir / tpl
         cmd      = ["packer", "build", f"-only={only_flag}", str(tpl_path)]
-        info(f"[thread] Starting packer build {tpl}")
-        merged_env = {**os.environ, "PACKER_LOG": "1"}
-        result = subprocess.run(
-            cmd, cwd=str(packer_dir), env=merged_env,
-            capture_output=True, text=True,
-        )
-        results[tpl] = result.returncode == 0
-        fn = log if results[tpl] else err
-        fn(f"packer build {tpl} — {'PASS' if results[tpl] else 'FAIL'}")
-        if not results[tpl]:
-            err(f"--- {tpl} stderr (last 30 lines) ---")
-            for line in result.stderr.strip().splitlines()[-30:]:
-                print(f"  {line}")
+        log_path = log_dir / f"{tpl.replace('.pkr.hcl', '')}.log"
+        info(f"Starting packer build {tpl}  ({log_path.name})")
+        merged_env = {**os.environ, "PACKER_LOG": "0"}
 
-    # Sequential on low-core hosts avoids vCPU contention; parallel only helps if
-    # host has ≥ (num_templates × packer_cpus) physical cores.
-    import multiprocessing
-    parallel = multiprocessing.cpu_count() >= len(PACKER_TEMPLATES) * 2
-    if parallel:
+        mon = BuildMonitor(tpl, out_dir, log_path, inline=not _PARALLEL_BUILD)
+        ok  = mon.run(cmd, cwd=packer_dir, env=merged_env)
+        results[tpl] = ok
+        if ok:
+            log(f"packer build {tpl} — PASS ({_human_time(time.time() - mon.start)})")
+        else:
+            err(f"packer build {tpl} — FAIL — see {log_path}")
+            try:
+                tail = log_path.read_text().strip().splitlines()[-30:]
+                err(f"--- {tpl} last 30 log lines ---")
+                for line in tail:
+                    print(f"  {line}")
+            except Exception:
+                pass
+
+    # Use physical core count (not HT threads) to decide parallel vs sequential.
+    # Parallel only if host has ≥ (num_templates × packer_cpus) physical cores.
+    try:
+        phys_cores = int(subprocess.check_output(
+            ["grep", "-c", "^core id", "/proc/cpuinfo"], text=True
+        ).strip()) or 1
+        # De-duplicate: /proc/cpuinfo lists each core once per package
+        phys_cores = max(
+            len(set(
+                line.split(":")[1].strip()
+                for line in open("/proc/cpuinfo")
+                if line.startswith("core id")
+            )),
+            1,
+        )
+    except Exception:
+        import multiprocessing
+        phys_cores = multiprocessing.cpu_count() // 2 or 1
+
+    needed = len(PACKER_TEMPLATES) * 2  # 2 vCPUs per template
+    _PARALLEL_BUILD = phys_cores >= needed
+    if _PARALLEL_BUILD:
+        info(f"Host has {phys_cores} physical cores — building {len(PACKER_TEMPLATES)} templates in parallel")
         threads = [threading.Thread(target=build_template, args=(tpl,)) for tpl in PACKER_TEMPLATES]
         for t in threads: t.start()
         for t in threads: t.join()
     else:
-        info(f"Host has {multiprocessing.cpu_count()} cores — building sequentially to avoid vCPU thrash")
+        info(f"Host has {phys_cores} physical cores (need {needed}) — building sequentially to avoid vCPU thrash")
         for tpl in PACKER_TEMPLATES:
             build_template(tpl)
 
@@ -683,11 +877,30 @@ def action_status(cfg: dict):
         pids      = {p.stem.replace(".pid","").replace(".installed","") for p in vms_dir.glob("*.pid")}
         if not installed:
             info("  No installed VMs found.")
+        # Map running VM name → VNC port by scanning qemu processes once.
+        vnc_map = {}
+        try:
+            ps_out = subprocess.check_output(["ps", "-eo", "args"], text=True)
+            for ln in ps_out.splitlines():
+                if "qemu-system" not in ln or "-vnc" not in ln:
+                    continue
+                parts = ln.split()
+                try:
+                    nm   = parts[parts.index("-name") + 1] if "-name" in parts else ""
+                    disp = parts[parts.index("-vnc") + 1]
+                    host, _, d = disp.rpartition(":")
+                    vnc_map[nm.replace(".qcow2", "")] = f"{host or '127.0.0.1'}:{5900 + int(d)}"
+                except (ValueError, IndexError):
+                    pass
+        except Exception:
+            pass
         for marker in installed:
-            name   = marker.stem.replace(".installed", "")
-            state  = f"{G}running{NC}" if name in pids else f"{Y}stopped{NC}"
-            log_f  = vms_dir / f"{name}.log"
-            log(f"  {name:<30} {state}")
+            name  = marker.stem.replace(".installed", "")
+            run   = name in pids
+            state = f"{G}running{NC}" if run else f"{Y}stopped{NC}"
+            vnc   = vnc_map.get(name) or vnc_map.get(f"{name}-base")
+            vnc_s = f"  {C}VNC {vnc}{NC}" if (run and vnc) else ""
+            log(f"  {name:<30} {state}{vnc_s}")
 
     if cfg["provider"] == "qemu":
         print(f"\n  {BLD}Networks:{NC}")
@@ -703,11 +916,24 @@ def action_status(cfg: dict):
     print(f"\n  {BLD}Packer outputs:{NC}")
     packer_out = DUNDER_HOME / "packer-output"
     if packer_out.exists():
-        outputs = [d.name for d in packer_out.iterdir() if d.is_dir()]
+        outputs = [d for d in packer_out.iterdir() if d.is_dir() and d.name != "logs"]
         if outputs:
-            for o in sorted(outputs): log(f"  {o}")
+            for d in sorted(outputs, key=lambda x: x.name):
+                imgs = list(d.glob("*.qcow2")) + list(d.glob("*.ova"))
+                if imgs:
+                    biggest = max(imgs, key=lambda f: f.stat().st_size)
+                    sz = biggest.stat().st_size
+                    if sz >= _MIN_IMAGE_MB * 1024 * 1024:
+                        log(f"  {d.name:<26} {G}built{NC}  {_human_size(sz)}")
+                    else:
+                        warn(f"  {d.name:<26} partial  {_human_size(sz)} (will rebuild)")
+                else:
+                    warn(f"  {d.name:<26} empty (will rebuild)")
         else:
-            info("  packer-output/ is empty — images not built yet.")
+            info("  packer-output/ has no images — not built yet.")
+        log_dir = packer_out / "logs"
+        if log_dir.exists() and any(log_dir.iterdir()):
+            print(f"    {DIM}build logs: {log_dir}/*.log  (tail -f to watch){NC}")
     else:
         info("  packer-output/ does not exist — images not built yet.")
 

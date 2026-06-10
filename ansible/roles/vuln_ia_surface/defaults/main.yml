@@ -14,11 +14,14 @@ ia_sysvol_script_path: 'C:\Windows\SYSVOL\sysvol\corp.local\scripts\setup.bat'
 ia_sysvol_script_content: |
   @echo off
   rem *** DVAD lab bootstrap — credentials intentionally exposed ***
-  net use \\dc01\C$ /user:corp\svc_darryl DVADlab2024!
+  net use \\dc01\C$ /user:corp\svc_darryl Darryl2024!
   net use \\dc01\C$ /user:CORP\Administrator DVADlab2024!
 
 # Attacker-side IP used in the library-ms coercion file (IA-024)
 ia_attacker_ip: "10.10.0.1"
+
+# Drop location for phishing/coercion bait files (IA-052 LNK)
+phishing_drop_path: 'C:\Users\Public\Desktop'
 
 # NFS share details (IA-037)
 ia_nfs_share_name: "DUNDER_NFS"

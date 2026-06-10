@@ -46,17 +46,17 @@
     if (-not $connStr) { Write-Error "No reachable SQL instance found"; exit 1 }
 
     $sql = @"
--- IA-011: Enable sa with weak password
-ALTER LOGIN [sa] WITH PASSWORD = N'DVADlab2024!', CHECK_POLICY = OFF, CHECK_EXPIRATION = OFF;
-ALTER LOGIN [sa] ENABLE;
--- Enable mixed mode authentication
-EXEC xp_instance_regwrite N'HKEY_LOCAL_MACHINE',
-     N'Software\Microsoft\MSSQLServer\MSSQLServer',
-     N'LoginMode', REG_DWORD, 2;
--- Enable xp_cmdshell (surface for remote OS command execution)
-EXEC sp_configure 'show advanced options', 1; RECONFIGURE WITH OVERRIDE;
-EXEC sp_configure 'xp_cmdshell', 1;          RECONFIGURE WITH OVERRIDE;
-"@
+    -- IA-011: Enable sa with weak password
+    ALTER LOGIN [sa] WITH PASSWORD = N'DVADlab2024!', CHECK_POLICY = OFF, CHECK_EXPIRATION = OFF;
+    ALTER LOGIN [sa] ENABLE;
+    -- Enable mixed mode authentication
+    EXEC xp_instance_regwrite N'HKEY_LOCAL_MACHINE',
+         N'Software\Microsoft\MSSQLServer\MSSQLServer',
+         N'LoginMode', REG_DWORD, 2;
+    -- Enable xp_cmdshell (surface for remote OS command execution)
+    EXEC sp_configure 'show advanced options', 1; RECONFIGURE WITH OVERRIDE;
+    EXEC sp_configure 'xp_cmdshell', 1;          RECONFIGURE WITH OVERRIDE;
+    "@
     $sql | sqlcmd.exe -S $connStr -E -b 2>&1
     if ($LASTEXITCODE -ne 0) { Write-Error "sqlcmd configuration failed"; exit 1 }
 

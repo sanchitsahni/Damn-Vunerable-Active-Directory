@@ -32,10 +32,10 @@ fi
 # Format: name|mac|ram_mb|disk_gb|cpu|hostonly_iface|base_ova
 #
 # base_ova values: server2022 | server2019 | win10
-# hostonly_iface: the VirtualBox host-only network name for this VM's segment
-#   vboxnet0 = corp/eu (10.10.0.0/24)
-#   vboxnet1 = finance  (10.20.0.0/24)
-#   vboxnet2 = root     (10.30.0.0/24)
+# hostonly_iface: the VirtualBox host-only network name for this VM's segment.
+#   Single network for all forests (matches the QEMU single-bridge plan):
+#   vboxnet0 = corp/eu/finance/root on 10.10.0.0/16
+#     corp/eu = 10.10.0.x, finance = 10.10.20.x, root = 10.10.30.x
 # ==============================================================================
 declare -A VM_DEFS
 
@@ -47,10 +47,10 @@ VM_DEFS=(
     ["file01"]="52:54:00:01:01:04|1536|20|2|vboxnet0|server2019"
     ["sql01"]="52:54:00:01:01:05|2048|25|2|vboxnet0|server2022"
     ["ws01"]="52:54:00:01:01:06|2048|30|2|vboxnet0|win10"
-    # finance.local segment — vboxnet1
-    ["dc01fin"]="52:54:00:02:01:01|1536|25|2|vboxnet1|server2022"
-    # root.corp segment — vboxnet2
-    ["dc01root"]="52:54:00:03:01:01|1536|25|2|vboxnet2|server2022"
+    # finance.local segment — vboxnet0 (10.10.20.x)
+    ["dc01fin"]="52:54:00:02:01:01|1536|25|2|vboxnet0|server2022"
+    # root.corp segment — vboxnet0 (10.10.30.x)
+    ["dc01root"]="52:54:00:03:01:01|1536|25|2|vboxnet0|server2022"
 )
 
 # VM name → FQDN
@@ -73,8 +73,8 @@ declare -A VM_IP=(
     ["file01"]="10.10.0.13"
     ["sql01"]="10.10.0.14"
     ["ws01"]="10.10.0.100"
-    ["dc01fin"]="10.20.0.10"
-    ["dc01root"]="10.30.0.10"
+    ["dc01fin"]="10.10.20.10"
+    ["dc01root"]="10.10.30.10"
 )
 
 # Profile → VM list (ordered)
@@ -139,42 +139,36 @@ vm_exists() {
 # Creates vboxnet0/1/2 if they don't exist and assigns the gateway IPs.
 # ==============================================================================
 setup_host_only_networks() {
-    log "Configuring VirtualBox host-only networks..."
+    log "Configuring VirtualBox host-only network..."
 
-    # Map: interface name → gateway IP / prefix
-    declare -A HON_GATEWAYS=(
-        ["vboxnet0"]="10.10.0.1"
-        ["vboxnet1"]="10.20.0.1"
-        ["vboxnet2"]="10.30.0.1"
-    )
+    # Single host-only network for all forests on 10.10.0.0/16
+    # (matches the QEMU single-bridge plan). gateway 10.10.0.1.
+    local gw="10.10.0.1"
 
     local existing_nets
     existing_nets="$(VBoxManage list hostonlyifs 2>/dev/null | grep '^Name:' | awk '{print $2}' || true)"
 
-    for iface in vboxnet0 vboxnet1 vboxnet2; do
-        local gw="${HON_GATEWAYS[$iface]}"
-
-        if echo "${existing_nets}" | grep -qx "${iface}"; then
-            info "Host-only interface ${iface} already exists."
-        else
-            log "Creating host-only interface ${iface}..."
-            local created_iface
-            created_iface="$(VBoxManage hostonlyif create 2>&1 | grep "^Interface" | awk -F"'" '{print $2}')"
-            if [[ -z "${created_iface}" ]]; then
-                # VBoxManage may or may not report — list again
-                created_iface="$(VBoxManage list hostonlyifs 2>/dev/null | grep '^Name:' | awk '{print $2}' | tail -1 || true)"
-            fi
-            info "Created host-only interface: ${created_iface:-${iface}}"
+    local iface="vboxnet0"
+    if echo "${existing_nets}" | grep -qx "${iface}"; then
+        info "Host-only interface ${iface} already exists."
+    else
+        log "Creating host-only interface ${iface}..."
+        local created_iface
+        created_iface="$(VBoxManage hostonlyif create 2>&1 | grep "^Interface" | awk -F"'" '{print $2}')"
+        if [[ -z "${created_iface}" ]]; then
+            # VBoxManage may or may not report — list again
+            created_iface="$(VBoxManage list hostonlyifs 2>/dev/null | grep '^Name:' | awk '{print $2}' | tail -1 || true)"
         fi
+        info "Created host-only interface: ${created_iface:-${iface}}"
+    fi
 
-        # Configure IP address on the interface
-        log "Setting ${iface} IP to ${gw}/24..."
-        VBoxManage hostonlyif ipconfig "${iface}" \
-            --ip "${gw}" \
-            --netmask "255.255.255.0"
-    done
+    # Configure IP address on the interface (/16 to cover finance/root ranges)
+    log "Setting ${iface} IP to ${gw}/16..."
+    VBoxManage hostonlyif ipconfig "${iface}" \
+        --ip "${gw}" \
+        --netmask "255.255.0.0"
 
-    log "Host-only networks configured."
+    log "Host-only network configured."
 }
 
 # ==============================================================================

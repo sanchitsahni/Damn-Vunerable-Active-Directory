@@ -1,0 +1,45 @@
+---
+# vuln_victim_exec/defaults/main.yml
+# Victim-executor simulation — makes client-side / phishing techniques
+# solvable HEADLESSLY (no human, no GUI).  Scheduled tasks running as real
+# domain users act like gullible employees: every ~30 s they enumerate the
+# drop locations and OPEN / EXECUTE any artifact an attacker has dropped
+# (.lnk / .hta / .docm / .doc / .bat / .cmd / .ps1 / .exe), and BROWSE any
+# folder containing a .library-ms / .search-ms / .url file so Windows fires
+# the outbound WebDAV/SMB authentication for Responder / ntlmrelayx.
+
+victim_exec_interval: 30                         # seconds between victim rounds
+victim_exec_install_dir: 'C:\DunderLab'
+victim_exec_script: 'C:\DunderLab\victim-exec.ps1'
+victim_exec_log: 'C:\DunderLab\victim-exec.log'
+
+ad_domain_netbios: "CORP"
+
+# World-writable SMB "Drop" share — the attacker payload delivery point.
+# Everyone:FullControl is intentional lab exposure (deliberately vulnerable).
+victim_exec_drop_dir: 'C:\Shares\Drop'
+victim_exec_drop_share: 'Drop'
+
+# Folders the victim watches.  Anything dropped here gets "double-clicked".
+# Mirrors the existing phishing drop paths used by vuln_ia_surface /
+# vuln_cred_access / vuln_cve.
+victim_exec_watch_paths:
+  - 'C:\Shares\Drop'
+  - 'C:\Users\Public\Desktop'
+  - 'C:\Users\Administrator\Downloads'
+  - 'C:\Shares\Public'
+  - 'C:\Users\Public\Documents'
+
+# Accounts that run victim tasks — same identities as vuln_traffic_sim.
+# Each gets its own scheduled task running as that user, so a coerced auth
+# or executed payload carries that user's identity / NTLMv2 hash.
+victim_exec_users:
+  - username: "pam.beesly"
+    password: "Alice1234!"
+    task_name: "DunderVictim-Accounting"
+  - username: "jim.halpert"
+    password: "User1234!"
+    task_name: "DunderVictim-Sales"
+  - username: "dwight.schrute"
+    password: "BeetFarm2024!"
+    task_name: "DunderVictim-Assistant"

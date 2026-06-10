@@ -5,6 +5,10 @@
 
 ad_domain: "corp.local"
 
+# SNMP community strings (REC-005) — weak/guessable, no source restriction.
+snmp_read_community: "public"
+snmp_write_community: "private"
+
 # NullSessionPipes value — pipes accessible without authentication.
 # These are required for rpcclient, enum4linux, net rpc enumeration.
 null_session_pipes:

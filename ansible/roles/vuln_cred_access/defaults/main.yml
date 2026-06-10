@@ -4,6 +4,37 @@
 # ==============================================================================
 
 ad_domain: "corp.local"
+ad_domain_dn: "DC=corp,DC=local"
+
+# Attacker-controlled IP used in coercion/UNC bait files (CRED-* surfaces).
+attacker_ip: "10.10.0.1"
+
+# CRED-003: password-spray cohort — 7 low-priv users sharing one weak password.
+spray_password: "Password123!"
+spray_users:
+  - oscar.martinez
+  - angela.martin
+  - kevin.malone
+  - stanley.hudson
+  - phyllis.vance
+  - creed.bratton
+  - meredith.palmer
+
+# CRED-030: GPP cpassword surface — well-known AES-encrypted value (decrypts with
+# the public Microsoft GPP key). Intentionally crackable.
+gpp_enc_password: "edBSHOwhZLTjt/QS9FeIcJ83mjWA98gw9guKOhJOdcqh+ZGMeXOsQbCpZ3xUjTLfCuNH8pG5aSVYdYw/NglVmQ"
+
+# CRED-004: DBeaver credentials-config.json content (sa password stored in clear).
+dbeaver_creds_content: |
+  {
+    "sql01:1433": {
+      "user": "sa",
+      "password": "SqlServer2025!"
+    }
+  }
+
+# CRED-* : SCCM Network Access Account encrypted blob (DPAPI-style placeholder).
+sccm_naa_blob: "0001000000000000000000004e41413a434f52505c7376635f7363636d3a44564144"
 
 # LmCompatibilityLevel for workstations/member servers (NOT DCs).
 # Level 1 = send LM & NTLM; accept NTLMv2 — enables NTLMv1 capture by Responder.

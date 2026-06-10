@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<unattend xmlns="urn:schemas-microsoft-com:unattend">
+<unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
   <settings pass="windowsPE">
     <component name="Microsoft-Windows-International-Core-WinPE" processorArchitecture="amd64"
                publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
@@ -15,35 +15,23 @@
         <Disk wcm:action="add">
           <DiskID>0</DiskID>
           <WillWipeDisk>true</WillWipeDisk>
+          <!-- BIOS/MBR layout — VMs boot SeaBIOS (no OVMF at build or runtime).
+               A UEFI/EFI/MSR/GPT layout here fails Windows Setup on BIOS boot. -->
           <CreatePartitions>
             <CreatePartition wcm:action="add">
               <Order>1</Order><Type>Primary</Type><Size>500</Size>
             </CreatePartition>
             <CreatePartition wcm:action="add">
-              <Order>2</Order><Type>EFI</Type><Size>100</Size>
-            </CreatePartition>
-            <CreatePartition wcm:action="add">
-              <Order>3</Order><Type>MSR</Type><Size>128</Size>
-            </CreatePartition>
-            <CreatePartition wcm:action="add">
-              <Order>4</Order><Type>Primary</Type><Extend>true</Extend>
+              <Order>2</Order><Type>Primary</Type><Extend>true</Extend>
             </CreatePartition>
           </CreatePartitions>
           <ModifyPartitions>
             <ModifyPartition wcm:action="add">
               <Order>1</Order><PartitionID>1</PartitionID>
-              <Label>Recovery</Label><Format>NTFS</Format>
-              <TypeID>de94bba4-06d1-4d40-a16a-bfd50179d6ac</TypeID>
+              <Label>System Reserved</Label><Format>NTFS</Format><Active>true</Active>
             </ModifyPartition>
             <ModifyPartition wcm:action="add">
               <Order>2</Order><PartitionID>2</PartitionID>
-              <Label>System</Label><Format>FAT32</Format>
-            </ModifyPartition>
-            <ModifyPartition wcm:action="add">
-              <Order>3</Order><PartitionID>3</PartitionID>
-            </ModifyPartition>
-            <ModifyPartition wcm:action="add">
-              <Order>4</Order><PartitionID>4</PartitionID>
               <Label>Windows</Label><Format>NTFS</Format>
             </ModifyPartition>
           </ModifyPartitions>
@@ -57,18 +45,16 @@
               <Key>/IMAGE/INDEX</Key><Value>1</Value>
             </MetaData>
           </InstallFrom>
-          <InstallTo><DiskID>0</DiskID><PartitionID>4</PartitionID></InstallTo>
+          <InstallTo><DiskID>0</DiskID><PartitionID>2</PartitionID></InstallTo>
         </OSImage>
       </ImageInstall>
       <UserData>
         <AcceptEula>true</AcceptEula>
         <FullName>Administrator</FullName>
         <Organization>DunderMifflin</Organization>
-        <ProductKey>
-          <!-- KMS client key for Server 2022 Standard — public, eval use -->
-          <Key>VDYBN-27WPP-V4HQT-9VMD4-VMK7H</Key>
-          <WillShowUI>Never</WillShowUI>
-        </ProductKey>
+        <!-- No ProductKey: Server 2022 Eval media is pre-keyed; image index 1
+             (Standard Core) is selected explicitly above. A mismatched edition
+             key makes Setup prompt/fail on Eval ISOs. -->
       </UserData>
       <EnableNetwork>true</EnableNetwork>
     </component>

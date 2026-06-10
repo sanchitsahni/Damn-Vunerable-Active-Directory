@@ -79,16 +79,18 @@ source "qemu" "server2022" {
   net_device       = "e1000"
 
   # autounattend.xml served from floppy image (A:\) — Windows setup picks it up automatically
-  floppy_files = [
-    "${path.root}/http/autounattend-server-2022.xml",
-    "${path.root}/scripts/setup-winrm.ps1",
-  ]
+  floppy_content = {
+    "Autounattend.xml" = file("${path.root}/http/autounattend-server-2022.xml")
+    "setup-winrm.ps1"  = file("${path.root}/scripts/setup-winrm.ps1")
+  }
   floppy_label = "UNATTEND"
 
-  # virtio-win ISO mounted as second CD for driver installation
-  qemuargs = [
-    ["-drive", "file=${var.virtio_iso},media=cdrom,if=ide,index=2"],
-  ]
+  # NOTE: do NOT add a qemuargs "-drive" override here. Packer keys qemuargs
+  # overrides by switch name, so a single "-drive" entry REPLACES packer's
+  # auto-generated disk + bootable install-ISO drives, leaving the VM with no
+  # boot media ("boot failed code 0004"). The runtime (providers/qemu/vm-create.sh)
+  # uses ide-hd + e1000e — both in-box Windows drivers — so virtio-win is not
+  # needed during the build. Let packer attach disk + ISO natively.
 
   communicator   = "winrm"
   winrm_username = local.winrm_user
@@ -121,10 +123,10 @@ source "virtualbox-iso" "server2022" {
   headless         = true
 
   # autounattend.xml on floppy (A:\)
-  floppy_files = [
-    "${path.root}/http/autounattend-server-2022.xml",
-    "${path.root}/scripts/setup-winrm.ps1",
-  ]
+  floppy_content = {
+    "Autounattend.xml" = file("${path.root}/http/autounattend-server-2022.xml")
+    "setup-winrm.ps1"  = file("${path.root}/scripts/setup-winrm.ps1")
+  }
 
   gfx_controller        = "vmsvga"
   gfx_vram_size         = 16
@@ -175,8 +177,9 @@ build {
       "wevtutil cl System",
       "wevtutil cl Application",
       "wevtutil cl Security",
-      "del /f /q C:\\Windows\\Temp\\* 2>nul",
-      "del /f /q C:\\Users\\Administrator\\AppData\\Local\\Temp\\* 2>nul",
+      // NOTE: do NOT 'del C:\Windows\Temp\*' or '...\AppData\Local\Temp\*' here —
+      // packer runs this provisioner from %TEMP%, so it deletes its own running
+      // script -> "The batch file cannot be found" -> build fails. Leave temp be.
     ]
   }
 
