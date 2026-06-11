@@ -1,0 +1,67 @@
+---
+# ==============================================================================
+# vuln_network_protocols/tasks/main.yml
+#
+# Network-protocol attack surfaces. Each sub-file is host-guarded so it only
+# runs where the weakness belongs. main.yml drives ordering.
+#
+# Host targets:
+#   dc01.corp.local        -> dns_wpad.yml  (WPAD record, insecure dynamic update)
+#   all corp hosts         -> name_services.yml (mDNS, NetBIOS B-node, IPv6)
+#   file01.corp.local      -> tftp.yml      (TFTP UDP/69 anon writable)
+#   dc01.corp.local        -> ntp_smtp.yml  (NTP monlist note + SMTP gap note)
+#   ws01.corp.local        -> vnc.yml       (NET-009 unauth VNC/RFB TCP/5900)
+#   file01.corp.local      -> smtp_mail.yml (NET-008 open-relay+VRFY/EXPN TCP/25)
+#   file01.corp.local      -> pop3.yml      (NET-010 cleartext POP3 creds TCP/110)
+#   dc01.corp.local        -> dhcp_scan_notes.yml (NET-011/012 DHCP+scan notes)
+#
+# All new always-on listeners are tiny native-PowerShell sockets (no packages),
+# run as SYSTEM scheduled tasks blocking on Accept (~0% CPU idle) to respect the
+# 7-VM host load constraint.
+#
+# NOTE: this role COMPLEMENTS existing coverage and does NOT re-inject
+# SNMP (vuln_recon REC-005), LLMNR/NBT-NS (vuln_recon REC-010/IA-008),
+# SMB signing (vuln_recon + vuln_lateral), LDAP signing/channel binding
+# (vuln_cred_access CRED-048), anonymous LDAP bind (vuln_ia_surface IA-003),
+# DNS AXFR (vuln_ia_surface IA-004), DnsAdmins->DLL (vuln_forest DF-049),
+# PrinterBug/PetitPotam/FSRVP/DFSNM coercion (vuln_lateral coerce.yml),
+# FTP/Telnet/SSDP/RDP-NLA (vuln_ia_surface).
+# ==============================================================================
+
+- name: Ensure C:\Flags directory exists (flag drops)
+  ansible.windows.win_file:
+    path: 'C:\Flags'
+    state: directory
+
+- name: Import WPAD + insecure DNS dynamic update surfaces (dc01 only)
+  ansible.builtin.import_tasks: dns_wpad.yml
+  when: inventory_hostname == 'dc01.corp.local'
+
+- name: Import mDNS / NetBIOS B-node / IPv6 surfaces (all corp hosts)
+  ansible.builtin.import_tasks: name_services.yml
+  when: inventory_hostname in groups['corp_servers'] | default([]) +
+        groups['corp_workstation'] | default([]) + ['dc01.corp.local']
+
+- name: Import TFTP anonymous writable surface (file01 only)
+  ansible.builtin.import_tasks: tftp.yml
+  when: inventory_hostname == 'file01.corp.local'
+
+- name: Import NTP monlist + SMTP relay informational surfaces (dc01 only)
+  ansible.builtin.import_tasks: ntp_smtp.yml
+  when: inventory_hostname == 'dc01.corp.local'
+
+- name: Import unauthenticated VNC/RFB listener (ws01 only)
+  ansible.builtin.import_tasks: vnc.yml
+  when: inventory_hostname == 'ws01.corp.local'
+
+- name: Import SMTP open-relay + VRFY/EXPN listener (file01 only)
+  ansible.builtin.import_tasks: smtp_mail.yml
+  when: inventory_hostname == 'file01.corp.local'
+
+- name: Import cleartext POP3 credential listener (file01 only)
+  ansible.builtin.import_tasks: pop3.yml
+  when: inventory_hostname == 'file01.corp.local'
+
+- name: Import DHCP rogue + ICMP/UDP scan-surface notes (dc01 only)
+  ansible.builtin.import_tasks: dhcp_scan_notes.yml
+  when: inventory_hostname == 'dc01.corp.local'

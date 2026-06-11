@@ -1,0 +1,162 @@
+---
+# ==============================================================================
+# B. LINUX-IN-AD ATTACK SURFACE
+# Linux-local privesc AND Linux→Windows lateral (captured AD creds / host
+# keytab → DC). Every item is a deliberate weakness (the spec).
+# ==============================================================================
+
+# ── B1. World-readable host keytab (keytab theft → silver ticket / S4U) ───────
+- name: B1 — Stage a host keytab if the real one is absent (keytab theft target)
+  ansible.builtin.copy:
+    dest: /etc/krb5.keytab
+    # placeholder bytes — a real join overwrites this with the true host keytab;
+    # either way it ends up world-readable below.
+    content: "DUNDER-lab placeholder host keytab — replaced by realm join.\n"
+    force: false
+    mode: "0644"
+
+- name: B1 — Make /etc/krb5.keytab world-readable (host keytab theft)
+  ansible.builtin.file:
+    path: /etc/krb5.keytab
+    mode: "0644"
+  failed_when: false
+
+# ── B2. AD group → passwordless sudo (CORP\Domain Users → root) ───────────────
+- name: B2 — Grant "CORP\Domain Users" passwordless sudo (AD group → root)
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/dunder-ad
+    mode: "0440"
+    validate: "visudo -cf %s"
+    content: |
+      # DUNDER lab — vulnerable: an entire AD group gets passwordless root.
+      # Any corp.local domain user → root via `sudo -i`.
+      %domain\ users@{{ vuln_linux_domain }} ALL=(ALL) NOPASSWD:ALL
+      %{{ vuln_linux_netbios | lower }}\x5cdomain\ users ALL=(ALL) NOPASSWD:ALL
+
+# ── B3. SSSD credential cache made readable (offline cred theft) ──────────────
+- name: B3 — Ensure sssd db dir exists
+  ansible.builtin.file:
+    path: /var/lib/sss/db
+    state: directory
+    mode: "0755"
+  failed_when: false
+
+- name: B3 — Make SSSD credential cache world-readable
+  ansible.builtin.shell: "chmod -R a+r /var/lib/sss/db 2>/dev/null || true"
+  changed_when: false
+
+# ── B4. Cron job (root) runs a world-writable script (cron → root LPE) ────────
+- name: B4 — Drop a world-writable script run by root cron
+  ansible.builtin.copy:
+    dest: /opt/dunder/backup.sh
+    mode: "0777"
+    content: |
+      #!/bin/bash
+      # DUNDER lab — "nightly backup". World-writable + run by root from cron.
+      # Overwrite this file to get a root shell on the next tick.
+      echo "backup ran at $(date)" >> /var/log/dunder-backup.log
+  vars:
+    _ignore: ""
+
+- name: B4 — Ensure /opt/dunder exists and is writable
+  ansible.builtin.file:
+    path: /opt/dunder
+    state: directory
+    mode: "0777"
+
+- name: B4 — Root cron job executing the world-writable script every minute
+  ansible.builtin.cron:
+    name: "dunder-backup"
+    user: root
+    minute: "*"
+    job: "/opt/dunder/backup.sh"
+
+# ── B5. SUID-root GTFOBins binary (find → root) ───────────────────────────────
+- name: B5 — Provide a SUID-root copy of find (GTFOBins LPE)
+  ansible.builtin.shell: |
+    set -e
+    src="$(command -v find)"
+    cp "$src" /usr/local/bin/find-suid
+    chown root:root /usr/local/bin/find-suid
+    chmod 4755 /usr/local/bin/find-suid
+  args:
+    creates: /usr/local/bin/find-suid
+
+# ── B6. Domain user plaintext creds in readable file + bash_history ───────────
+- name: B6 — Leak domain creds in a world-readable file (Linux→Windows lateral)
+  ansible.builtin.copy:
+    dest: /home/labadmin/.creds.txt
+    owner: labadmin
+    group: labadmin
+    mode: "0644"
+    content: |
+      # DUNDER lab — leftover deployment creds (use against the DC).
+      domain={{ vuln_linux_netbios }}
+      user={{ vuln_linux_leaked_ad_user }}
+      password={{ vuln_linux_leaked_ad_pass }}
+      dc={{ vuln_linux_dc_ip }}
+      # admin: {{ vuln_linux_join_user }} / {{ vuln_linux_join_password }}
+
+- name: B6 — Seed labadmin bash_history with a plaintext domain credential
+  ansible.builtin.copy:
+    dest: /home/labadmin/.bash_history
+    owner: labadmin
+    group: labadmin
+    mode: "0644"
+    content: |
+      id
+      cat /etc/krb5.keytab
+      smbclient -L //{{ vuln_linux_dc_ip }} -U '{{ vuln_linux_netbios }}\{{ vuln_linux_leaked_ad_user }}%{{ vuln_linux_leaked_ad_pass }}'
+      crackmapexec smb {{ vuln_linux_dc_ip }} -u {{ vuln_linux_join_user }} -p '{{ vuln_linux_join_password }}'
+      history -c
+
+# ── B7. NFS export with no_root_squash ────────────────────────────────────────
+- name: B7 — Ensure NFS export dir exists
+  ansible.builtin.file:
+    path: /srv/nfs/dunder
+    state: directory
+    mode: "0777"
+
+- name: B7 — Export /srv/nfs/dunder with no_root_squash (NFS → root)
+  ansible.builtin.lineinfile:
+    path: /etc/exports
+    create: true
+    mode: "0644"
+    regexp: "^/srv/nfs/dunder"
+    line: "/srv/nfs/dunder *(rw,sync,no_root_squash,no_subtree_check,insecure)"
+  notify: restart nfs
+
+# ── B8. Weak SSH — password auth, weak user, poisonable authorized_keys ───────
+- name: B8 — Create the weak-password local user
+  ansible.builtin.user:
+    name: "{{ vuln_linux_weak_user }}"
+    password: "{{ vuln_linux_weak_password | password_hash('sha512', 'dundersalt') }}"
+    shell: /bin/bash
+    groups: sudo
+    append: true
+
+- name: B8 — Force SSH password auth on (weak-credential brute target)
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/00-dunder.conf
+    mode: "0644"
+    content: |
+      # DUNDER lab — intentionally weak SSH
+      PasswordAuthentication yes
+      PermitRootLogin yes
+      PubkeyAuthentication yes
+  notify: restart ssh
+
+- name: B8 — Create a world-writable authorized_keys for the weak user (poisonable)
+  block:
+    - name: B8 — Ensure weak user .ssh dir
+      ansible.builtin.file:
+        path: "/home/{{ vuln_linux_weak_user }}/.ssh"
+        state: directory
+        owner: "{{ vuln_linux_weak_user }}"
+        mode: "0777"
+    - name: B8 — World-writable authorized_keys
+      ansible.builtin.copy:
+        dest: "/home/{{ vuln_linux_weak_user }}/.ssh/authorized_keys"
+        owner: "{{ vuln_linux_weak_user }}"
+        mode: "0666"
+        content: "# poison me — append your pubkey for passwordless SSH\n"

@@ -56,6 +56,25 @@
     result_spray_create.rc != 0 and
     "already" not in (result_spray_create.stderr | default("") | lower)
 
+# Existing cohort users were pre-created in ad_domain/users.yml with their own
+# passwords (Bob12345!, Stanley2024!, User1234!, etc). Reset every cohort member
+# to the spray password so the documented CRED-003 spray actually succeeds.
+- name: CRED-003 - Reset all spray-cohort users to the common spray password
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $sec = ConvertTo-SecureString "{{ spray_password }}" -AsPlainText -Force
+    foreach ($u in @("{{ spray_users | join('","') }}")) {
+      try {
+        Set-ADAccountPassword -Identity $u -NewPassword $sec -Reset -ErrorAction Stop
+        Write-Output "reset: $u"
+      } catch {
+        Write-Output "WARN: $u - $($_.Exception.Message)"
+      }
+    }
+  changed_when: true
+  register: result_spray_reset
+  failed_when: result_spray_reset.rc != 0
+
 # ------------------------------------------------------------------------------
 # CRED-004: Saved credentials on ws01
 # 1) Windows Credentials file stub under Administrator AppData

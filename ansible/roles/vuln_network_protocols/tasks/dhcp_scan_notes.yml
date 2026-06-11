@@ -1,0 +1,43 @@
+---
+# ==============================================================================
+# vuln_network_protocols/tasks/dhcp_scan_notes.yml
+# Target: dc01.corp.local (documentation drop only - no listener)
+#
+# NET-011  DHCP starvation / rogue DHCP - DOCUMENTED, not injected as a service.
+#          The whole lab shares ONE L2 segment (10.10.0.0/16, bridge dvad-ctf)
+#          and DHCP is served by a project-local dnsmasq on the KVM host, not by
+#          a Windows DHCP server. Standing up a competing Windows DHCP scope on
+#          the same segment would race the host dnsmasq and break VM addressing,
+#          so we do NOT inject it. The technique is still PRACTISABLE by the
+#          player from the attacker box (10.10.0.1 owns the real DHCP) using
+#          dhcpstarv / Responder DHCP / mitm6 (IPv6 path already injected as
+#          NET-006) - this note records that and the single-segment constraint.
+#
+# NET-012  ICMP / UDP scanning exposure - the lab firewall is disabled on every
+#          host by post-install.ps1, so ICMP echo, UDP services (NET-004 TFTP/69,
+#          NET-007 NTP/123, mDNS/5353) and the TCP listeners added by this role
+#          are all reachable for nmap -sU / ping sweeps / RustScan. This note
+#          documents the scanning surface; no extra listener needed.
+#
+# RESOURCE COST: zero (file drop only).
+# ==============================================================================
+
+- name: NET-011/012 - Drop DHCP + scanning-surface documentation flag
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\net-dhcp-scan.txt'
+    content: |
+      DUNDER{NET-011_DHCP_ROGUE_SINGLE_SEGMENT_CONSTRAINT}
+      DUNDER{NET-012_ICMP_UDP_SCAN_SURFACE_FIREWALL_OFF}
+      Would I rather be feared or loved? Easy. Both. — Michael Scott
+
+      NET-011 DHCP starvation / rogue DHCP (DOCUMENTED, single-segment):
+        Real DHCP for 10.10.0.0/16 is the host dnsmasq (attacker box 10.10.0.1).
+        A second Windows DHCP scope would race it and break VM addressing, so it
+        is intentionally NOT injected. Practise from the attacker box:
+          - DHCP starvation:  dhcpstarv / yersinia DHCP flood
+          - Rogue DHCP / WPAD: Responder -d  (DHCP + WPAD-via-DHCP option 252)
+          - IPv6 takeover:     mitm6  (NET-006 already enables IPv6 fleet-wide)
+      NET-012 ICMP / UDP / TCP scan surface (firewall OFF on all hosts):
+        nmap -sn 10.10.0.0/24            (ICMP/ARP host discovery)
+        nmap -sU -p69,123,137,5353 ...   (TFTP, NTP, NBNS, mDNS)
+        nmap -p25,110,5900 10.10.0.13    (NET-008 SMTP, NET-010 POP3, NET-009 VNC)

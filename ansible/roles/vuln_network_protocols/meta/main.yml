@@ -1,0 +1,23 @@
+---
+galaxy_info:
+  role_name: vuln_network_protocols
+  author: DVAD
+  description: >
+    Injects network-layer (TCP/UDP) protocol weaknesses across the lab so a
+    player can practice the full spectrum of network attacks from the attacker
+    box (10.10.0.1) on the single 10.10.0.0/16 L2 segment. COMPLEMENTS existing
+    roles (does not re-inject SNMP/LLMNR/SMB-signing/LDAP-signing/AXFR/coercion
+    which already live in vuln_recon, vuln_ia_surface, vuln_lateral,
+    vuln_cred_access, vuln_forest). Adds: WPAD server-side DNS+DHCP discovery
+    (NET-001), mDNS responder surface (NET-002), insecure DNS dynamic update
+    nsupdate target (NET-003), TFTP UDP/69 anonymous writable (NET-004),
+    NetBIOS B-node broadcast (NET-005), fleet-wide IPv6/mitm6 context (NET-006),
+    NTP monlist informational surface (NET-007).
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Windows
+      versions:
+        - 2019
+        - 2022
+
+dependencies: []

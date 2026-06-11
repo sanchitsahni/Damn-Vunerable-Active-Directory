@@ -1,0 +1,127 @@
+---
+# ==============================================================================
+# vuln_network_protocols/tasks/tftp.yml
+# Target: file01.corp.local
+#
+# NET-004  TFTP server on UDP/69 — anonymous, read AND write enabled, no auth.
+#          Windows ships no TFTP *server* feature, so this drops a small native
+#          PowerShell RRQ/WRQ listener (RFC 1350 octet mode) and runs it as a
+#          SYSTEM scheduled task at boot. Players can `tftp -i 10.10.0.13 get`
+#          any file under the root and `put` arbitrary files (config exfil /
+#          drop). Idempotent: re-running only refreshes the script + task.
+# ==============================================================================
+
+- name: NET-004 - Ensure TFTP root directory exists (anonymous + writable)
+  ansible.windows.win_file:
+    path: "{{ np_tftp_root }}"
+    state: directory
+
+- name: NET-004 - Seed a sample file in the TFTP root
+  ansible.windows.win_copy:
+    dest: "{{ np_tftp_root }}\\README.txt"
+    content: "DUNDER{NET-004_TFTP_ANON_WRITABLE_UDP69}\r\nThis TFTP server is open to read and write with no authentication.\r\nWhy waste time say lot word when few word do trick. — Kevin Malone\r\n"
+
+- name: NET-004 - Deploy native PowerShell TFTP listener script
+  ansible.windows.win_copy:
+    dest: 'C:\Windows\Temp\tftp-listener.ps1'
+    content: |
+      # Minimal TFTP server (RFC 1350, octet mode) — anonymous read+write.
+      # Intentionally insecure: no auth, no path restriction beyond the root.
+      param([string]$Root = "{{ np_tftp_root }}")
+      $ErrorActionPreference = 'Continue'
+      $udp = New-Object System.Net.Sockets.UdpClient 69
+      $ep  = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)
+      function Send-Block($client, $remote, $block, $bytes) {
+        $hdr = [byte[]](0,3,[byte]($block -shr 8),[byte]($block -band 255))
+        $pkt = $hdr + $bytes
+        [void]$client.Send($pkt, $pkt.Length, $remote)
+      }
+      function Send-Ack($client, $remote, $block) {
+        $pkt = [byte[]](0,4,[byte]($block -shr 8),[byte]($block -band 255))
+        [void]$client.Send($pkt, $pkt.Length, $remote)
+      }
+      while ($true) {
+        try {
+          $req = $udp.Receive([ref]$ep)
+          $opcode = $req[1]
+          $rest = [System.Text.Encoding]::ASCII.GetString($req, 2, $req.Length - 2)
+          $fname = ($rest -split "`0")[0]
+          $path  = Join-Path $Root $fname
+          $cli = New-Object System.Net.Sockets.UdpClient
+          $cli.Connect($ep.Address, $ep.Port)
+          if ($opcode -eq 1) {
+            if (Test-Path $path) {
+              $data = [System.IO.File]::ReadAllBytes($path)
+              $block = 1; $off = 0
+              do {
+                $len = [Math]::Min(512, $data.Length - $off)
+                $chunk = New-Object byte[] $len
+                if ($len -gt 0) { [Array]::Copy($data, $off, $chunk, 0, $len) }
+                Send-Block $cli $ep $block $chunk
+                $cli.Receive([ref]$ep) | Out-Null
+                $off += $len; $block++
+              } while ($len -eq 512)
+            } else {
+              $err = [byte[]](0,5,0,1) + [System.Text.Encoding]::ASCII.GetBytes("Not found") + [byte[]](0)
+              [void]$cli.Send($err, $err.Length)
+            }
+          } elseif ($opcode -eq 2) {
+            Send-Ack $cli $ep 0
+            $fs = [System.IO.File]::Open($path, 'Create')
+            $block = 1
+            do {
+              $pkt = $cli.Receive([ref]$ep)
+              $dlen = $pkt.Length - 4
+              if ($dlen -gt 0) { $fs.Write($pkt, 4, $dlen) }
+              Send-Ack $cli $ep $block
+              $block++
+            } while ($dlen -eq 512)
+            $fs.Close()
+          }
+          $cli.Close()
+        } catch { Start-Sleep -Milliseconds 200 }
+      }
+  register: net004_script
+
+- name: NET-004 - Open UDP/69 inbound firewall for TFTP
+  community.windows.win_firewall_rule:
+    name: "DUNDER TFTP UDP69"
+    localport: 69
+    protocol: udp
+    direction: in
+    action: allow
+    enabled: true
+    state: present
+
+- name: NET-004 - Register TFTP listener scheduled task (SYSTEM, at boot)
+  community.windows.win_scheduled_task:
+    name: DunderTFTP
+    description: "Anonymous TFTP listener (NET-004 network-protocol surface)"
+    actions:
+      - path: powershell.exe
+        arguments: >-
+          -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden
+          -File C:\Windows\Temp\tftp-listener.ps1
+    triggers:
+      - type: boot
+    username: SYSTEM
+    run_level: highest
+    state: present
+    enabled: true
+
+- name: NET-004 - Check if TFTP listener is currently bound on UDP/69
+  ansible.windows.win_shell: |
+    $b = (Get-NetUDPEndpoint -LocalPort 69 -ErrorAction SilentlyContinue)
+    if ($b) { Write-Output "listening" } else { Write-Output "not_listening" }
+  register: net004_bind_check
+  changed_when: false
+  failed_when: net004_bind_check.rc != 0
+
+- name: NET-004 - Start TFTP listener task now if not already bound
+  ansible.windows.win_shell: |
+    Start-ScheduledTask -TaskName DunderTFTP -ErrorAction SilentlyContinue
+    Write-Output "changed: TFTP listener started"
+  register: net004_start
+  changed_when: "'changed:' in net004_start.stdout"
+  failed_when: net004_start.rc != 0
+  when: "'not_listening' in net004_bind_check.stdout"

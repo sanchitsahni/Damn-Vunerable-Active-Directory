@@ -1,0 +1,180 @@
+---
+# ==============================================================================
+# vuln_victim_exec/tasks/main.yml
+# Target: ws01.corp.local (and file01 where relevant)
+#
+# Makes CLIENT-SIDE / phishing techniques solvable HEADLESSLY.
+#
+# Deploys:
+#   - victim-exec.ps1 + three scheduled tasks (one per domain user)
+#   - a world-writable SMB "Drop" share (Everyone:FullControl) for payloads
+#
+# Each task runs an infinite PS loop that every ~30 s, AS a real domain user:
+#   - OPENS / EXECUTES dropped artifacts in the Drop share and the existing
+#     phishing drop paths (.lnk double-click, .hta via mshta, .docm/.doc in
+#     Word with macros on, .bat/.cmd/.ps1/.exe executed)
+#   - BROWSES any folder holding a .library-ms / .search-ms / .url file so
+#     Windows fires outbound WebDAV/SMB NTLM auth (Responder / ntlmrelayx)
+#
+# Techniques unlocked headlessly:
+#   IA-019..022 (Office macros), IA-024 / CRED-051 (.library-ms),
+#   IA-052 (.lnk), IA-056 (.hta), CRED-052 (.url),
+#   CVE-2025-24071 / CVE-2025-24054 (.library-ms/.search-ms NTLM leak),
+#   CVE-2023-21716 (WordPad RTF — opened via Word/RTF handler).
+#
+# NOTE: auto-execution of dropped files is the POINT (simulates a victim),
+# not a bug — this is a deliberately vulnerable lab.
+# ==============================================================================
+
+- name: Victim exec - Create install directory
+  ansible.windows.win_file:
+    path: "{{ victim_exec_install_dir }}"
+    state: directory
+
+- name: Victim exec - Deploy victim-exec.ps1
+  ansible.windows.win_copy:
+    src: victim-exec.ps1
+    dest: "{{ victim_exec_script }}"
+
+- name: Victim exec - Unblock script (allow execution without prompt)
+  ansible.windows.win_shell: |
+    Unblock-File -Path "{{ victim_exec_script }}" -ErrorAction SilentlyContinue
+  changed_when: false
+
+# ── World-writable SMB Drop share — attacker payload delivery point ───────────
+# Everyone:FullControl is intentional lab exposure (deliberately vulnerable).
+
+- name: Victim exec - Create Drop directory
+  ansible.windows.win_file:
+    path: "{{ victim_exec_drop_dir }}"
+    state: directory
+
+- name: Victim exec - Grant Everyone NTFS FullControl on Drop directory
+  ansible.windows.win_acl:
+    path: "{{ victim_exec_drop_dir }}"
+    user: Everyone
+    rights: FullControl
+    type: allow
+    state: present
+    inherit: ContainerInherit, ObjectInherit
+    propagation: 'None'
+
+- name: Victim exec - Create world-writable SMB Drop share
+  ansible.windows.win_shell: |
+    $share = Get-SmbShare -Name "{{ victim_exec_drop_share }}" -ErrorAction SilentlyContinue
+    if (-not $share) {
+      New-SmbShare -Name "{{ victim_exec_drop_share }}" -Path "{{ victim_exec_drop_dir }}" -FullAccess "Everyone" -ErrorAction Stop
+      Write-Output "changed: drop share created"
+    } else {
+      Write-Output "ok: drop share already exists"
+    }
+  register: _drop_share
+  changed_when: "'changed:' in _drop_share.stdout"
+  failed_when: _drop_share.rc != 0
+
+# ── Ensure WebClient (WebDAV) is enabled and running ──────────────────────────
+# Required for the HTTP-based .library-ms / .search-ms / .url coercion to fire
+# outbound auth (CVE-2025-24071 / CVE-2025-24054).
+
+- name: Victim exec - Ensure WebClient service is auto-start and running
+  ansible.windows.win_service:
+    name: WebClient
+    start_mode: auto
+    state: started
+  failed_when: false
+
+# ── One scheduled task per domain user ────────────────────────────────────────
+# Mirrors vuln_traffic_sim task XML options: boot + registration triggers,
+# restart on failure, no execution time limit (the script loops forever).
+# Running as the domain user means a coerced auth / executed payload carries
+# that user's identity / NTLMv2 hash.
+
+- name: Victim exec - Create scheduled task for {{ item.username }}
+  community.windows.win_scheduled_task:
+    name: "{{ item.task_name }}"
+    description: >
+      Dunder Mifflin — {{ item.username }} simulated victim executor.
+      Opens and runs dropped phishing artifacts and browses coercion files
+      every {{ victim_exec_interval }}s for headless client-side exploitation.
+    actions:
+      - path: powershell.exe
+        arguments: >-
+          -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass
+          -File "{{ victim_exec_script }}"
+          -Identity "{{ item.username }}"
+          -IntervalSeconds {{ victim_exec_interval }}
+    triggers:
+      - type: boot                  # start when machine boots
+        delay: PT2M                 # wait 2 min for domain auth to be available
+      - type: registration          # also start immediately when task is registered
+    username: "{{ ad_domain_netbios }}\\{{ item.username }}"
+    password: "{{ item.password }}"
+    logon_type: password
+    run_level: limited              # no elevation — a normal user clicks things
+    multiple_instances: ignore_new  # only one instance at a time
+    restart_count: 99
+    restart_interval: PT30S        # restart 30 s after crash
+    execution_time_limit: PT0S     # no time limit (runs forever)
+    enabled: true
+    state: present
+  loop: "{{ victim_exec_users }}"
+  loop_control:
+    label: "{{ item.task_name }}"
+
+# ── Start tasks immediately (don't wait for reboot) ───────────────────────────
+
+- name: Victim exec - Start task {{ item.task_name }} now
+  ansible.windows.win_shell: |
+    $task = Get-ScheduledTask -TaskName "{{ item.task_name }}" -ErrorAction SilentlyContinue
+    if ($task -and $task.State -ne 'Running') {
+        Start-ScheduledTask -TaskName "{{ item.task_name }}"
+        Write-Output "changed: started {{ item.task_name }}"
+    } else {
+        Write-Output "ok: already running or not found"
+    }
+  register: _start_result
+  changed_when: "'changed:' in _start_result.stdout"
+  loop: "{{ victim_exec_users }}"
+  loop_control:
+    label: "{{ item.task_name }}"
+
+# ── Verify ────────────────────────────────────────────────────────────────────
+
+- name: Victim exec - Verify tasks registered
+  ansible.windows.win_shell: |
+    $tasks = @("{{ victim_exec_users | map(attribute='task_name') | join('","') }}")
+    $missing = @()
+    foreach ($t in $tasks) {
+        if (-not (Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue)) {
+            $missing += $t
+        }
+    }
+    if ($missing.Count -gt 0) {
+        Write-Error "Missing tasks: $($missing -join ', ')"
+        exit 1
+    }
+    Write-Output "ok: all victim exec tasks registered"
+  changed_when: false
+
+- name: Victim exec - Verify Drop share is present
+  ansible.windows.win_shell: |
+    if (Get-SmbShare -Name "{{ victim_exec_drop_share }}" -ErrorAction SilentlyContinue) {
+        Write-Output "ok: Drop share present"
+    } else {
+        Write-Error "Drop share missing"
+        exit 1
+    }
+  changed_when: false
+
+- name: Victim exec - Check log file exists (task has run at least once)
+  ansible.windows.win_stat:
+    path: "{{ victim_exec_log }}"
+  register: _log_stat
+  changed_when: false
+  failed_when: false
+
+- name: Victim exec - Log status
+  ansible.builtin.debug:
+    msg: >-
+      Victim exec log:
+      {{ 'present (' + (_log_stat.stat.size | string) + ' bytes)' if _log_stat.stat.exists else 'not yet created — tasks may need a minute to start' }}

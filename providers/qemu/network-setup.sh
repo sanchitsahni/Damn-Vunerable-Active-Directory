@@ -174,6 +174,8 @@ dhcp-host=52:54:00:01:01:03,ca01.corp.local,10.10.0.12,infinite
 dhcp-host=52:54:00:01:01:04,file01.corp.local,10.10.0.13,infinite
 dhcp-host=52:54:00:01:01:05,sql01.corp.local,10.10.0.14,infinite
 dhcp-host=52:54:00:01:01:06,ws01.corp.local,10.10.0.100,infinite
+# linux01 — Ubuntu 22.04 member (Linux-in-AD)
+dhcp-host=52:54:00:01:01:07,linux01.corp.local,10.10.0.15,infinite
 # finance.local
 dhcp-host=52:54:00:02:01:01,dc01.finance.local,10.10.20.10,infinite
 # root.corp

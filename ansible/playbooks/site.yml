@@ -168,7 +168,7 @@
 # Phishing files, weak services, NLA-disabled RDP, IIS/WebDAV.
 # ============================================================================
 - name: Phase 9 — Initial access surfaces (all hosts)
-  hosts: all
+  hosts: all:!linux_hosts   # Windows-only roles — exclude the Linux member
   gather_facts: false
   tags:
     - vuln_ia
@@ -180,7 +180,7 @@
 # Phase 10: Lateral movement + persistence + privilege escalation (original roles)
 # ============================================================================
 - name: Phase 10 — Lateral movement, persistence, privesc (all hosts)
-  hosts: all
+  hosts: all:!linux_hosts   # Windows-only roles — exclude the Linux member
   gather_facts: false
   tags:
     - vuln_lateral
@@ -282,4 +282,58 @@
   roles:
     - role: vuln_traffic_sim
 
-# (Phase 17-18 surfaces absorbed into vuln_cred_access, vuln_lateral, vuln_forest in phases 8-10)
+# ============================================================================
+# Phase 18: Network-protocol attack surfaces (WPAD, mDNS, TFTP, IPv6, NTP,
+# NetBIOS, DNS dynamic-update). Headless, segment-reachable from 10.10.0.1.
+# ============================================================================
+- name: Phase 18 — Network-protocol attack surfaces
+  hosts:
+    - dc01.corp.local
+    - ca01.corp.local
+    - file01.corp.local
+    - sql01.corp.local
+    - ws01.corp.local
+  gather_facts: false
+  tags:
+    - vuln_network_protocols
+    - phase18
+  roles:
+    - role: vuln_network_protocols
+
+# ============================================================================
+# Phase 19: Victim-executor simulation (ws01) — scheduled tasks act as gullible
+# employees every ~30 s: execute artifacts dropped in the world-writable Drop
+# share and touch .library-ms/.search-ms/.url coercion files so outbound NTLM
+# fires for Responder/ntlmrelayx. Makes client-side techniques solvable
+# HEADLESSLY on Server Core. Runs AFTER domain_join + the phishing/coercion
+# drop roles (Phases 9-11) so artifacts exist.
+# ============================================================================
+- name: Phase 19 — Victim-executor simulation (ws01)
+  hosts: ws01.corp.local
+  gather_facts: false
+  tags:
+    - vuln_victim_exec
+    - victim_exec
+    - phase19
+  roles:
+    - role: vuln_victim_exec
+
+# (Earlier extended surfaces absorbed into vuln_cred_access, vuln_lateral, vuln_forest in phases 8-10)
+
+# ============================================================================
+# Phase 20: Linux-in-AD member (linux01) — domain join + Linux-local privesc
+# + Linux→Windows lateral surface + non-Windows network/app services.
+# SSH/become (NOT WinRM). MUST run AFTER Phase 1 (corp.local DC promoted) so
+# realmd/adcli can join corp.local (DC 10.10.0.10). gather_facts: true — Linux
+# facts are cheap and the role uses ansible_distribution / service facts.
+# ============================================================================
+- name: Phase 20 — Linux member (linux01) — domain join, LPE, services, flags
+  hosts: linux_hosts
+  gather_facts: true
+  become: true
+  tags:
+    - vuln_linux
+    - linux
+    - phase20
+  roles:
+    - role: vuln_linux

@@ -1,0 +1,160 @@
+---
+# ==============================================================================
+# vuln_network_protocols/tasks/smtp_mail.yml
+# Target: file01.corp.local
+#
+# NET-008  SMTP open relay + VRFY/EXPN user enumeration on TCP/25. The Windows
+#          SMTP-Server feature was removed after 2012 R2 and cannot be installed
+#          reliably offline (previously REPORTED needs-service in ntp_smtp.yml).
+#          Instead of an offline package we inject a tiny NATIVE PowerShell SMTP
+#          listener that speaks just enough RFC 5321 to be vulnerable:
+#            - greets 220, accepts HELO/EHLO (250)
+#            - VRFY <user>  -> 250 <user@corp.local>      (user enumeration)
+#            - EXPN <list>  -> 250 members                (list expansion)
+#            - MAIL FROM / RCPT TO / DATA accepted for ANY domain (250) = OPEN
+#              RELAY: it acknowledges relay to external recipients without auth.
+#          Captured messages are appended to a spool file so a player can prove
+#          relay/spoofing succeeded.
+#
+# NET-010  POP3 cleartext credential surface on TCP/110 (see pop3.yml).
+#
+# RESOURCE COST: lightweight. Single TcpListener blocking on Accept; ~0% CPU
+#          idle. Line-oriented text protocol, no streaming, no DB.
+# ==============================================================================
+
+- name: NET-008 - Ensure SMTP spool directory exists
+  ansible.windows.win_file:
+    path: 'C:\SMTP-Spool'
+    state: directory
+
+- name: NET-008 - Deploy native PowerShell open-relay SMTP (VRFY/EXPN) listener
+  ansible.windows.win_copy:
+    dest: 'C:\Windows\Temp\smtp-listener.ps1'
+    content: |
+      # Minimal RFC 5321 SMTP server (TCP 25) - intentionally an OPEN RELAY with
+      # VRFY/EXPN user enumeration enabled (NET-008). No authentication.
+      $ErrorActionPreference = 'Continue'
+      $spool = 'C:\SMTP-Spool\relayed.log'
+      $users = @('administrator','jhalpert','dschrute','mscott','kmalone','pbeesly','svc_sql')
+      $lists = @{ 'all' = 'administrator@corp.local, mscott@corp.local'; 'admins' = 'administrator@corp.local' }
+      $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, 25)
+      $listener.Start()
+      while ($true) {
+        try {
+          $client = $listener.AcceptTcpClient()
+          $ns = $client.GetStream()
+          $ns.ReadTimeout = 15000
+          $sr = New-Object System.IO.StreamReader($ns)
+          $sw = New-Object System.IO.StreamWriter($ns)
+          $sw.NewLine = "`r`n"; $sw.AutoFlush = $true
+          $sw.WriteLine('220 mail.corp.local DUNDER ESMTP ready')
+          $inData = $false
+          $msg = New-Object System.Text.StringBuilder
+          while ($true) {
+            $line = $sr.ReadLine()
+            if ($null -eq $line) { break }
+            if ($inData) {
+              if ($line -eq '.') {
+                $inData = $false
+                Add-Content -Path $spool -Value ("---- " + (Get-Date) + " ----")
+                Add-Content -Path $spool -Value $msg.ToString()
+                [void]$msg.Clear()
+                $sw.WriteLine('250 2.0.0 Ok: message accepted for relay')
+              } else { [void]$msg.AppendLine($line) }
+              continue
+            }
+            $u = $line.ToUpper()
+            if ($u.StartsWith('HELO') -or $u.StartsWith('EHLO')) {
+              $sw.WriteLine('250-mail.corp.local Hello')
+              $sw.WriteLine('250-VRFY')
+              $sw.WriteLine('250 EXPN')
+            } elseif ($u.StartsWith('VRFY')) {
+              $q = ($line.Substring(4)).Trim().ToLower()
+              if ($users -contains $q) { $sw.WriteLine("250 <$q@corp.local>") }
+              else { $sw.WriteLine('550 No such user') }
+            } elseif ($u.StartsWith('EXPN')) {
+              $q = ($line.Substring(4)).Trim().ToLower()
+              if ($lists.ContainsKey($q)) { $sw.WriteLine("250 $($lists[$q])") }
+              else { $sw.WriteLine('550 No such list') }
+            } elseif ($u.StartsWith('MAIL FROM')) {
+              $sw.WriteLine('250 2.1.0 Sender ok')
+            } elseif ($u.StartsWith('RCPT TO')) {
+              # accept ANY recipient domain without auth = open relay
+              $sw.WriteLine('250 2.1.5 Recipient ok (relay permitted)')
+            } elseif ($u.StartsWith('DATA')) {
+              $inData = $true
+              $sw.WriteLine('354 End data with <CR><LF>.<CR><LF>')
+            } elseif ($u.StartsWith('RSET')) {
+              $sw.WriteLine('250 2.0.0 Ok')
+            } elseif ($u.StartsWith('NOOP')) {
+              $sw.WriteLine('250 2.0.0 Ok')
+            } elseif ($u.StartsWith('QUIT')) {
+              $sw.WriteLine('221 2.0.0 Bye'); break
+            } else {
+              $sw.WriteLine('250 2.0.0 Ok')
+            }
+          }
+          $client.Close()
+        } catch { try { $client.Close() } catch {}; Start-Sleep -Milliseconds 200 }
+      }
+  register: net008_script
+
+- name: NET-008 - Open TCP/25 inbound firewall for SMTP
+  community.windows.win_firewall_rule:
+    name: "DUNDER SMTP TCP25"
+    localport: 25
+    protocol: tcp
+    direction: in
+    action: allow
+    enabled: true
+    state: present
+
+- name: NET-008 - Register SMTP listener scheduled task (SYSTEM, at boot)
+  community.windows.win_scheduled_task:
+    name: DunderSMTP
+    description: "Open-relay SMTP + VRFY/EXPN listener (NET-008 network-protocol surface)"
+    actions:
+      - path: powershell.exe
+        arguments: >-
+          -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden
+          -File C:\Windows\Temp\smtp-listener.ps1
+    triggers:
+      - type: boot
+    username: SYSTEM
+    run_level: highest
+    state: present
+    enabled: true
+
+- name: NET-008 - Check if SMTP listener is bound on TCP/25
+  ansible.windows.win_shell: |
+    $b = (Get-NetTCPConnection -LocalPort 25 -State Listen -ErrorAction SilentlyContinue)
+    if ($b) { Write-Output "listening" } else { Write-Output "not_listening" }
+  register: net008_bind_check
+  changed_when: false
+  failed_when: net008_bind_check.rc != 0
+
+- name: NET-008 - Start SMTP listener task now if not already bound
+  ansible.windows.win_shell: |
+    Start-ScheduledTask -TaskName DunderSMTP -ErrorAction SilentlyContinue
+    Write-Output "changed: SMTP listener started"
+  register: net008_start
+  changed_when: "'changed:' in net008_start.stdout"
+  failed_when: net008_start.rc != 0
+  when: "'not_listening' in net008_bind_check.stdout"
+
+- name: NET-008 - Drop SMTP open-relay flag
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\net-smtp.txt'
+    content: |
+      DUNDER{NET-008_SMTP_OPEN_RELAY_VRFY_EXPN}
+      I declare bankruptcy! — Michael Scott
+
+      NET-008 SMTP open relay + user enumeration (file01 TCP/25):
+        nmap -p25 --script smtp-open-relay,smtp-enum-users 10.10.0.13
+        VRFY administrator   -> 250 <administrator@corp.local>
+        EXPN admins          -> 250 administrator@corp.local
+        Open relay: MAIL FROM / RCPT TO any domain is accepted with no auth;
+        relayed messages spool to C:\SMTP-Spool\relayed.log
+      NOTE: native PowerShell SMTP responder (not a full MTA). It proves the
+      open-relay + VRFY/EXPN enumeration + sender-spoofing surface from the
+      catalog without the removed Windows SMTP-Server feature.

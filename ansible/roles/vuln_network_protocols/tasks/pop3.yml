@@ -1,0 +1,151 @@
+---
+# ==============================================================================
+# vuln_network_protocols/tasks/pop3.yml
+# Target: file01.corp.local
+#
+# NET-010  POP3 cleartext credential surface on TCP/110. The catalog
+#          (I-35 #05 IMAP/POP3 Credential Attacks) targets cleartext USER/PASS
+#          auth that is trivially sniffable/brute-forceable. No mail service is
+#          installable offline, so we inject a tiny NATIVE PowerShell POP3
+#          listener that:
+#            - greets +OK
+#            - accepts USER/PASS in CLEARTEXT (port 110, no TLS) and logs every
+#              attempted credential to a spool file (sniff/brute target)
+#            - on the planted weak credential (mscott / Password1) returns a
+#              successful TRANSACTION state with one bait message (RETR 1).
+#          This reproduces the cleartext-credential + weak-password attack on a
+#          mail-retrieval protocol. IMAP (143) is NOT injected separately - same
+#          cleartext-auth technique, one listener is enough to teach it.
+#
+# RESOURCE COST: lightweight. Single TcpListener blocking on Accept; ~0% idle.
+# ==============================================================================
+
+- name: NET-010 - Ensure POP3 spool directory exists
+  ansible.windows.win_file:
+    path: 'C:\POP3-Spool'
+    state: directory
+
+- name: NET-010 - Deploy native PowerShell cleartext POP3 listener
+  ansible.windows.win_copy:
+    dest: 'C:\Windows\Temp\pop3-listener.ps1'
+    content: |
+      # Minimal RFC 1939 POP3 server (TCP 110) - CLEARTEXT USER/PASS auth, no TLS.
+      # Intentionally insecure: logs all credential attempts (NET-010).
+      $ErrorActionPreference = 'Continue'
+      $spool = 'C:\POP3-Spool\creds.log'
+      $weakUser = 'mscott'
+      $weakPass = 'Password1'
+      $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, 110)
+      $listener.Start()
+      while ($true) {
+        try {
+          $client = $listener.AcceptTcpClient()
+          $ns = $client.GetStream()
+          $ns.ReadTimeout = 15000
+          $sr = New-Object System.IO.StreamReader($ns)
+          $sw = New-Object System.IO.StreamWriter($ns)
+          $sw.NewLine = "`r`n"; $sw.AutoFlush = $true
+          $sw.WriteLine('+OK DUNDER POP3 ready')
+          $curUser = ''
+          $authed = $false
+          while ($true) {
+            $line = $sr.ReadLine()
+            if ($null -eq $line) { break }
+            $u = $line.ToUpper()
+            if ($u.StartsWith('USER')) {
+              $curUser = ($line.Substring(4)).Trim()
+              $sw.WriteLine('+OK user accepted, send PASS')
+            } elseif ($u.StartsWith('PASS')) {
+              $p = ($line.Substring(4)).Trim()
+              Add-Content -Path $spool -Value ((Get-Date).ToString() + " user=" + $curUser + " pass=" + $p)
+              if ($curUser -eq $weakUser -and $p -eq $weakPass) {
+                $authed = $true
+                $sw.WriteLine('+OK mailbox ready')
+              } else {
+                $sw.WriteLine('-ERR invalid login')
+              }
+            } elseif ($u.StartsWith('STAT')) {
+              if ($authed) { $sw.WriteLine('+OK 1 512') } else { $sw.WriteLine('-ERR not authenticated') }
+            } elseif ($u.StartsWith('LIST')) {
+              if ($authed) { $sw.WriteLine('+OK 1 messages'); $sw.WriteLine('1 512'); $sw.WriteLine('.') }
+              else { $sw.WriteLine('-ERR not authenticated') }
+            } elseif ($u.StartsWith('RETR')) {
+              if ($authed) {
+                $sw.WriteLine('+OK 512 octets')
+                $sw.WriteLine('From: it@corp.local')
+                $sw.WriteLine('Subject: VPN reset')
+                $sw.WriteLine('')
+                $sw.WriteLine('DUNDER{NET-010_POP3_CLEARTEXT_CREDS_WEAK_PASS}')
+                $sw.WriteLine('Identity theft is not a joke Jim. — Dwight Schrute')
+                $sw.WriteLine('.')
+              } else { $sw.WriteLine('-ERR not authenticated') }
+            } elseif ($u.StartsWith('CAPA')) {
+              $sw.WriteLine('+OK'); $sw.WriteLine('USER'); $sw.WriteLine('.')
+            } elseif ($u.StartsWith('QUIT')) {
+              $sw.WriteLine('+OK bye'); break
+            } else {
+              $sw.WriteLine('+OK')
+            }
+          }
+          $client.Close()
+        } catch { try { $client.Close() } catch {}; Start-Sleep -Milliseconds 200 }
+      }
+  register: net010_script
+
+- name: NET-010 - Open TCP/110 inbound firewall for POP3
+  community.windows.win_firewall_rule:
+    name: "DUNDER POP3 TCP110"
+    localport: 110
+    protocol: tcp
+    direction: in
+    action: allow
+    enabled: true
+    state: present
+
+- name: NET-010 - Register POP3 listener scheduled task (SYSTEM, at boot)
+  community.windows.win_scheduled_task:
+    name: DunderPOP3
+    description: "Cleartext POP3 credential listener (NET-010 network-protocol surface)"
+    actions:
+      - path: powershell.exe
+        arguments: >-
+          -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden
+          -File C:\Windows\Temp\pop3-listener.ps1
+    triggers:
+      - type: boot
+    username: SYSTEM
+    run_level: highest
+    state: present
+    enabled: true
+
+- name: NET-010 - Check if POP3 listener is bound on TCP/110
+  ansible.windows.win_shell: |
+    $b = (Get-NetTCPConnection -LocalPort 110 -State Listen -ErrorAction SilentlyContinue)
+    if ($b) { Write-Output "listening" } else { Write-Output "not_listening" }
+  register: net010_bind_check
+  changed_when: false
+  failed_when: net010_bind_check.rc != 0
+
+- name: NET-010 - Start POP3 listener task now if not already bound
+  ansible.windows.win_shell: |
+    Start-ScheduledTask -TaskName DunderPOP3 -ErrorAction SilentlyContinue
+    Write-Output "changed: POP3 listener started"
+  register: net010_start
+  changed_when: "'changed:' in net010_start.stdout"
+  failed_when: net010_start.rc != 0
+  when: "'not_listening' in net010_bind_check.stdout"
+
+- name: NET-010 - Drop POP3 cleartext flag
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\net-pop3.txt'
+    content: |
+      DUNDER{NET-010_POP3_CLEARTEXT_CREDS_WEAK_PASS}
+      Identity theft is not a joke Jim. — Dwight Schrute
+
+      NET-010 POP3 cleartext credentials (file01 TCP/110, no TLS):
+        Auth is cleartext USER/PASS - sniffable and brute-forceable.
+        hydra -l mscott -P rockyou.txt pop3://10.10.0.13
+        Weak planted login: mscott / Password1  -> RETR 1 reveals the flag.
+        Every PASS attempt is logged to C:\POP3-Spool\creds.log
+      NOTE: native PowerShell POP3 responder. IMAP/143 not injected separately -
+      same cleartext-auth technique; stand up a real mail box for full IMAP.

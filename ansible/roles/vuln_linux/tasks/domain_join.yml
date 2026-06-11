@@ -1,0 +1,130 @@
+---
+# ==============================================================================
+# A. DOMAIN JOIN — realmd + sssd + adcli → corp.local
+# Configures sssd so AD users can SSH in and sudo. Runs AFTER the corp.local DC
+# (Phase 1) is up. Join failures are soft (block/rescue) so the rest of the box
+# still provisions in a DC-less smoke test.
+# ==============================================================================
+
+- name: Install realmd / sssd / adcli / kerberos packages
+  ansible.builtin.apt:
+    name:
+      - realmd
+      - sssd
+      - sssd-tools
+      - adcli
+      - krb5-user
+      - libnss-sss
+      - libpam-sss
+      - packagekit
+      - oddjob
+      - oddjob-mkhomedir
+    state: present
+    update_cache: true
+  register: realmd_pkgs
+  failed_when: false   # offline hosts: report via debug below, keep going
+
+- name: Report if AD packages could not be installed (likely offline)
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: realmd/sssd packages not installed (apt failed — host may be
+      offline). Domain join skipped; Linux-local LPE + services still apply.
+  when: realmd_pkgs is failed or realmd_pkgs.rc | default(0) != 0
+
+- name: Point resolv.conf DNS at the corp.local DC (for AD SRV records)
+  ansible.builtin.copy:
+    dest: /etc/resolv.conf
+    content: |
+      # DUNDER lab — AD DNS
+      nameserver {{ vuln_linux_dc_ip }}
+      search {{ vuln_linux_domain }}
+    mode: "0644"
+  when: realmd_pkgs is not failed
+
+- name: Write a permissive krb5.conf for the realm
+  ansible.builtin.copy:
+    dest: /etc/krb5.conf
+    mode: "0644"
+    content: |
+      [libdefaults]
+        default_realm = {{ vuln_linux_realm }}
+        dns_lookup_realm = true
+        dns_lookup_kdc = true
+        rdns = false
+      [realms]
+        {{ vuln_linux_realm }} = {
+          kdc = {{ vuln_linux_dc_ip }}
+          admin_server = {{ vuln_linux_dc_ip }}
+        }
+      [domain_realm]
+        .{{ vuln_linux_domain }} = {{ vuln_linux_realm }}
+        {{ vuln_linux_domain }} = {{ vuln_linux_realm }}
+  when: realmd_pkgs is not failed
+
+- name: Domain join (soft-fail if DC unreachable)
+  when:
+    - vuln_linux_do_domain_join | bool
+    - realmd_pkgs is not failed
+  block:
+    - name: Check whether already joined to {{ vuln_linux_domain }}
+      ansible.builtin.command: "realm list"
+      register: realm_state
+      changed_when: false
+      failed_when: false
+
+    - name: Join {{ vuln_linux_domain }} via adcli/realm
+      ansible.builtin.shell: >-
+        echo '{{ vuln_linux_join_password }}' |
+        realm join --user={{ vuln_linux_join_user }}
+        --computer-ou='CN=Computers'
+        {{ vuln_linux_domain }} 2>&1
+      args:
+        executable: /bin/bash
+      register: join_out
+      changed_when: "'Successfully enrolled' in join_out.stdout"
+      when: vuln_linux_domain not in (realm_state.stdout | default(''))
+
+    - name: Allow all AD users to log in (vulnerable — no access filter)
+      ansible.builtin.command: "realm permit --all"
+      register: permit_out
+      changed_when: false
+      failed_when: false
+
+    - name: Configure sssd — short usernames, auto homedirs, AD users + sudo
+      ansible.builtin.copy:
+        dest: /etc/sssd/sssd.conf
+        mode: "0600"
+        content: |
+          [sssd]
+          domains = {{ vuln_linux_domain }}
+          config_file_version = 2
+          services = nss, pam, sudo
+
+          [domain/{{ vuln_linux_domain }}]
+          ad_domain = {{ vuln_linux_domain }}
+          krb5_realm = {{ vuln_linux_realm }}
+          realmd_tags = manages-system joined-with-adcli
+          cache_credentials = true
+          id_provider = ad
+          access_provider = simple
+          fallback_homedir = /home/%u
+          use_fully_qualified_names = false
+          default_shell = /bin/bash
+          ldap_id_mapping = true
+          # vulnerable: no LDAP access filter — every AD principal may log in
+      notify: restart sssd
+      register: sssd_conf
+
+    - name: Enable mkhomedir on login (pam)
+      ansible.builtin.command: "pam-auth-update --enable mkhomedir"
+      changed_when: false
+      failed_when: false
+
+  rescue:
+    - name: Domain join failed — continue with local-only surface
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: domain join to {{ vuln_linux_domain }} failed (DC
+          {{ vuln_linux_dc_ip }} unreachable?). Linux-local LPE + services
+          still provisioned. Re-run phase 5/--tags vuln_linux_join once the
+          corp.local DC is up.

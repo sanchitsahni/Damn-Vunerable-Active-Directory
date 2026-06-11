@@ -52,11 +52,19 @@ VM_DEFS=(
     ["ca01"]="52:54:00:01:01:03|1536|25|2|5903|dvad-ctf|server2022"
     ["file01"]="52:54:00:01:01:04|1536|20|2|5904|dvad-ctf|server2019"
     ["sql01"]="52:54:00:01:01:05|2048|25|2|5905|dvad-ctf|server2022"
-    ["ws01"]="52:54:00:01:01:06|2048|30|2|5906|dvad-ctf|win10"
+    # ws01 — Server Core member acting as the victim "workstation" (headless,
+    # no GUI). Was Win10 Desktop; converted to reuse the server2022 base so the
+    # whole lab is GUI-less and lower-RAM. All AD/network/coercion attacks still
+    # apply via vuln_victim_exec + vuln_traffic_sim. GUI-only CVEs were removed.
+    ["ws01"]="52:54:00:01:01:06|1536|30|2|5906|dvad-ctf|server2022"
     # finance.local segment — single bridge dvad-ctf (10.10.20.x)
     ["dc01fin"]="52:54:00:02:01:01|1536|25|2|5907|dvad-ctf|server2022"
     # root.corp segment — single bridge dvad-ctf (10.10.30.x)
     ["dc01root"]="52:54:00:03:01:01|1536|25|2|5908|dvad-ctf|server2022"
+    # linux01 — Ubuntu 22.04 cloud member (Linux-in-AD). NOT a packer build:
+    # base_image "ubuntu" resolves to media/ubuntu-22.04-cloud.img and the
+    # launch branch boots it COW + a cloud-init NoCloud seed ISO (no install).
+    ["linux01"]="52:54:00:01:01:07|2048|20|2|5909|dvad-ctf|ubuntu"
 )
 
 # Ordered name → FQDN mapping (associative arrays are unordered in Bash)
@@ -69,11 +77,12 @@ declare -A VM_FQDN=(
     ["ws01"]="ws01.corp.local"
     ["dc01fin"]="dc01.finance.local"
     ["dc01root"]="dc01.root.corp"
+    ["linux01"]="linux01.corp.local"
 )
 
 # Profile → VM list (ordered)
-PROFILE_FULL=("dc01" "dc01eu" "ca01" "file01" "sql01" "ws01" "dc01fin" "dc01root")
-PROFILE_MINIMAL=("dc01" "dc01eu" "ca01" "file01" "sql01" "ws01")
+PROFILE_FULL=("dc01" "dc01eu" "ca01" "file01" "sql01" "ws01" "dc01fin" "dc01root" "linux01")
+PROFILE_MINIMAL=("dc01" "dc01eu" "ca01" "file01" "sql01" "ws01" "linux01")
 PROFILE_SINGLE_DC=("dc01")
 
 # ==============================================================================
@@ -88,6 +97,8 @@ resolve_base_image() {
         server2022) path="${PACKER_OUTPUT}/server2022-qemu/windows-server-2022-base.qcow2" ;;
         server2019) path="${PACKER_OUTPUT}/server2019-qemu/windows-server-2019-base.qcow2" ;;
         win10)      path="${PACKER_OUTPUT}/win10-qemu/windows-10-base.qcow2" ;;
+        # ubuntu — prebuilt cloud image fetched by deploy.py phase 0 (no packer).
+        ubuntu)     path="${DUNDER_HOME}/media/ubuntu-22.04-cloud.img" ;;
         *)
             err "Unknown base image key: ${key}"
             return 1
@@ -192,13 +203,197 @@ create_vm() {
 }
 
 # ==============================================================================
+# SSH key + cloud-init NoCloud seed ISO for Linux members
+# ==============================================================================
+
+# Path to the lab SSH private key ansible uses to reach Linux members.
+LINUX_SSH_KEY="${DUNDER_HOME}/vms/linux01_id"
+
+# ensure_linux_ssh_key — generate vms/linux01_id{,.pub} if absent (idempotent).
+ensure_linux_ssh_key() {
+    mkdir -p "${VM_STATE_DIR}"
+    if [[ -f "${LINUX_SSH_KEY}" && -f "${LINUX_SSH_KEY}.pub" ]]; then
+        return 0
+    fi
+    log "Generating lab SSH keypair for Linux members → ${LINUX_SSH_KEY}"
+    ssh-keygen -t ed25519 -N "" -C "labadmin@dunder" -f "${LINUX_SSH_KEY}" >/dev/null
+}
+
+# detect_iso_tool — echo the first available ISO-builder, or empty if none.
+detect_iso_tool() {
+    if command -v cloud-localds &>/dev/null;  then echo "cloud-localds"; return 0; fi
+    if command -v genisoimage &>/dev/null;    then echo "genisoimage";   return 0; fi
+    if command -v mkisofs &>/dev/null;        then echo "mkisofs";       return 0; fi
+    if command -v xorriso &>/dev/null;        then echo "xorriso";       return 0; fi
+    echo ""
+}
+
+# build_seed_iso <vm_name> <fqdn>
+# Writes user-data + meta-data and packs a NoCloud seed ISO at
+# vms/<vm>-seed.iso. Idempotent: rebuilt each launch so key/IP edits apply.
+build_seed_iso() {
+    local vm_name="$1"
+    local fqdn="$2"
+    local short="${fqdn%%.*}"
+
+    ensure_linux_ssh_key
+    local pubkey
+    pubkey="$(cat "${LINUX_SSH_KEY}.pub")"
+
+    local seed_dir="${VM_STATE_DIR}/${vm_name}-seed"
+    local seed_iso="${VM_STATE_DIR}/${vm_name}-seed.iso"
+    mkdir -p "${seed_dir}"
+
+    # meta-data — instance id + hostname
+    cat > "${seed_dir}/meta-data" <<META_EOF
+instance-id: ${vm_name}-001
+local-hostname: ${short}
+META_EOF
+
+    # user-data — labadmin (sudo), known SSH pubkey + password, password SSH on,
+    # python3 for ansible. The dnsmasq static lease supplies the IP (DHCP).
+    cat > "${seed_dir}/user-data" <<USERDATA_EOF
+#cloud-config
+hostname: ${short}
+fqdn: ${fqdn}
+manage_etc_hosts: true
+ssh_pwauth: true
+disable_root: false
+users:
+  - name: labadmin
+    gecos: DUNDER Lab Admin
+    groups: [sudo]
+    shell: /bin/bash
+    lock_passwd: false
+    # password: DVADlab2024!  (intentionally weak — vulnerable lab)
+    passwd: \$6\$dunderlab\$Hl0gnUuJ4Yx0a8pYxN0aQ7rGq0i1m3oVrTn9wQ2bFv6sJxN0kS8eR5wT3uY1iO6pA9dG7hL4jK2mN0bV8cX1z.
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ${pubkey}
+package_update: false
+packages:
+  - python3
+runcmd:
+  - [ systemctl, enable, --now, ssh ]
+USERDATA_EOF
+
+    log "Building cloud-init NoCloud seed ISO → ${seed_iso}"
+    local tool
+    tool="$(detect_iso_tool)"
+    case "${tool}" in
+        cloud-localds)
+            cloud-localds "${seed_iso}" "${seed_dir}/user-data" "${seed_dir}/meta-data"
+            ;;
+        genisoimage|mkisofs)
+            "${tool}" -output "${seed_iso}" -volid cidata -joliet -rock \
+                "${seed_dir}/user-data" "${seed_dir}/meta-data" >/dev/null 2>&1
+            ;;
+        xorriso)
+            xorriso -as mkisofs -output "${seed_iso}" -volid cidata -joliet -rock \
+                "${seed_dir}/user-data" "${seed_dir}/meta-data" >/dev/null 2>&1
+            ;;
+        *)
+            err "No ISO builder found (need cloud-localds, genisoimage, mkisofs, or xorriso)."
+            err "Install one (e.g. apt install genisoimage) and re-run."
+            return 1
+            ;;
+    esac
+    [[ -f "${seed_iso}" ]] || { err "Seed ISO not produced at ${seed_iso}"; return 1; }
+}
+
+# ==============================================================================
+# launch_linux_vm <vm_name>
+# Boots an Ubuntu cloud image (virtio disk) + cloud-init NoCloud seed ISO.
+# No install media, no WinRM — straight to multi-user + SSH.
+# ==============================================================================
+launch_linux_vm() {
+    local vm_name="$1"
+
+    parse_vm_def "${vm_name}"
+
+    local fqdn="${VM_FQDN[$vm_name]:-$vm_name}"
+    local disk_path="${VM_STATE_DIR}/${vm_name}.qcow2"
+    local pid_file="${VM_STATE_DIR}/${vm_name}.pid"
+    local mon_file="${VM_STATE_DIR}/${vm_name}.mon"
+    local log_file="${VM_STATE_DIR}/${vm_name}.log"
+    local seed_iso="${VM_STATE_DIR}/${vm_name}-seed.iso"
+
+    if [[ ! -f "${disk_path}" ]]; then
+        err "No disk found for ${vm_name} at ${disk_path}. Run create_vm first."
+        return 1
+    fi
+
+    if [[ -f "${pid_file}" ]] && kill -0 "$(cat "${pid_file}")" 2>/dev/null; then
+        info "${vm_name} is already running (PID: $(cat "${pid_file}"))."
+        return 0
+    fi
+    rm -f "${pid_file}"
+
+    build_seed_iso "${vm_name}" "${fqdn}" || return 1
+
+    ensure_tap "${vm_name}" "${vm_bridge}"
+
+    local tap="dvad-${vm_name}"
+    local vnc_display="${VNC_BIND}:$((vm_vnc_port - 5900))"
+
+    log "Launching Linux ${vm_name} (${fqdn}) — VNC ${vnc_display} (port ${vm_vnc_port})"
+
+    qemu-system-x86_64 \
+        -name          "${vm_name}" \
+        -machine       "q35,accel=${ACCEL}" \
+        ${KVM_OPT} \
+        -cpu           host \
+        -smp           "cpus=${vm_cpu}" \
+        -m             "${vm_ram}M" \
+        -drive         "file=${disk_path},if=virtio,format=qcow2,cache=writeback" \
+        -drive         "file=${seed_iso},if=virtio,format=raw,media=cdrom" \
+        -netdev        "tap,id=net0,ifname=${tap},script=no,downscript=no" \
+        -device        "virtio-net-pci,netdev=net0,mac=${vm_mac}" \
+        -display       none \
+        -vnc           "${vnc_display}" \
+        -vga           std \
+        -rtc           "base=utc" \
+        -boot          "order=c" \
+        -daemonize \
+        -pidfile       "${pid_file}" \
+        -monitor       "unix:${mon_file},server,nowait" \
+        2>"${log_file}" || {
+            err "${vm_name} failed to launch. Last log:"
+            tail -10 "${log_file}" | sed 's/^/    /' >&2 || true
+            return 1
+        }
+
+    local waited=0
+    while [[ "${waited}" -lt 10 ]]; do
+        [[ -f "${pid_file}" ]] && break
+        sleep 1
+        waited=$(( waited + 1 ))
+    done
+
+    if [[ -f "${pid_file}" ]]; then
+        log "${vm_name} started (PID: $(cat "${pid_file}"), VNC ${VNC_BIND}:${vm_vnc_port})"
+    else
+        err "${vm_name} failed to start — no PID file after ${waited}s."
+        [[ -f "${log_file}" ]] && tail -5 "${log_file}" | sed 's/^/    /' >&2 || true
+        return 1
+    fi
+}
+
+# ==============================================================================
 # launch_vm <vm_name>
 # Starts a VM that already has a cloned disk.  No ISO — boots from disk only.
+# Linux members (base_image=ubuntu) are delegated to launch_linux_vm.
 # ==============================================================================
 launch_vm() {
     local vm_name="$1"
 
     parse_vm_def "${vm_name}"
+
+    # Linux member → cloud-image + seed-ISO boot path.
+    if [[ "${vm_base_image}" == "ubuntu" ]]; then
+        launch_linux_vm "${vm_name}"
+        return $?
+    fi
 
     local fqdn="${VM_FQDN[$vm_name]:-$vm_name}"
     local disk_path="${VM_STATE_DIR}/${vm_name}.qcow2"
@@ -307,6 +502,10 @@ destroy_vm() {
         "${VM_STATE_DIR}/${vm_name}.mon" \
         "${VM_STATE_DIR}/${vm_name}.log"
 
+    # Linux members carry a cloud-init seed ISO + scratch dir — clean those too.
+    rm -f  "${VM_STATE_DIR}/${vm_name}-seed.iso"
+    rm -rf "${VM_STATE_DIR}/${vm_name}-seed"
+
     log "${vm_name} destroyed."
 }
 
@@ -319,7 +518,7 @@ destroy_all() {
     warn "Destroying all VMs in profile '${profile}'..."
 
     local vm_list
-    read -ra vm_list <<< "$(profile_vms "${profile}")"
+    IFS=' ' read -ra vm_list <<< "$(profile_vms "${profile}")"
 
     for vm_name in "${vm_list[@]}"; do
         destroy_vm "${vm_name}"
@@ -374,19 +573,25 @@ wait_for_winrm() {
     local ip
     ip="$(get_vm_ip "${vm_name}")"
 
-    log "Waiting for WinRM on ${vm_name} (${ip}:5985) — timeout ${timeout}s..."
+    # Linux members have no WinRM — wait for SSH (TCP 22) readiness instead.
+    local port="5985" svc="WinRM"
+    if [[ "${vm_base_image}" == "ubuntu" ]]; then
+        port="22"; svc="SSH"
+    fi
+
+    log "Waiting for ${svc} on ${vm_name} (${ip}:${port}) — timeout ${timeout}s..."
 
     local elapsed=0
     while [[ "${elapsed}" -lt "${timeout}" ]]; do
-        if bash -c ">/dev/tcp/${ip}/5985" 2>/dev/null; then
-            log "${vm_name} WinRM is UP (${ip}:5985) after ${elapsed}s."
+        if bash -c ">/dev/tcp/${ip}/${port}" 2>/dev/null; then
+            log "${vm_name} ${svc} is UP (${ip}:${port}) after ${elapsed}s."
             return 0
         fi
         sleep 5
         elapsed=$(( elapsed + 5 ))
     done
 
-    err "Timed out waiting for WinRM on ${vm_name} (${ip}:5985) after ${timeout}s."
+    err "Timed out waiting for ${svc} on ${vm_name} (${ip}:${port}) after ${timeout}s."
     return 1
 }
 
@@ -402,6 +607,7 @@ get_vm_ip() {
         ws01)     echo "10.10.0.100" ;;
         dc01fin)  echo "10.10.20.10" ;;
         dc01root) echo "10.10.30.10" ;;
+        linux01)  echo "10.10.0.15"  ;;
         *)
             err "No IP mapping for VM: ${vm_name}"
             return 1
@@ -417,7 +623,11 @@ wait_for_winrm_all() {
     local timeout="${2:-600}"
 
     local vm_list
-    read -ra vm_list <<< "$(profile_vms "${profile}")"
+    IFS=' ' read -ra vm_list <<< "$(profile_vms "${profile}")" || true
+    if [[ "${#vm_list[@]}" -eq 0 ]]; then
+        err "No VMs for profile '${profile}' (valid: full|minimal|single-dc)."
+        return 1
+    fi
 
     for vm_name in "${vm_list[@]}"; do
         wait_for_winrm "${vm_name}" "${timeout}" &
@@ -433,7 +643,11 @@ create_all() {
     local profile="${1:-full}"
 
     local vm_list
-    read -ra vm_list <<< "$(profile_vms "${profile}")"
+    IFS=' ' read -ra vm_list <<< "$(profile_vms "${profile}")" || true
+    if [[ "${#vm_list[@]}" -eq 0 ]]; then
+        err "No VMs for profile '${profile}' (valid: full|minimal|single-dc)."
+        return 1
+    fi
 
     log "Creating VMs — profile: ${profile} (${#vm_list[@]} VMs)"
     mkdir -p "${VM_STATE_DIR}"
@@ -449,6 +663,55 @@ create_all() {
         local fqdn="${VM_FQDN[$vm_name]:-$vm_name}"
         echo "  ${vm_name} (${fqdn}) -> ${VNC_BIND}:${vm_vnc_port}"
     done
+}
+
+# ==============================================================================
+# start_all [profile] — (re)launch every VM in the profile that has a cloned disk
+# ==============================================================================
+start_all() {
+    local profile="${1:-full}"
+    local vm_list
+    IFS=' ' read -ra vm_list <<< "$(profile_vms "${profile}")" || true
+    if [[ "${#vm_list[@]}" -eq 0 ]]; then
+        err "No VMs for profile '${profile}'."
+        return 1
+    fi
+    for vm_name in "${vm_list[@]}"; do
+        local disk="${VM_STATE_DIR}/${vm_name}.qcow2"
+        local pid_file="${VM_STATE_DIR}/${vm_name}.pid"
+        if [[ -f "${pid_file}" ]] && kill -0 "$(cat "${pid_file}" 2>/dev/null)" 2>/dev/null; then
+            info "${vm_name} already running."
+            continue
+        fi
+        if [[ -f "${disk}" ]]; then
+            launch_vm "${vm_name}" &
+        else
+            warn "${vm_name} has no disk — run 'create' first."
+        fi
+    done
+    wait
+    log "Start complete for profile '${profile}'."
+}
+
+# ==============================================================================
+# stop_all [profile] — gracefully stop every running VM in the profile
+# ==============================================================================
+stop_all() {
+    local profile="${1:-full}"
+    local vm_list
+    IFS=' ' read -ra vm_list <<< "$(profile_vms "${profile}")" || true
+    for vm_name in "${vm_list[@]}"; do
+        local pid_file="${VM_STATE_DIR}/${vm_name}.pid"
+        if [[ -f "${pid_file}" ]]; then
+            local pid; pid="$(cat "${pid_file}" 2>/dev/null || true)"
+            if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
+                log "Stopping ${vm_name} (pid ${pid})..."
+                kill "${pid}" 2>/dev/null || true
+            fi
+            rm -f "${pid_file}"
+        fi
+    done
+    log "Stop complete for profile '${profile}'."
 }
 
 # ==============================================================================
@@ -485,26 +748,27 @@ EOF
 # Entrypoint
 # ==============================================================================
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    # Parse global options before the subcommand
-    while [[ "${1:-}" == --* ]]; do
+    # Parse flags ANYWHERE (before or after the subcommand) and collect the rest
+    # as positional args. deploy.py passes e.g. `create --profile full`, so a
+    # before-command-only parser silently dropped --profile -> 0 VMs created.
+    POSITIONAL=()
+    while [[ $# -gt 0 ]]; do
         case "$1" in
             --packer-output)
                 PACKER_OUTPUT="${2:?--packer-output requires a directory argument}"
-                shift 2
-                ;;
+                shift 2 ;;
             --profile)
                 DEFAULT_PROFILE="${2:?--profile requires a value}"
-                shift 2
-                ;;
+                shift 2 ;;
             --help|-h)
-                usage
-                ;;
+                usage ;;
+            --*)
+                err "Unknown option: $1"; usage ;;
             *)
-                err "Unknown option: $1"
-                usage
-                ;;
+                POSITIONAL+=("$1"); shift ;;
         esac
     done
+    set -- ${POSITIONAL[@]+"${POSITIONAL[@]}"}
 
     DEFAULT_PROFILE="${DEFAULT_PROFILE:-full}"
     COMMAND="${1:-}"
@@ -514,13 +778,19 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         create)
             create_all "${1:-${DEFAULT_PROFILE}}"
             ;;
+        start)
+            start_all "${1:-${DEFAULT_PROFILE}}"
+            ;;
+        stop)
+            stop_all "${1:-${DEFAULT_PROFILE}}"
+            ;;
         launch)
             vm="${1:?launch requires a VM name}"
             launch_vm "${vm}"
             ;;
         destroy)
-            vm="${1:?destroy requires a VM name}"
-            destroy_vm "${vm}"
+            # bare `destroy` (no VM name) tears down the whole profile
+            if [[ -n "${1:-}" ]]; then destroy_vm "${1}"; else destroy_all "${DEFAULT_PROFILE}"; fi
             ;;
         destroy-all)
             destroy_all "${1:-${DEFAULT_PROFILE}}"
@@ -529,8 +799,8 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             status
             ;;
         wait-winrm)
-            vm="${1:?wait-winrm requires a VM name}"
-            wait_for_winrm "${vm}" "${2:-600}"
+            # with a VM name -> single; without -> whole profile
+            if [[ -n "${1:-}" ]]; then wait_for_winrm "${1}" "${2:-600}"; else wait_for_winrm_all "${DEFAULT_PROFILE}" "600"; fi
             ;;
         wait-winrm-all)
             wait_for_winrm_all "${1:-${DEFAULT_PROFILE}}" "${2:-600}"

@@ -1,0 +1,35 @@
+---
+# ==============================================================================
+# vuln_linux/tasks/main.yml
+# Orchestrates the Linux-in-AD member build. Order:
+#   A. domain join (realmd/sssd/adcli → corp.local)
+#   B. Linux-in-AD attack surface (keytab theft, sudo, SUID, cron LPE, NFS, SSH)
+#   C. non-Windows services (Redis/Memcached/Mongo/MySQL/NFS/web app + heavy)
+#   D. flags
+# Everything is idempotent. Runs only on linux_hosts.
+# ==============================================================================
+
+- name: vuln_linux only targets the Linux member
+  ansible.builtin.meta: end_host
+  when: inventory_hostname not in groups['linux_hosts'] | default([])
+
+- name: A — Domain join (realmd + sssd + adcli → corp.local)
+  ansible.builtin.import_tasks: domain_join.yml
+  tags: [vuln_linux_join]
+
+- name: B — Linux-in-AD attack surface (LPE + Linux→Windows lateral)
+  ansible.builtin.import_tasks: linux_in_ad.yml
+  tags: [vuln_linux_lpe]
+
+- name: C — Non-Windows services (lightweight, default-on)
+  ansible.builtin.import_tasks: services.yml
+  tags: [vuln_linux_services]
+
+- name: C — Heavy services (Elasticsearch / Jenkins / Docker API — opt-in)
+  ansible.builtin.import_tasks: services_heavy.yml
+  when: vuln_linux_heavy_services | bool
+  tags: [vuln_linux_heavy]
+
+- name: D — Drop flags (per-service + root)
+  ansible.builtin.import_tasks: flags.yml
+  tags: [vuln_linux_flags]

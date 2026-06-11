@@ -1,0 +1,18 @@
+---
+# ==============================================================================
+# vuln_network_protocols/defaults/main.yml
+# ==============================================================================
+
+# Attacker box on the 10.10.0.0/16 segment — used as the malicious WPAD/proxy
+# target and as the TFTP/relay exfil endpoint in bait records.
+attacker_ip: "10.10.0.1"
+
+# corp.local primary DNS zone (player-reachable AXFR/dynamic-update target).
+np_dns_zone: "corp.local"
+
+# WPAD hostname injected into the corp.local zone (NET-001). Points at the
+# attacker so a poisoned wpad.dat can be served.
+np_wpad_host: "wpad"
+
+# Local on-disk TFTP root on file01 (NET-004). Anonymous + writable.
+np_tftp_root: 'C:\TFTP-Root'

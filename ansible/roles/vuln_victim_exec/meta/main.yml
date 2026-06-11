@@ -1,0 +1,25 @@
+---
+galaxy_info:
+  role_name: vuln_victim_exec
+  author: DVAD
+  description: >
+    Victim-executor simulation for ws01 (and file01 where relevant).
+    Scheduled tasks running as real domain users (pam.beesly, jim.halpert,
+    dwight.schrute) act like gullible employees every ~30 s: they enumerate a
+    world-writable Drop share plus the existing phishing drop paths and
+    OPEN / EXECUTE dropped artifacts (.lnk, .hta, .docm/.doc macros, .bat/.cmd/
+    .ps1/.exe), and BROWSE any folder containing a .library-ms / .search-ms /
+    .url coercion file so Windows fires outbound WebDAV/SMB NTLM auth.
+    This makes the previously GUI-only client-side techniques solvable
+    HEADLESSLY: IA-019..022, IA-024, IA-052, IA-056, CRED-051, CRED-052,
+    CVE-2025-24071, CVE-2025-24054, CVE-2023-21716.
+    Deliberately vulnerable lab — the auto-execution of dropped files is the
+    point (it simulates a victim), not a bug.
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Windows
+      versions:
+        - 2019
+        - 2022
+
+dependencies: []

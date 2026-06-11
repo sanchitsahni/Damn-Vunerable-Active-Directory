@@ -49,6 +49,8 @@ TEE_BIN="$(resolve tee)"
 GREP_BIN="$(resolve grep)"
 MKDIR_BIN="$(resolve mkdir)"
 KILL_BIN="$(resolve kill)"
+PKILL_BIN="$(resolve pkill)"
+SED_BIN="$(resolve sed)"
 DNSMASQ_BIN="$(resolve dnsmasq)"
 
 CONTENT="# DUNDER lab — NOPASSWD for ${DEPLOY_USER}
@@ -64,6 +66,8 @@ Cmnd_Alias DUNDER_NET = \\
     ${GREP_BIN}, \\
     ${MKDIR_BIN}, \\
     ${KILL_BIN}, \\
+    ${PKILL_BIN}, \\
+    ${SED_BIN}, \\
     ${DNSMASQ_BIN}
 
 ${DEPLOY_USER} ALL=(root) NOPASSWD: DUNDER_NET

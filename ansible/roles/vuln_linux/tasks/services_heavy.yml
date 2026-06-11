@@ -1,0 +1,94 @@
+---
+# ==============================================================================
+# vuln_linux/tasks/services_heavy.yml
+# OPT-IN heavy services (Elasticsearch, Jenkins, Docker API). Only imported when
+# vuln_linux_heavy_services=true (default false) so they don't OOM a host already
+# running the Windows fleet. All installs soft-fail if packages are unavailable
+# offline. Deliberately vulnerable lab — the misconfigs are the spec.
+# ==============================================================================
+
+# ── Docker API exposed unauthenticated on TCP 2375 (container escape → host) ──
+- name: Heavy/Docker — install docker.io
+  ansible.builtin.apt:
+    name: docker.io
+    state: present
+    update_cache: true
+  register: docker_pkg
+  failed_when: false
+
+- name: Heavy/Docker — expose unauthenticated daemon on 0.0.0.0:2375
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/docker.service.d/override.conf
+    mode: "0644"
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=/usr/bin/dockerd -H fd:// -H tcp://0.0.0.0:2375
+  when: docker_pkg is not failed
+  notify: restart docker
+  failed_when: false
+
+- name: Heavy/Docker — flag
+  ansible.builtin.copy:
+    dest: /opt/dunder/flags/flag-docker.txt
+    mode: "0644"
+    content: |
+      DUNDER{NET_DOCKER_API_2375_UNAUTH_ESCAPE_NO_GOD_NO}
+      "NO! God! No God please no!" — Michael Scott
+  when: docker_pkg is not failed
+  failed_when: false
+
+# ── Elasticsearch open on 9200 (data exfil / scripting) ───────────────────────
+- name: Heavy/Elasticsearch — install
+  ansible.builtin.apt:
+    name: elasticsearch
+    state: present
+  register: es_pkg
+  failed_when: false
+
+- name: Heavy/Elasticsearch — bind 0.0.0.0, security off
+  ansible.builtin.copy:
+    dest: /etc/elasticsearch/elasticsearch.yml
+    mode: "0644"
+    content: |
+      network.host: 0.0.0.0
+      discovery.type: single-node
+      xpack.security.enabled: false
+  when: es_pkg is not failed
+  failed_when: false
+
+- name: Heavy/Elasticsearch — flag
+  ansible.builtin.copy:
+    dest: /opt/dunder/flags/flag-elasticsearch.txt
+    mode: "0644"
+    content: |
+      DUNDER{NET_ELASTICSEARCH_9200_OPEN_THREAT_LEVEL_MIDNIGHT}
+      "Threat Level Midnight." — Michael Scott
+  when: es_pkg is not failed
+  failed_when: false
+
+# ── Jenkins unauthenticated (Groovy script console → RCE) ─────────────────────
+- name: Heavy/Jenkins — install (needs jenkins apt repo; soft-fail offline)
+  ansible.builtin.apt:
+    name: jenkins
+    state: present
+  register: jenkins_pkg
+  failed_when: false
+
+- name: Heavy/Jenkins — disable setup wizard + auth (anonymous full control)
+  ansible.builtin.copy:
+    dest: /var/lib/jenkins/jenkins.install.InstallUtil.lastExecVersion
+    mode: "0644"
+    content: "2.0\n"
+  when: jenkins_pkg is not failed
+  failed_when: false
+
+- name: Heavy/Jenkins — flag
+  ansible.builtin.copy:
+    dest: /opt/dunder/flags/flag-jenkins.txt
+    mode: "0644"
+    content: |
+      DUNDER{NET_JENKINS_GROOVY_CONSOLE_RCE_I_AM_DEAD_INSIDE}
+      "I am dead inside." — Stanley Hudson
+  when: jenkins_pkg is not failed
+  failed_when: false

@@ -84,7 +84,7 @@
         Sam  = "jim.halpert"
         Name = "Jim Halpert"
         UPN  = "jim.halpert@corp.local"
-        Pwd  = "User1234!"
+        Pwd  = "Password123!"
         Path = "OU=Users,OU=Corp,$base"
         Opts = @{}
       },
@@ -194,6 +194,17 @@
         Name = "svc_kevin"
         UPN  = "svc_kevin@corp.local"
         Pwd  = "Kevin1234"
+        Path = "OU=ServiceAccounts,OU=Corp,$base"
+        Opts = @{ PasswordNeverExpires = $true }
+      },
+      # Linux pivot account — creds are leaked on linux01 (/home/michael/.creds_backup.txt
+      # and the readable keytab path). Rooting linux01 yields these, giving a valid
+      # corp.local foothold that feeds the existing chain to Domain Admin.
+      @{
+        Sam  = "svc_backup"
+        Name = "svc_backup"
+        UPN  = "svc_backup@corp.local"
+        Pwd  = "Backup2024!"
         Path = "OU=ServiceAccounts,OU=Corp,$base"
         Opts = @{ PasswordNeverExpires = $true }
       }

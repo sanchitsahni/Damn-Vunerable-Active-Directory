@@ -116,7 +116,7 @@
         -Key "HKLM\Software\DVADLab" `
         -ValueName "setup_password" `
         -Type String `
-        -Value "DVADlab2024! -- svc_darryl account credential" `
+        -Value "Darryl2024! -- svc_darryl account credential" `
         -ErrorAction SilentlyContinue
       Write-Output "changed: credential in GPO registry key"
     }

@@ -1,0 +1,64 @@
+---
+# ==============================================================================
+# vuln_network_protocols/tasks/ntp_smtp.yml
+# Target: dc01.corp.local
+#
+# NET-007  NTP — informational. The DC runs the Windows Time service (w32time)
+#          as an NTP server (UDP 123) for domain clients, but w32time does NOT
+#          implement the classic ntpd MODE 7 "monlist" command, so the
+#          monlist/CVE-2013-5211 amplification surface is NOT reproducible
+#          without a real ntpd. We only confirm NTP server mode is enabled so
+#          a player can enumerate UDP/123, and drop a note documenting the
+#          monlist gap.
+# NET-008  SMTP open relay + VRFY/EXPN — the Windows SMTP-Server feature was
+#          removed after Server 2012 R2 and is not offline-installable, so a
+#          native PowerShell SMTP responder is injected instead (see
+#          smtp_mail.yml on file01). This file only documents the missing-MTA
+#          gap; the working surface lives in smtp_mail.yml.
+# ==============================================================================
+
+# NET-007: ensure the DC announces itself as an NTP server (it does by default
+# as the PDC emulator) so UDP/123 is enumerable from the attacker box.
+- name: NET-007 - Check NTP server (NtpServer) is enabled on the DC
+  ansible.windows.win_shell: |
+    $key = 'HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders\NtpServer'
+    $v = (Get-ItemProperty -Path $key -Name 'Enabled' -ErrorAction SilentlyContinue).Enabled
+    if ($null -eq $v) { Write-Output "not_set" } else { Write-Output "value=$v" }
+  register: net007_ntp_check
+  changed_when: false
+  failed_when: net007_ntp_check.rc != 0
+
+- name: NET-007 - Enable NTP server mode on the DC (UDP/123 enumeration surface)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders\NtpServer'
+    name: Enabled
+    data: 1
+    type: dword
+  register: net007_ntp_set
+  when: "'value=1' not in net007_ntp_check.stdout"
+
+- name: NET-007 - Restart w32time if NTP server mode was just enabled
+  ansible.windows.win_service:
+    name: w32time
+    state: restarted
+  when: net007_ntp_set is changed
+
+- name: NET-007/008 - Drop NTP + SMTP network-protocol note
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\net-ntp-smtp.txt'
+    content: |
+      DUNDER{NET-007_NTP_SERVER_UDP123_ENUM}
+      Bears. Beets. Battlestar Galactica. — Jim Halpert (as Dwight)
+
+      NET-007 NTP (informational):
+        dc01 runs Windows Time (w32time) as an NTP server on UDP/123.
+        Enumerate: nmap -sU -p123 --script ntp-info 10.10.0.10
+        NOTE: w32time does NOT implement ntpd MODE 7 'monlist', so the classic
+        CVE-2013-5211 monlist amplification is not reproducible here without a
+        real ntpd daemon.
+
+      NET-008 SMTP open relay + VRFY/EXPN:
+        The Windows SMTP-Server feature was removed after Server 2012 R2 and is
+        not offline-installable, so a native PowerShell SMTP responder is
+        injected on file01 (TCP/25) instead — see C:\Flags\net-smtp.txt.
+        For a full MTA, drop hMailServer or a Linux Postfix box on the segment.

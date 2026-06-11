@@ -1,0 +1,48 @@
+---
+- name: restart sssd
+  ansible.builtin.systemd:
+    name: sssd
+    state: restarted
+    enabled: true
+  failed_when: false
+
+- name: restart ssh
+  ansible.builtin.systemd:
+    name: ssh
+    state: restarted
+  failed_when: false
+
+- name: restart redis
+  ansible.builtin.systemd:
+    name: redis-server
+    state: restarted
+    enabled: true
+  failed_when: false
+
+- name: restart memcached
+  ansible.builtin.systemd:
+    name: memcached
+    state: restarted
+    enabled: true
+  failed_when: false
+
+- name: restart mongod
+  ansible.builtin.systemd:
+    name: mongod
+    state: restarted
+    enabled: true
+  failed_when: false
+
+- name: restart nfs
+  ansible.builtin.systemd:
+    name: nfs-kernel-server
+    state: restarted
+    enabled: true
+  failed_when: false
+
+- name: restart docker
+  ansible.builtin.systemd:
+    name: docker
+    state: restarted
+    daemon_reload: true
+  failed_when: false

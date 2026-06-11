@@ -1,0 +1,81 @@
+---
+# ==============================================================================
+# vuln_network_protocols/tasks/name_services.yml
+# Target: all corp.local hosts (dc01, ca01, file01, sql01, ws01)
+#
+# NET-002  mDNS (UDP 5353) left enabled — the Windows DNS client falls back to
+#          multicast DNS, giving Responder a third poisoning channel alongside
+#          LLMNR/NBT-NS (which vuln_recon already keeps enabled).
+# NET-005  NetBIOS over TCP/IP node type forced to B-node (broadcast) so name
+#          queries hit the wire as 137/UDP broadcasts that Responder answers,
+#          instead of being sent point-to-point to a WINS server (P-node).
+# NET-006  IPv6 fully enabled (DisabledComponents=0) on every corp host — gives
+#          mitm6 a fleet-wide rogue-DHCPv6 / RA primary-DNS takeover surface on
+#          this single L2 segment (vuln_lateral only enabled it on ws01).
+# ==============================================================================
+
+# NET-002: mDNS — ensure the GPO/registry kill-switch (EnableMDNS=0) is absent
+# so the DNS client keeps responding to/asking multicast DNS on 224.0.0.251:5353.
+- name: NET-002 - Check mDNS EnableMDNS kill-switch
+  ansible.windows.win_shell: |
+    $key = 'HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters'
+    $v = (Get-ItemProperty -Path $key -Name 'EnableMDNS' -ErrorAction SilentlyContinue).EnableMDNS
+    if ($null -eq $v) { Write-Output "not_set" } else { Write-Output "value=$v" }
+  register: net002_mdns_check
+  changed_when: false
+  failed_when: net002_mdns_check.rc != 0
+
+- name: NET-002 - Remove mDNS kill-switch so multicast DNS stays enabled
+  ansible.windows.win_shell: |
+    $key = 'HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters'
+    Remove-ItemProperty -Path $key -Name 'EnableMDNS' -ErrorAction SilentlyContinue
+    Write-Output "changed: mDNS kill-switch removed"
+  register: net002_mdns_set
+  changed_when: "'changed:' in net002_mdns_set.stdout"
+  failed_when: net002_mdns_set.rc != 0
+  when: "'value=0' in net002_mdns_check.stdout"
+
+# NET-005: force NetBIOS node type to B-node (1) = broadcast only. P-node (2)
+# and H-node (8) would prefer WINS unicast and reduce broadcast exposure.
+- name: NET-005 - Check NetBIOS NodeType
+  ansible.windows.win_shell: |
+    $key = 'HKLM:\SYSTEM\CurrentControlSet\Services\NetBT\Parameters'
+    $v = (Get-ItemProperty -Path $key -Name 'NodeType' -ErrorAction SilentlyContinue).NodeType
+    if ($null -eq $v) { Write-Output "not_set" } else { Write-Output "value=$v" }
+  register: net005_node_check
+  changed_when: false
+  failed_when: net005_node_check.rc != 0
+
+- name: NET-005 - Force NetBIOS B-node broadcast (NodeType=1)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\NetBT\Parameters'
+    name: NodeType
+    data: 1
+    type: dword
+  when: "'value=1' not in net005_node_check.stdout"
+
+# NET-006: clear the IPv6 DisabledComponents bitmask everywhere (mitm6 surface).
+- name: NET-006 - Check IPv6 DisabledComponents
+  ansible.windows.win_shell: |
+    $key = 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters'
+    $v = (Get-ItemProperty -Path $key -Name 'DisabledComponents' -ErrorAction SilentlyContinue).DisabledComponents
+    if ($null -eq $v) { Write-Output "not_set" } else { Write-Output "value=$v" }
+  register: net006_ipv6_check
+  changed_when: false
+  failed_when: net006_ipv6_check.rc != 0
+
+- name: NET-006 - Set IPv6 DisabledComponents=0 (mitm6 / rogue DHCPv6 surface)
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters'
+    name: DisabledComponents
+    data: 0
+    type: dword
+  when:
+    - "'value=0' not in net006_ipv6_check.stdout"
+    - "'not_set' not in net006_ipv6_check.stdout"
+
+- name: NET-002/005/006 - Drop multicast / IPv6 name-service flag
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\net-name-services.txt'
+    content: "DUNDER{NET-002_MDNS_RESPONDER_POISONING}\r\nDUNDER{NET-006_IPV6_MITM6_DHCPV6_TAKEOVER}\r\nI am running away from my responsibilities. And it feels good. — Michael Scott\r\n"
+  when: inventory_hostname == 'ws01.corp.local'

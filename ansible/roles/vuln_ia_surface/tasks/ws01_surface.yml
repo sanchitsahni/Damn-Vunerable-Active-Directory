@@ -24,49 +24,12 @@
 # All values are HKCU — applied under the Administrator session context.
 # win_regedit creates the key path automatically if missing.
 # ------------------------------------------------------------------------------
-- name: IA-019..022 - Check Office macro security (VBAWarnings)
-  ansible.windows.win_shell: |
-    $excelVal = (Get-ItemProperty `
-      -Path "HKCU:\Software\Microsoft\Office\16.0\Excel\Security" `
-      -Name VBAWarnings -ErrorAction SilentlyContinue).VBAWarnings
-    $wordVal = (Get-ItemProperty `
-      -Path "HKCU:\Software\Microsoft\Office\16.0\Word\Security" `
-      -Name VBAWarnings -ErrorAction SilentlyContinue).VBAWarnings
-    Write-Output "excel=$excelVal word=$wordVal"
-  register: result_vba_check
-  changed_when: false
-  failed_when: result_vba_check.rc != 0
+# IA-019..022 Office macro (VBAWarnings) and IA-020/021 MOTW prompt-suppression
+# tasks were REMOVED: ws01 is Server Core (no Office, no Explorer), so these are
+# GUI/Office-only phishing surfaces that cannot be solved headlessly. Headless
+# client-side coercion is covered by vuln_victim_exec + vuln_traffic_sim instead.
 
-- name: IA-019..022 - Enable Office macros (VBAWarnings=1, no prompt)
-  ansible.windows.win_regedit:
-    path: "{{ item.path }}"
-    name: VBAWarnings
-    data: 1
-    type: dword
-  loop:
-    - { path: 'HKCU:\Software\Microsoft\Office\16.0\Excel\Security' }
-    - { path: 'HKCU:\Software\Microsoft\Office\16.0\Word\Security'  }
-  when: "'excel=1' not in result_vba_check.stdout or 'word=1' not in result_vba_check.stdout"
-
-- name: IA-020 - Check MOTW DefaultFileTypeRisk registry value
-  ansible.windows.win_shell: |
-    $val = (Get-ItemProperty `
-      -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Associations" `
-      -Name DefaultFileTypeRisk -ErrorAction SilentlyContinue).DefaultFileTypeRisk
-    if ($null -eq $val) { Write-Output "not_set" } else { Write-Output $val }
-  register: result_motw_check
-  changed_when: false
-  failed_when: result_motw_check.rc != 0
-
-- name: IA-020 / IA-021 - Suppress MOTW open-file prompt (DefaultFileTypeRisk=1808)
-  ansible.windows.win_regedit:
-    path: 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Associations'
-    name: DefaultFileTypeRisk
-    data: 1808
-    type: dword
-  when: result_motw_check.stdout | trim != '1808'
-
-- name: IA-019..022 - Disable ASR rules via registry (Office spawn blocked)
+- name: IA-019..022 - Disable ASR rules via registry (general defense weakening)
   ansible.windows.win_regedit:
     path: 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Windows Defender Exploit Guard\ASR'
     name: ExploitGuard_ASR_Rules

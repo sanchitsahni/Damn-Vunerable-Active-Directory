@@ -52,7 +52,12 @@ CREDS_DARRYL     = "creds:svc_darryl"            # DCSync-capable account creds
 CREDS_MICHAEL    = "creds:michael.scott"         # GenericAll-on-domain / Schema Admins
 CREDS_DEVELOPER2 = "creds:developer2"            # ->Enterprise Admins GenericWrite
 CREDS_SCCM       = "creds:svc_sccm"              # member of Domain Admins
+CREDS_BACKUP     = "creds:svc_backup"            # leaked on linux01 -> valid corp user
 KRBTGT           = "creds:krbtgt-hash"           # full domain key material
+
+# linux01 (Linux-in-AD member) states:
+LINUX_SVC     = "shell:linux01-service"          # RCE as a service user (mysql/redis/web)
+LINUX_ROOT    = "root:linux01"                   # root after a Linux-local privesc
 
 # local-admin milestones:
 ADMIN_FILE01  = "local-admin:file01"
@@ -84,6 +89,9 @@ FOOTHOLDS = [
         "vuln_ia_surface/sql01_surface.yml"),
     ("IA-038", FILE01_USER, "SMB1/EternalBlue surface on file01",
         "vuln_ia_surface/file01_surface.yml"),
+    # linux01 — any exposed service on the Ubuntu member is an unauthenticated entry.
+    ("NET-LX-svc", LINUX_SVC, "RCE on linux01 via MySQL UDF/OUTFILE, Redis, or web cmd-injection",
+        "vuln_linux/tasks/services.yml + files/dunder_app.py"),
 ]
 
 # ─── Technique edges (state -> state), all derived from roles ──────────────────
@@ -176,6 +184,17 @@ EDGES = [
     # also reachable directly from corp DA via golden inter-realm ticket
     ("DF-006/DF-100", KRBTGT, DA_FINANCE, "Forged inter-realm TGT (trust key) corp->finance",
         "ad_trust/main.yml + vuln_forest/forest_attacks.yml"),
+
+    # ── linux01 (Linux-in-AD) → local root → pivot back into corp.local ────────
+    ("LX-LPE", LINUX_SVC, LINUX_ROOT,
+        "Linux-local privesc: NOPASSWD sudo / SUID / cron / NFS no_root_squash",
+        "vuln_linux/tasks/linux_in_ad.yml"),
+    ("LX-loot", LINUX_ROOT, CREDS_BACKUP,
+        "Root reads leaked svc_backup creds + world-readable /etc/krb5.keytab",
+        "vuln_linux/tasks/linux_in_ad.yml + flags.yml"),
+    ("LX-pivot", CREDS_BACKUP, USER_ANY,
+        "svc_backup is a real corp.local account -> authenticated domain foothold",
+        "ad_domain/users.yml (svc_backup) -> feeds the AD chain to DA"),
 ]
 
 # ─── Milestones the checker must prove reachable ───────────────────────────────
@@ -184,6 +203,7 @@ MILESTONES = [
     (ADMIN_SQL01,  "Local admin on sql01"),
     (ADMIN_WS01,   "Local admin on ws01"),
     (ADMIN_CA01,   "Local admin on ca01 (ADCS)"),
+    (LINUX_ROOT,   "Root on linux01 (Linux-in-AD member)"),
     (DA_CORP,      "Domain Admin in corp.local"),
     (EA,           "Enterprise Admin (corp forest root)"),
     (DA_FINANCE,   "Domain Admin in finance.local (via trust)"),

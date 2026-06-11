@@ -39,6 +39,16 @@ VIRTIO_WIN_URL = (
     "stable-virtio/virtio-win.iso"
 )
 
+# Ubuntu 22.04 LTS (jammy) cloud image — prebuilt, NOT a packer build.
+# The Linux member (linux01) boots this directly via a qcow2 backing clone +
+# a cloud-init NoCloud seed ISO. See providers/qemu/vm-create.sh launch branch.
+UBUNTU_CLOUD_IMG = {
+    "filename": "ubuntu-22.04-cloud.img",
+    "url": "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img",
+    "size_hint": "~700 MB",
+    "min_mb": 200,
+}
+
 # Evaluation ISOs — no key required, 180-day eval
 # Using -4 (IPv4 only) + --tries=5 to avoid IPv6 CDN resets (same approach as GOAD)
 WINDOWS_ISOS = [
@@ -52,11 +62,7 @@ WINDOWS_ISOS = [
         "url": "https://software-static.download.prss.microsoft.com/dbazure/988969d5-f34g-4e03-ac9d-1f9786c66749/17763.3650.221105-1748.rs5_release_svc_refresh_SERVER_EVAL_x64FRE_en-us.iso",
         "size_hint": "~5.3 GB",
     },
-    {
-        "filename": "windows-10.iso",
-        "url": "https://software-static.download.prss.microsoft.com/dbazure/988969d5-f34g-4e03-ac9d-1f9786c66750/19045.2006.220908-0225.22h2_release_svc_refresh_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso",
-        "size_hint": "~5.2 GB",
-    },
+    # windows-10.iso dropped — ws01 is now Server Core (server2022 base).
 ]
 
 PROFILES = {
@@ -68,7 +74,8 @@ PROFILES = {
 PACKER_TEMPLATES = [
     "windows-server-2022.pkr.hcl",
     "windows-server-2019.pkr.hcl",
-    "windows-10.pkr.hcl",
+    # windows-10.pkr.hcl dropped — ws01 now uses the Server Core (server2022)
+    # base so the whole lab is headless. No Win10 image/ISO needed.
 ]
 
 # ANSI colours
@@ -330,6 +337,14 @@ def phase_download_media(cfg: dict) -> bool:
     for iso in WINDOWS_ISOS:
         ok = _download_file(iso["filename"], iso["url"],
                             media_dir / iso["filename"]) and ok
+
+    # Ubuntu cloud image for the Linux member (linux01). Prebuilt — no packer.
+    # ~700 MB; resumable; skipped if already present and ≥ min_mb.
+    ok = _download_file(
+        UBUNTU_CLOUD_IMG["filename"], UBUNTU_CLOUD_IMG["url"],
+        media_dir / UBUNTU_CLOUD_IMG["filename"],
+        min_mb=UBUNTU_CLOUD_IMG["min_mb"],
+    ) and ok
 
     return ok
 
@@ -760,6 +775,28 @@ def preflight_checks(cfg: dict) -> bool:
         ok = False
     else:
         log("ansible-playbook found")
+        # pywinrm must be importable by the SAME python ansible-playbook uses,
+        # or every Windows task fails with "No module named 'winrm'".
+        ap = shutil.which("ansible-playbook")
+        ansible_py = None
+        try:
+            with open(ap) as fh:
+                shebang = fh.readline().strip()
+            if shebang.startswith("#!"):
+                ansible_py = shebang[2:].split()[0]
+        except Exception:
+            pass
+        ansible_py = ansible_py or sys.executable
+        rc = subprocess.run([ansible_py, "-c", "import winrm"],
+                            capture_output=True).returncode
+        if rc != 0:
+            err(f"pywinrm not importable by {ansible_py} — Windows WinRM tasks will fail.")
+            err("  Arch:   sudo pacman -S --needed python-pywinrm")
+            err("  Debian: sudo apt install python3-winrm   (or pipx/pip pywinrm)")
+            err("  pip:    pip install pywinrm   (use --break-system-packages if needed)")
+            ok = False
+        else:
+            log("pywinrm available (WinRM ready)")
 
     py_ver = sys.version_info
     log(f"Python {py_ver.major}.{py_ver.minor}.{py_ver.micro}")

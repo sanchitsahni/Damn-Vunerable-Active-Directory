@@ -38,7 +38,7 @@ victim_exec_users:
     password: "Alice1234!"
     task_name: "DunderVictim-Accounting"
   - username: "jim.halpert"
-    password: "User1234!"
+    password: "Password123!"
     task_name: "DunderVictim-Sales"
   - username: "dwight.schrute"
     password: "BeetFarm2024!"

@@ -1,0 +1,141 @@
+---
+# ==============================================================================
+# vuln_network_protocols/tasks/vnc.yml
+# Target: ws01.corp.local
+#
+# NET-009  VNC (RFB) server on TCP/5900 offering security-type 1 = None, i.e.
+#          UNAUTHENTICATED interactive access in the RFB handshake. Windows
+#          ships no VNC server and no offline-installable VNC package can be
+#          guaranteed, so rather than report needs-package we inject a tiny
+#          NATIVE PowerShell RFB listener (no third-party binary). It completes
+#          the RFB 003.008 handshake advertising SecurityType=None and serves a
+#          single framebuffer update that renders the flag, so an attacker using
+#          `vncviewer 10.10.0.100:5900` (or nmap --script vnc-info / vnc-title)
+#          connects with NO password and sees the bait screen. This satisfies
+#          the catalog "VNC No Authentication" technique (security-type 1) and
+#          the previously-declared-but-unimplemented IA-083.
+#
+# RESOURCE COST: lightweight. Single-threaded TcpListener that blocks on Accept;
+#          0% CPU when idle, no polling. It is NOT a full screen-sharing server
+#          (no live framebuffer streaming) — it only proves the unauthenticated
+#          RFB handshake + one static framebuffer, which is what the attack needs.
+# ==============================================================================
+
+- name: NET-009 - Deploy native PowerShell VNC/RFB (security-type None) listener
+  ansible.windows.win_copy:
+    dest: 'C:\Windows\Temp\vnc-listener.ps1'
+    content: |
+      # Minimal RFB 003.008 server (TCP 5900) advertising SecurityType 1 = None.
+      # Intentionally insecure: unauthenticated VNC access surface (NET-009).
+      $ErrorActionPreference = 'Continue'
+      $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, 5900)
+      $listener.Start()
+      $title = 'DUNDER-WS01-UNAUTH-VNC'
+      while ($true) {
+        try {
+          $client = $listener.AcceptTcpClient()
+          $ns = $client.GetStream()
+          $ns.ReadTimeout = 5000
+          $ns.WriteTimeout = 5000
+          # ProtocolVersion: server greets with RFB 003.008
+          $ver = [System.Text.Encoding]::ASCII.GetBytes("RFB 003.008`n")
+          $ns.Write($ver, 0, $ver.Length)
+          $buf = New-Object byte[] 12
+          [void]$ns.Read($buf, 0, 12)
+          # SecurityTypes: count=1, type=1 (None)
+          $sec = [byte[]](1, 1)
+          $ns.Write($sec, 0, 2)
+          # client picks a security type (1 byte) - we ignore the value
+          $pick = New-Object byte[] 1
+          [void]$ns.Read($pick, 0, 1)
+          # SecurityResult: 0 = OK (no auth performed)
+          $ok = [byte[]](0, 0, 0, 0)
+          $ns.Write($ok, 0, 4)
+          # ClientInit (shared-flag, 1 byte)
+          $ci = New-Object byte[] 1
+          [void]$ns.Read($ci, 0, 1)
+          # ServerInit: 16x16 framebuffer, 32bpp, then desktop name = bait title
+          $w = 16; $h = 16
+          $nameBytes = [System.Text.Encoding]::ASCII.GetBytes($title)
+          $si = New-Object System.IO.MemoryStream
+          $bw = New-Object System.IO.BinaryWriter($si)
+          $bw.Write([byte]($w -shr 8)); $bw.Write([byte]($w -band 255))
+          $bw.Write([byte]($h -shr 8)); $bw.Write([byte]($h -band 255))
+          # PIXEL_FORMAT: 32 bpp, depth 24, big-endian, true-colour
+          $bw.Write([byte]32); $bw.Write([byte]24); $bw.Write([byte]0); $bw.Write([byte]1)
+          $bw.Write([byte]0); $bw.Write([byte]255); $bw.Write([byte]0); $bw.Write([byte]255)
+          $bw.Write([byte]0); $bw.Write([byte]255); $bw.Write([byte]16); $bw.Write([byte]8)
+          $bw.Write([byte]0); $bw.Write([byte]0); $bw.Write([byte]0)
+          $nl = $nameBytes.Length
+          $bw.Write([byte]($nl -shr 24)); $bw.Write([byte](($nl -shr 16) -band 255))
+          $bw.Write([byte](($nl -shr 8) -band 255)); $bw.Write([byte]($nl -band 255))
+          $bw.Write($nameBytes)
+          $bw.Flush()
+          $payload = $si.ToArray()
+          $ns.Write($payload, 0, $payload.Length)
+          $ns.Flush()
+          Start-Sleep -Milliseconds 500
+          $client.Close()
+        } catch { try { $client.Close() } catch {}; Start-Sleep -Milliseconds 200 }
+      }
+  register: net009_script
+
+- name: NET-009 - Open TCP/5900 inbound firewall for VNC/RFB
+  community.windows.win_firewall_rule:
+    name: "DUNDER VNC TCP5900"
+    localport: 5900
+    protocol: tcp
+    direction: in
+    action: allow
+    enabled: true
+    state: present
+
+- name: NET-009 - Register VNC listener scheduled task (SYSTEM, at boot)
+  community.windows.win_scheduled_task:
+    name: DunderVNC
+    description: "Unauthenticated VNC/RFB listener (NET-009 network-protocol surface)"
+    actions:
+      - path: powershell.exe
+        arguments: >-
+          -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden
+          -File C:\Windows\Temp\vnc-listener.ps1
+    triggers:
+      - type: boot
+    username: SYSTEM
+    run_level: highest
+    state: present
+    enabled: true
+
+- name: NET-009 - Check if VNC listener is bound on TCP/5900
+  ansible.windows.win_shell: |
+    $b = (Get-NetTCPConnection -LocalPort 5900 -State Listen -ErrorAction SilentlyContinue)
+    if ($b) { Write-Output "listening" } else { Write-Output "not_listening" }
+  register: net009_bind_check
+  changed_when: false
+  failed_when: net009_bind_check.rc != 0
+
+- name: NET-009 - Start VNC listener task now if not already bound
+  ansible.windows.win_shell: |
+    Start-ScheduledTask -TaskName DunderVNC -ErrorAction SilentlyContinue
+    Write-Output "changed: VNC listener started"
+  register: net009_start
+  changed_when: "'changed:' in net009_start.stdout"
+  failed_when: net009_start.rc != 0
+  when: "'not_listening' in net009_bind_check.stdout"
+
+- name: NET-009 - Drop VNC unauthenticated flag
+  ansible.windows.win_copy:
+    dest: 'C:\Flags\net-vnc.txt'
+    content: |
+      DUNDER{NET-009_VNC_RFB_SECURITYTYPE_NONE_UNAUTH}
+      I am dead inside. — Stanley Hudson
+
+      NET-009 VNC (RFB) unauthenticated:
+        ws01 listens on TCP/5900 and advertises RFB SecurityType 1 = None.
+        Enumerate:  nmap -p5900 --script vnc-info,vnc-title 10.10.0.100
+        Connect:    vncviewer 10.10.0.100:5900   (no password prompt)
+        Desktop name returned in ServerInit: DUNDER-WS01-UNAUTH-VNC
+      NOTE: this is a native handshake-only RFB server (no live framebuffer
+      streaming) — it proves the unauthenticated VNC access surface, not a full
+      screen-share. For a full GUI session, drop a real VNC build (e.g. TightVNC)
+      offline onto ws01.

@@ -16,7 +16,7 @@ traffic_sim_users:
     password: "Alice1234!"
     task_name: "DunderTraffic-Accounting"
   - username: "jim.halpert"
-    password: "User1234!"
+    password: "Password123!"
     task_name: "DunderTraffic-Sales"
   - username: "dwight.schrute"
     password: "BeetFarm2024!"

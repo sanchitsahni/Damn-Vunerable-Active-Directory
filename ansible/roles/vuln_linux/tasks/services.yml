@@ -1,0 +1,217 @@
+---
+# ==============================================================================
+# C. NON-WINDOWS SERVICES — lightweight, DEFAULT-ON.
+# Each is intentionally misconfigured. NO ICS/SCADA. Any package that cannot be
+# apt-installed is reported (failed_when:false + debug) rather than half-built.
+# ==============================================================================
+
+# ── Redis (I35-16) — unauth, bind 0.0.0.0 → RCE via CONFIG SET ────────────────
+- name: Redis — install
+  ansible.builtin.apt:
+    name: redis-server
+    state: present
+    update_cache: true
+  register: redis_pkg
+  failed_when: false
+  when: vuln_linux_enable_redis | bool
+
+- name: Redis — report if not installable (offline)
+  ansible.builtin.debug:
+    msg: "WARNING: redis-server not installed (apt offline?) — Redis surface skipped."
+  when: vuln_linux_enable_redis | bool and (redis_pkg is failed or redis_pkg.rc | default(0) != 0)
+
+- name: Redis — bind 0.0.0.0, no auth, protected-mode off (vulnerable)
+  ansible.builtin.copy:
+    dest: /etc/redis/redis.conf
+    mode: "0644"
+    content: |
+      # DUNDER lab — intentionally unauthenticated, all-interfaces.
+      bind 0.0.0.0 ::
+      protected-mode no
+      port 6379
+      dir /var/lib/redis
+      # no requirepass — anonymous CONFIG SET → RCE (SSH key / cron write)
+  notify: restart redis
+  when: vuln_linux_enable_redis | bool and redis_pkg is not failed
+
+# ── Memcached (I35-19) — unauth, exposed on all interfaces ────────────────────
+- name: Memcached — install
+  ansible.builtin.apt:
+    name: memcached
+    state: present
+  register: memc_pkg
+  failed_when: false
+  when: vuln_linux_enable_memcached | bool
+
+- name: Memcached — report if not installable
+  ansible.builtin.debug:
+    msg: "WARNING: memcached not installed (apt offline?) — Memcached surface skipped."
+  when: vuln_linux_enable_memcached | bool and (memc_pkg is failed or memc_pkg.rc | default(0) != 0)
+
+- name: Memcached — listen on all interfaces (vulnerable)
+  ansible.builtin.lineinfile:
+    path: /etc/memcached.conf
+    regexp: "^-l "
+    line: "-l 0.0.0.0"
+  notify: restart memcached
+  when: vuln_linux_enable_memcached | bool and memc_pkg is not failed
+
+# ── MongoDB (I35-17) — no auth, exposed 27017 ────────────────────────────────
+# Ubuntu jammy main repo ships `mongodb`? No — it ships nothing; the package is
+# in universe as `mongodb` on older releases only. We attempt apt; if it isn't
+# available we REPORT rather than half-install (Mongo's own repo is not offline).
+- name: MongoDB — install (universe; may be unavailable on jammy)
+  ansible.builtin.apt:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - mongodb-server
+    - mongodb
+  register: mongo_pkg
+  failed_when: false
+  when: vuln_linux_enable_mongodb | bool
+
+- name: MongoDB — detect whether a server binary is present
+  ansible.builtin.stat:
+    path: /usr/bin/mongod
+  register: mongod_bin
+  when: vuln_linux_enable_mongodb | bool
+
+- name: MongoDB — report if not installable (jammy has no mongod in apt)
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: mongod not available via apt on this release (Ubuntu 22.04 dropped
+      the distro MongoDB package; the official mongodb-org repo is not offline).
+      MongoDB surface skipped — enable by adding the mongodb-org repo if internet
+      is available, or run an unauth mongo container instead.
+  when: vuln_linux_enable_mongodb | bool and not (mongod_bin.stat.exists | default(false))
+
+- name: MongoDB — bind all interfaces, no auth (vulnerable)
+  ansible.builtin.copy:
+    dest: /etc/mongodb.conf
+    mode: "0644"
+    content: |
+      # DUNDER lab — no auth, exposed.
+      bind_ip = 0.0.0.0
+      port = 27017
+  notify: restart mongod
+  when: vuln_linux_enable_mongodb | bool and (mongod_bin.stat.exists | default(false))
+
+# ── MySQL / MariaDB (I35-15) — weak root creds + UDF/secure_file_priv path ────
+- name: MySQL — install MariaDB server + python connector
+  ansible.builtin.apt:
+    name:
+      - mariadb-server
+      - python3-pymysql
+    state: present
+  register: mysql_pkg
+  failed_when: false
+  when: vuln_linux_enable_mysql | bool
+
+- name: MySQL — report if not installable
+  ansible.builtin.debug:
+    msg: "WARNING: mariadb-server not installed (apt offline?) — MySQL surface skipped."
+  when: vuln_linux_enable_mysql | bool and (mysql_pkg is failed or mysql_pkg.rc | default(0) != 0)
+
+- name: MySQL — start + enable
+  ansible.builtin.systemd:
+    name: mariadb
+    state: started
+    enabled: true
+  failed_when: false
+  when: vuln_linux_enable_mysql | bool and mysql_pkg is not failed
+
+- name: MySQL — weak remote root creds + UDF-friendly config (vulnerable)
+  when: vuln_linux_enable_mysql | bool and mysql_pkg is not failed
+  block:
+    - name: MySQL — allow remote bind + empty secure_file_priv (UDF / file write)
+      ansible.builtin.copy:
+        dest: /etc/mysql/mariadb.conf.d/99-dunder.cnf
+        mode: "0644"
+        content: |
+          [mysqld]
+          bind-address = 0.0.0.0
+          secure_file_priv =
+          local_infile = 1
+      notify: restart mariadb
+
+    - name: MySQL — set weak root password + remote root grant
+      ansible.builtin.shell: |
+        mysql -u root <<'SQL'
+        ALTER USER 'root'@'localhost' IDENTIFIED BY 'root';
+        CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED BY 'root';
+        GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;
+        FLUSH PRIVILEGES;
+        SQL
+      changed_when: false
+      failed_when: false
+
+- name: MySQL — restart handler shim (mariadb)
+  ansible.builtin.systemd:
+    name: mariadb
+    state: restarted
+  failed_when: false
+  when: vuln_linux_enable_mysql | bool and mysql_pkg is not failed
+
+# ── NFS (I35 / Linux-in-AD) — server (export configured in linux_in_ad.yml) ───
+- name: NFS — install kernel server
+  ansible.builtin.apt:
+    name: nfs-kernel-server
+    state: present
+  register: nfs_pkg
+  failed_when: false
+  when: vuln_linux_enable_nfs | bool
+
+- name: NFS — report if not installable
+  ansible.builtin.debug:
+    msg: "WARNING: nfs-kernel-server not installed (apt offline?) — NFS export skipped."
+  when: vuln_linux_enable_nfs | bool and (nfs_pkg is failed or nfs_pkg.rc | default(0) != 0)
+
+- name: NFS — enable + (re)export
+  ansible.builtin.systemd:
+    name: nfs-kernel-server
+    state: started
+    enabled: true
+  failed_when: false
+  when: vuln_linux_enable_nfs | bool and nfs_pkg is not failed
+  notify: restart nfs
+
+# ── Vulnerable web app (cmd injection + upload → reverse shell) ───────────────
+- name: WebApp — ensure app dir
+  ansible.builtin.file:
+    path: /opt/dunder-app
+    state: directory
+    mode: "0755"
+  when: vuln_linux_enable_webapp | bool
+
+- name: WebApp — deploy the Dunder Mifflin Flask-style app (stdlib only)
+  ansible.builtin.copy:
+    src: dunder_app.py
+    dest: /opt/dunder-app/dunder_app.py
+    mode: "0755"
+  when: vuln_linux_enable_webapp | bool
+
+- name: WebApp — systemd unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/dunder-app.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Dunder Mifflin Schrute Logistics portal (vulnerable)
+      After=network.target
+      [Service]
+      ExecStart=/usr/bin/python3 /opt/dunder-app/dunder_app.py
+      Restart=always
+      User=root
+      [Install]
+      WantedBy=multi-user.target
+  when: vuln_linux_enable_webapp | bool
+
+- name: WebApp — enable + start
+  ansible.builtin.systemd:
+    name: dunder-app
+    daemon_reload: true
+    state: started
+    enabled: true
+  failed_when: false
+  when: vuln_linux_enable_webapp | bool
