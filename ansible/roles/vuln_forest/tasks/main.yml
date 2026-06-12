@@ -149,6 +149,9 @@
     result_fsp_da.rc != 0 and
     "trust" not in (result_fsp_da.stderr | default("") | lower) and
     "not found" not in (result_fsp_da.stderr | default("") | lower)
+  # FSP into CORP's Domain Admins — corp DC only (it ran on all_dcs and failed
+  # on finance/root/eu trying to translate FINANCE\ into the wrong domain).
+  when: inventory_hostname == 'dc01.corp.local'
 
 # ------------------------------------------------------------------------------
 # DF-010: Cross-forest Kerberoasting — add HTTP/crossforest.finance.local SPN
@@ -167,13 +170,17 @@
   register: result_spn_cf_check
   changed_when: false
   failed_when: result_spn_cf_check.rc != 0
+  # svc_dwight is corp-only — don't query it on finance/root/eu.
+  when: inventory_hostname == 'dc01.corp.local'
 
 - name: DF-010 - Add cross-forest SPN to svc_dwight
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     Set-ADUser -Identity "svc_dwight" `
       -ServicePrincipalNames @{Add="{{ crossforest_spn }}"} -ErrorAction Stop
-  when: "'absent' in result_spn_cf_check.stdout"
+  when:
+    - inventory_hostname == 'dc01.corp.local'
+    - "'absent' in (result_spn_cf_check.stdout | default(''))"
   register: result_spn_cf_set
   failed_when: >
     result_spn_cf_set.rc != 0 and
