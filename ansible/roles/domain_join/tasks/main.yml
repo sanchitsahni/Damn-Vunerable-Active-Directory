@@ -9,21 +9,29 @@
 # Network — static IP/DNS must be set before domain join
 # --------------------------------------------------------------------------
 
-- name: Set static IP and point DNS at domain DC
+- name: Schedule static IP + DNS change (detached; survives WinRM drop)
+  # async fire-and-forget netsh severs the in-flight WinRM send and leaves WinRM
+  # hung (Code 400 / read timeout). Run it as a detached SYSTEM scheduled task so
+  # the WinRM call returns cleanly before the change applies (same pattern as ad_domain).
   ansible.windows.win_shell: |
+    $script = @'
     Start-Sleep -Seconds 5
     $adapter = Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
     netsh interface ip set address "$($adapter.Name)" static {{ ansible_host }} {{ member_subnet_mask }} {{ member_gateway }} 1
     netsh interface ip set dns    "$($adapter.Name)" static {{ domain_dns_ip }}
-    Write-Output "IP configured: {{ ansible_host }}"
-  async: 20
-  poll: 0
+    '@
+    $path = "C:\Windows\Temp\set-member-ip.ps1"
+    Set-Content -Path $path -Value $script -Encoding ASCII
+    $action  = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File $path"
+    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(3)
+    Register-ScheduledTask -TaskName "EmpireSetMemberIP" -Action $action -Trigger $trigger `
+      -RunLevel Highest -User "SYSTEM" -Force | Out-Null
   changed_when: false
 
-- name: Wait for network to stabilize
+- name: Wait for network to stabilize after IP change
   ansible.builtin.wait_for_connection:
-    delay: 15
-    timeout: 60
+    delay: 20
+    timeout: 240
 
 - name: Reset WinRM connection after IP change
   ansible.builtin.meta: reset_connection

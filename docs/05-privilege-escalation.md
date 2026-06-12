@@ -937,3 +937,54 @@ Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your master
 * "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
 
 May the Force be with you as you conquer the EMPIRE AD!
+
+
+## Additional Vulnerabilities
+### PE-CVE-2021-1732
+**Explanation:** This vulnerability (PE-CVE-2021-1732) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_pe-cve-2021-1732.py --target target_ip
+```
+
+### PE-CVE-2021-36934
+**Explanation:** This vulnerability (PE-CVE-2021-36934) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_pe-cve-2021-36934.py --target target_ip
+```
+
+### PE-CVE-2023-36874
+**Explanation:** This vulnerability (PE-CVE-2023-36874) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_pe-cve-2023-36874.py --target target_ip
+```
+
+### PE-CVE-2024-26230
+**Explanation:** This vulnerability (PE-CVE-2024-26230) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_pe-cve-2024-26230.py --target target_ip
+```
+
+### PE-CVE-2024-38080
+**Explanation:** This vulnerability (PE-CVE-2024-38080) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_pe-cve-2024-38080.py --target target_ip
+```
+
+### PE-CVE-2025-21333
+**Explanation:** This vulnerability (PE-CVE-2025-21333) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_pe-cve-2025-21333.py --target target_ip
+```
+

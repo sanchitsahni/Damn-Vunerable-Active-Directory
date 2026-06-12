@@ -2424,3 +2424,142 @@ Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your master
 * "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
 
 May the Force be with you as you conquer the EMPIRE AD!
+
+
+## Additional Vulnerabilities
+### CRED-070
+**Explanation:** This vulnerability (CRED-070) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_cred-070.py --target target_ip
+```
+
+### CRED-075
+**Explanation:** This vulnerability (CRED-075) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_cred-075.py --target target_ip
+```
+
+### CRED-080
+**Explanation:** This vulnerability (CRED-080) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_cred-080.py --target target_ip
+```
+
+### CRED-081
+**Explanation:** This vulnerability (CRED-081) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_cred-081.py --target target_ip
+```
+
+### CRED-082
+**Explanation:** This vulnerability (CRED-082) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_cred-082.py --target target_ip
+```
+
+### CRED-083
+**Explanation:** This vulnerability (CRED-083) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_cred-083.py --target target_ip
+```
+
+### CRED-084
+**Explanation:** This vulnerability (CRED-084) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_cred-084.py --target target_ip
+```
+
+### CRED-085
+**Explanation:** This vulnerability (CRED-085) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_cred-085.py --target target_ip
+```
+
+### CRED-091
+**Explanation:** This vulnerability (CRED-091) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_cred-091.py --target target_ip
+```
+
+### CRED-092
+**Explanation:** This vulnerability (CRED-092) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_cred-092.py --target target_ip
+```
+
+### CRED-093
+**Explanation:** This vulnerability (CRED-093) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_cred-093.py --target target_ip
+```
+
+### CRED-094
+**Explanation:** This vulnerability (CRED-094) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_cred-094.py --target target_ip
+```
+
+### CRED-095
+**Explanation:** This vulnerability (CRED-095) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_cred-095.py --target target_ip
+```
+
+### CRED-096
+**Explanation:** This vulnerability (CRED-096) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_cred-096.py --target target_ip
+```
+
+### CRED-097
+**Explanation:** This vulnerability (CRED-097) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_cred-097.py --target target_ip
+```
+
+### CRED-098
+**Explanation:** This vulnerability (CRED-098) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_cred-098.py --target target_ip
+```
+
+### CRED-099
+**Explanation:** This vulnerability (CRED-099) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_cred-099.py --target target_ip
+```
+

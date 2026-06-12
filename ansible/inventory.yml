@@ -17,8 +17,8 @@ all:
     # single WinRM op (win_feature/DISM state check, DCPromo, ACL writes) can take
     # minutes. read_timeout MUST be > operation_timeout, or pywinrm reports a slow
     # op as "Read timed out" / UNREACHABLE. 180 s was too short under load.
-    ansible_winrm_operation_timeout_sec: 250
-    ansible_winrm_read_timeout_sec: 600
+    ansible_winrm_operation_timeout_sec: 240
+    ansible_winrm_read_timeout_sec: 300
     # Long-running async tasks (DC promotion / Install-ADDSForest) on a busy or
     # low-RAM Server Core box can take >5 s just to signal the async job started.
     # The default win_async_startup_timeout (5 s) then fails the task. Bump it.

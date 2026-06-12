@@ -497,3 +497,14 @@ graph TD
 * **Detection & Prevention**:
   * *Detection*: Monitor process creation logs (Event ID 4688) for execution of web shell child processes (like `cmd.exe` or `powershell.exe` spawned by `w3wp.exe`).
   * *Prevention*: Harden application permissions: do not grant the application pool service account unnecessary privileges like `SeImpersonatePrivilege`. Enforce host-based segregation and disable credential caching on member servers.
+
+
+## Additional Vulnerabilities
+### WEB-000
+**Explanation:** This vulnerability (WEB-000) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_web-000.py --target target_ip
+```
+

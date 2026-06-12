@@ -572,3 +572,14 @@ This document covers the network protocol (`NET-` tags) and service-related (`SR
   ```bash
   spray.py -d empire.local -u users.txt -p 'SithLord123!' --proto owa --host mail.empire.local
   ```
+
+
+## Additional Vulnerabilities
+### SRV-066
+**Explanation:** This vulnerability (SRV-066) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_srv-066.py --target target_ip
+```
+

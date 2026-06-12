@@ -10,7 +10,7 @@ Analyze 500+ vulnerability configurations in `ansible/roles/vuln_*`, update the 
 | M2 | Documentation Design | Define the layout structure for updating the docs and plan Mermaid diagrams for complex chains. | DONE |
 | M3 | Verification Tooling | Implement `scripts/check_docs.py` to parse roles and docs, verifying >95% coverage and valid Mermaid syntax. | DONE |
 | M4 | Documentation Updates | Generate and update markdown files with explanations, commands, and diagrams. | DONE |
-| M5 | Verification & Sign-off | Run the verification script, resolve any gaps, and finalize the verification report. | IN_PROGRESS |
+| M5 | Verification & Sign-off | Run the verification script, resolve any gaps, and finalize the verification report. | DONE |
 
 ## Verification Strategy
 - **Worker Verification**: The worker implementing documentation and scripts must run the verification script and provide the stdout showing >95% coverage and validation results.

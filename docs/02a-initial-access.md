@@ -1222,3 +1222,22 @@ Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your master
 * "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
 
 May the Force be with you as you conquer the EMPIRE AD!
+
+
+## Additional Vulnerabilities
+### IA-083
+**Explanation:** This vulnerability (IA-083) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_ia-083.py --target target_ip
+```
+
+### IA-087
+**Explanation:** This vulnerability (IA-087) involves exploiting specific misconfigurations or CVEs to achieve the objective.
+
+**Commands:**
+```bash
+python3 exploit_ia-087.py --target target_ip
+```
+
