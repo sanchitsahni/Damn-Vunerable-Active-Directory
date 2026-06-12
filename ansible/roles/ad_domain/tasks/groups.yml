@@ -22,6 +22,10 @@
 
     $groups = @(
       @{ Name = "IT Admins";        Scope = "Global";   Path = "OU=Groups,OU=Corp,$base" },
+      # Privileged group targeted by LAT-034 (finance.local Administrator added as
+      # a Foreign Security Principal for cross-forest escalation). Referenced by
+      # vuln_lateral but was never created.
+      @{ Name = "Corporate Admins"; Scope = "Global";   Path = "OU=Groups,OU=Corp,$base" },
       @{ Name = "HelpDesk";         Scope = "Global";   Path = "OU=Groups,OU=Corp,$base" },
       @{ Name = "Accounting";    Scope = "Global";   Path = "OU=Groups,OU=Corp,$base" },
       @{ Name = "Human Resources";         Scope = "Global";   Path = "OU=Groups,OU=Corp,$base" },
