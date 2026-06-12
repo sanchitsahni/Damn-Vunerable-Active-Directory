@@ -8,6 +8,61 @@
 #   2. ca-flags.yml   — ESC6/7/8/11 CA-level registry flags and IIS config
 # ==============================================================================
 
+# ------------------------------------------------------------------------------
+# Install + configure AD CS. Nothing else does this — the image bakes a generic
+# feature set (no ADCS), so certsvc does not exist until the CA is configured
+# here. EnterpriseRootCA configuration needs Enterprise Admin rights, so it runs
+# with CORP\Administrator (the WinRM user on ca01 is only a local admin).
+# ------------------------------------------------------------------------------
+- name: Install AD CS role features (CA + web enrollment)
+  ansible.windows.win_feature:
+    name:
+      - ADCS-Cert-Authority
+      - ADCS-Web-Enrollment
+    state: present
+    include_management_tools: yes
+  register: adcs_feature
+
+- name: Reboot ca01 if AD CS feature install requires it
+  ansible.windows.win_reboot:
+    reboot_timeout: 600
+  when: adcs_feature.reboot_required
+
+- name: Check whether a CA is already configured (certsvc present)
+  ansible.windows.win_shell: |
+    if (Get-Service certsvc -ErrorAction SilentlyContinue) { "configured" } else { "absent" }
+  register: ca_state
+  changed_when: false
+
+- name: Configure Enterprise Root CA on ca01 (needs Enterprise Admin)
+  ansible.windows.win_shell: |
+    Import-Module ADCSDeployment
+    $cred = New-Object System.Management.Automation.PSCredential(
+      "CORP\Administrator",
+      (ConvertTo-SecureString "{{ ansible_password }}" -AsPlainText -Force))
+    Install-AdcsCertificationAuthority -CAType EnterpriseRootCA `
+      -CACommonName "corp-CA01-CA" -KeyLength 2048 `
+      -HashAlgorithmName SHA256 -ValidityPeriod Years -ValidityPeriodUnits 10 `
+      -Credential $cred -Force
+  when: ca_state.stdout | trim == "absent"
+  register: ca_config
+  failed_when: >
+    ca_config.rc != 0 and
+    "already" not in (ca_config.stderr | default("") | lower)
+
+- name: Configure AD CS Web Enrollment (ESC8 surface; idempotent)
+  ansible.windows.win_shell: |
+    Import-Module ADCSDeployment
+    $cred = New-Object System.Management.Automation.PSCredential(
+      "CORP\Administrator",
+      (ConvertTo-SecureString "{{ ansible_password }}" -AsPlainText -Force))
+    Install-AdcsWebEnrollment -Credential $cred -Force
+  register: webenroll_config
+  changed_when: "'success' in (webenroll_config.stdout | default('') | lower)"
+  failed_when: >
+    webenroll_config.rc != 0 and
+    "already" not in (webenroll_config.stderr | default("") | lower)
+
 - name: Ensure ADCS Certificate Services is running before configuring
   ansible.windows.win_service:
     name: certsvc

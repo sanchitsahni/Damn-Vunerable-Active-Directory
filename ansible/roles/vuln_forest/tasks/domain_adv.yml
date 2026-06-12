@@ -69,7 +69,7 @@
     $g = Get-ADGroup -Identity 'Account Operators' -ErrorAction SilentlyContinue
     $m = Get-ADGroupMember -Identity 'Account Operators' -ErrorAction SilentlyContinue | Where-Object {$_.SamAccountName -eq 'finance_sync'}
     if ($g -and -not $m) {
-      $u = Get-ADUser -Identity 'finance_sync' -ErrorAction SilentlyContinue
+      $u = Get-ADUser -Filter "SamAccountName -eq 'finance_sync'" -ErrorAction SilentlyContinue
       if ($u) {
         Add-ADGroupMember -Identity 'Account Operators' -Members 'finance_sync'
         Write-Output "changed: finance_sync added to Account Operators"
