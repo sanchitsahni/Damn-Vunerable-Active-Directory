@@ -13,6 +13,7 @@
 - name: Create corp.local security groups
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
+    $PSDefaultParameterValues = @{ '*-AD*:Server' = 'localhost' }
     $base = "DC=corp,DC=local"
 
     function Group-Exists($name) {
@@ -48,6 +49,7 @@
 - name: Populate group memberships
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
+    $PSDefaultParameterValues = @{ '*-AD*:Server' = 'localhost' }
 
     # Helper — only adds if not already a member
     function Add-Member-Safe($group, $member) {
@@ -108,6 +110,7 @@
 - name: Set GenericAll ACE — HelpDesk over IT Admins (DF-004 intentional vuln)
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
+    $PSDefaultParameterValues = @{ '*-AD*:Server' = 'localhost' }
 
     $helpdesk = Get-ADGroup -Identity "HelpDesk"
     $itAdmins = Get-ADGroup -Identity "IT Admins"

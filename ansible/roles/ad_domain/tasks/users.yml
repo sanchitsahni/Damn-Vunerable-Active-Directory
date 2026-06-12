@@ -14,6 +14,7 @@
 - name: Create corp.local users
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
+    $PSDefaultParameterValues = @{ '*-AD*:Server' = 'localhost' }
     $base = "DC=corp,DC=local"
 
     # Helper — returns $true if user already exists

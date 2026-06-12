@@ -10,21 +10,32 @@
 # Network — set static IP before anything AD-related
 # --------------------------------------------------------------------------
 
-- name: Set static IP and DNS (fire-and-forget; connection will drop briefly)
+- name: Schedule static IP + DNS change (detached; survives WinRM drop)
+  # Async fire-and-forget over WinRM rides the current session to launch the
+  # job and read its handle; the netsh IP flip severs that in-flight Send and
+  # pywinrm returns "Bad HTTP response ... Code 400". A SYSTEM scheduled task
+  # detaches the change so the WinRM call returns cleanly before the drop.
   ansible.windows.win_shell: |
+    $script = @'
     Start-Sleep -Seconds 5
     $adapter = Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
     netsh interface ip set address "$($adapter.Name)" static {{ ad_static_ip }} {{ ad_subnet_mask }} {{ ad_gateway }} 1
     netsh interface ip set dns    "$($adapter.Name)" static {{ ad_static_ip }}
-    Write-Output "IP configured: {{ ad_static_ip }}"
-  async: 20
-  poll: 0
+    '@
+    $path = "C:\Windows\Temp\set-static-ip.ps1"
+    Set-Content -Path $path -Value $script -Encoding ASCII
+    $action  = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File $path"
+    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(3)
+    Register-ScheduledTask -TaskName "DvadSetStaticIP" -Action $action -Trigger $trigger `
+      -RunLevel Highest -User "SYSTEM" -Force | Out-Null
   changed_when: false   # netsh is not idempotent, but we always want it applied
 
 - name: Wait for network to stabilize after IP change
+  # Low-RAM Server Core DCs (1280 MB finance/root) take longer to restore WinRM
+  # after the DHCP->static switch; 60 s was too short and failed reconnect.
   ansible.builtin.wait_for_connection:
-    delay: 15
-    timeout: 60
+    delay: 30
+    timeout: 240
 
 - name: Reset WinRM connection to clear stale sockets after IP change
   ansible.builtin.meta: reset_connection
@@ -117,19 +128,25 @@
 # OU structure
 # --------------------------------------------------------------------------
 
-- name: Assert AD PowerShell module is available before OU/user tasks
+- name: Wait for AD Web Services (ADWS) to answer before OU/user tasks
+  # Import-Module alone succeeds the moment the module files exist, BEFORE ADWS
+  # is listening — a useless gate that let downstream queries hit a dead ADWS
+  # and fail with "Unable to find a default server ... ADWS running" (err 1355).
+  # Probe the live service via Get-ADDomain against the local DC instead.
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory -ErrorAction Stop
-    Write-Output "OK"
+    (Get-ADDomain -Server localhost -ErrorAction Stop).DNSRoot
   register: ad_module_check
   changed_when: false
-  retries: 5
-  delay: 30
-  until: "'OK' in ad_module_check.stdout"
+  retries: 30
+  delay: 20
+  until: ad_module_check.rc == 0
 
 - name: Create base OU structure
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
+    # Pin every AD cmdlet to the local DC ADWS endpoint; avoids DNS-locator races
+    $PSDefaultParameterValues = @{ '*-AD*:Server' = 'localhost' }
     $base = "DC={{ ad_domain.split('.') | join(',DC=') }}"
 
     $ous = @(
@@ -170,6 +187,7 @@
 - name: Create finance.local OUs and users
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
+    $PSDefaultParameterValues = @{ '*-AD*:Server' = 'localhost' }
     $base = "DC=finance,DC=local"
     foreach ($ouName in @("Finance","ServiceAccounts","Computers")) {
       if (-not (Get-ADOrganizationalUnit -Filter "Name -eq '$ouName'" -SearchBase $base -SearchScope OneLevel -ErrorAction SilentlyContinue)) {
@@ -209,6 +227,7 @@
 - name: Create root.corp OUs and users
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
+    $PSDefaultParameterValues = @{ '*-AD*:Server' = 'localhost' }
     $base = "DC=root,DC=corp"
     foreach ($ouName in @("Root","ServiceAccounts")) {
       if (-not (Get-ADOrganizationalUnit -Filter "Name -eq '$ouName'" -SearchBase $base -SearchScope OneLevel -ErrorAction SilentlyContinue)) {
