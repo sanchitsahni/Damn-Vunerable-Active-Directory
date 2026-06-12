@@ -211,6 +211,17 @@
         Pwd  = "Backup2024!"
         Path = "OU=ServiceAccounts,OU=Corp,$base"
         Opts = @{ PasswordNeverExpires = $true }
+      },
+      # DF-042: constrained-delegation SOURCE account. vuln_forest grants it
+      # msDS-AllowedToDelegateTo HTTP/ws01 + protocol transition; given an SPN
+      # below so it is kerberoastable (the acquisition path into the delegation).
+      @{
+        Sam  = "svc_web"
+        Name = "svc_web"
+        UPN  = "svc_web@corp.local"
+        Pwd  = "WebSvc2024!"
+        Path = "OU=ServiceAccounts,OU=Corp,$base"
+        Opts = @{ PasswordNeverExpires = $true }
       }
     )
 
@@ -243,6 +254,7 @@
       "svc_phyllis"   = "HTTP/legacy.corp.local"
       "svc_kevin"     = "MSSQLSvc/sql01.corp.local:1433"
       "svc_dwight"    = "HTTP/dwight.corp.local"
+      "svc_web"       = "HTTP/web.corp.local"
       # michael.scott holds GenericAll-on-domain (LAT-021), Schema Admins/DCShadow
       # (CRED-015) and ExtraSID (DF-007). Give it an SPN so a sprayed domain user
       # can Kerberoast it and crack "WorldsBestBoss1!" (in wordlists) — otherwise
