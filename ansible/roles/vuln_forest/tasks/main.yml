@@ -116,7 +116,7 @@
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     try {
-      # SID of FINANCE\Administrator, read straight from finance's ADWS. The
+      # SID of FINANCE\Administrator, read straight from the finance ADWS. The
       # NTAccount.Translate (LSA) path fails "could not be translated" right
       # after the trust is created, before the Netlogon secure channel settles.
       $sid   = (Get-ADUser -Server finance.local -Identity Administrator -ErrorAction Stop).SID.Value
