@@ -681,7 +681,37 @@ destroy_all() {
         destroy_vm "${vm_name}"
     done
 
-    log "All VMs in profile '${profile}' destroyed."
+    # ── Name-independent sweep ────────────────────────────────────────────────
+    # A profile rename (e.g. dc01 -> coruscant) orphans the OLD VMs/taps because
+    # the loop above only knows the CURRENT names. Sweep everything that belongs
+    # to this project regardless of name so a rename can't leave zombies.
+
+    # 1) Kill any QEMU whose command line references our VM_STATE_DIR (any disk,
+    #    monitor, or pidfile under vms/), old or new name.
+    local pids
+    pids="$(pgrep -af qemu-system 2>/dev/null | grep -F "${VM_STATE_DIR}" | awk '{print $1}')"
+    for pid in ${pids}; do
+        warn "Killing orphaned QEMU PID ${pid}"
+        kill "${pid}" 2>/dev/null || true
+        sleep 1
+        kill -9 "${pid}" 2>/dev/null || true
+    done
+
+    # 2) Remove every dvad-* TAP (not the dvad-ctf / dvad-nat bridges).
+    local iface
+    for iface in $(ip -o link show 2>/dev/null | grep -oE 'dvad-[a-z0-9]+' | sort -u); do
+        case "${iface}" in
+            dvad-ctf|dvad-nat) continue ;;   # bridges, kept by network-setup.sh
+        esac
+        sudo -n ip link set "${iface}" down 2>/dev/null || true
+        sudo -n ip link delete "${iface}" 2>/dev/null || true
+    done
+
+    # 3) Clean stray per-VM state files (disks/pids/mons/logs/ISOs/markers).
+    rm -f "${VM_STATE_DIR}"/*.pid "${VM_STATE_DIR}"/*.mon "${VM_STATE_DIR}"/*.log \
+          "${VM_STATE_DIR}"/*.installed "${VM_STATE_DIR}"/*-unattend.iso 2>/dev/null || true
+
+    log "All VMs in profile '${profile}' destroyed (incl. orphaned taps/qemu)."
 }
 
 # ==============================================================================
