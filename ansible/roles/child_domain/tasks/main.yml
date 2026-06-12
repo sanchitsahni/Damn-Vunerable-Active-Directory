@@ -230,19 +230,30 @@
 # does not drop the WinRM session — Ansible connects by IP (10.10.0.11).
 # --------------------------------------------------------------------------
 
-- name: Point child DC DNS at itself first, parent second, and re-register SRV
+- name: Set child DC DNS (self-first only AFTER it is a DC; else parent-only)
+  # CRITICAL ordering: a child DC must point DNS at the PARENT during promotion so
+  # it can resolve the empire.local DC-locator SRV records. Pointing it at itself
+  # before it holds the zone makes Install-ADDSDomain fail with "a domain
+  # controller for empire.local could not be contacted". So: if NTDS is running
+  # (already promoted) -> self-first + re-register SRVs; otherwise -> parent-only
+  # so the NEXT promotion attempt can find the forest. Idempotent on re-runs.
   ansible.windows.win_shell: |
     $adapter = Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
-    netsh interface ip set dns "$($adapter.Name)" static {{ child_dc_ip }} primary
-    netsh interface ip add dns "$($adapter.Name)" {{ parent_dc_ip }} index=2
-    Restart-Service Netlogon -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 5
-    ipconfig /registerdns | Out-Null
-    nltest /dsregdns 2>$null
-    Write-Output "DNS set: {{ child_dc_ip }},{{ parent_dc_ip }}"
+    $ntds = Get-Service NTDS -ErrorAction SilentlyContinue
+    if ($ntds -and $ntds.Status -eq "Running") {
+      netsh interface ip set dns "$($adapter.Name)" static {{ child_dc_ip }} primary
+      netsh interface ip add dns "$($adapter.Name)" {{ parent_dc_ip }} index=2
+      Restart-Service Netlogon -ErrorAction SilentlyContinue
+      Start-Sleep -Seconds 5
+      ipconfig /registerdns | Out-Null
+      nltest /dsregdns 2>$null
+      Write-Output "DC: self-first DNS {{ child_dc_ip }},{{ parent_dc_ip }}"
+    } else {
+      # Not a DC yet — DNS must point at the parent so promotion can locate the forest.
+      netsh interface ip set dns "$($adapter.Name)" static {{ parent_dc_ip }} primary
+      Write-Output "non-DC: parent DNS {{ parent_dc_ip }}"
+    }
   changed_when: false
-  # No promotion gate: idempotent remediation that must also run on re-runs,
-  # when the DC is already role 5 but stuck unable to resolve its own SRVs.
 
 # --------------------------------------------------------------------------
 # Verify AD is responding before site.yml continues to trust/DNS roles
