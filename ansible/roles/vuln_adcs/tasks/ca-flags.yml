@@ -119,8 +119,8 @@
       New-WebBinding -Name "Default Web Site" -Protocol http -Port 80 -IPAddress "*"
     }
   when: >
-    "'certsrv_missing' not in result_esc8_check.stdout" and
-    ("'None' not in result_esc8_check.stdout" or "'ntlm_enabled=True' not in result_esc8_check.stdout")
+    'certsrv_missing' not in result_esc8_check.stdout and
+    ('None' not in result_esc8_check.stdout or 'ntlm_enabled=True' not in result_esc8_check.stdout)
   register: result_esc8_set
   failed_when: result_esc8_set.rc != 0
   notify: "restart iis"
@@ -135,8 +135,10 @@
   ansible.windows.win_shell: |
     $val = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\CertSvc\Configuration\{{ ca_name }}" `
               -Name "InterfaceFlags" -ErrorAction SilentlyContinue).InterfaceFlags
+    # Bit-test IF_ENFORCEENCRYPTICERTREQUEST (0x200) here (no bitwise_and in Jinja).
     if ($null -eq $val) { Write-Output "not_set" }
-    else { Write-Output $val }
+    elseif ($val -band 0x200) { Write-Output "needs_clear" }
+    else { Write-Output "ok" }
   register: result_esc11_check
   changed_when: false
   failed_when: result_esc11_check.rc != 0
@@ -150,9 +152,7 @@
     if ($null -eq $current) { $current = 0 }
     $cleared = $current -band (-bnot 0x200)
     Set-ItemProperty -Path $regPath -Name "InterfaceFlags" -Value $cleared -Type DWord
-  when: >
-    result_esc11_check.stdout | trim == "not_set" or
-    (result_esc11_check.stdout | trim | int) | bitwise_and(512) != 0
+  when: result_esc11_check.stdout | trim in ["not_set", "needs_clear"]
   register: result_esc11_set
   failed_when: result_esc11_set.rc != 0
   notify: "restart certsvc"
