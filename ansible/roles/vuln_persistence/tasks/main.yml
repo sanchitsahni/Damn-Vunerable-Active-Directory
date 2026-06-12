@@ -12,6 +12,9 @@
 
 - name: Import GPO backdoor tasks
   ansible.builtin.import_tasks: gpo.yml
+  # EMPIREBackdoorGPO is hardcoded to DC=empire,DC=local — empire-root only.
+  # Without this it ran on members (no ADWS) + child/foreign DCs (target DN absent).
+  when: inventory_hostname == 'coruscant.empire.local'
 
 # Extended persistence surfaces (absorbed from vuln_persistence_ext)
 
