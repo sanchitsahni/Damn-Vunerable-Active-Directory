@@ -4,6 +4,7 @@ import sys
 assert sys.version_info >= (3, 8), "Python 3.8+ required"
 
 import os
+import cmd as _cmd
 import argparse
 import fcntl
 import shutil
@@ -66,9 +67,9 @@ WINDOWS_ISOS = [
 ]
 
 PROFILES = {
-    "full":      {"vms": 8, "forests": 3, "ram_gb": 13.5, "label": "8 VMs · 3 forests · ~13.5 GB RAM"},
-    "minimal":   {"vms": 5, "forests": 1, "ram_gb": 8.5,  "label": "5 VMs · corp.local only · ~8.5 GB RAM"},
-    "single-dc": {"vms": 1, "forests": 1, "ram_gb": 2.0,  "label": "1 VM · smoke test · ~2 GB RAM"},
+    "full":      {"vms": 9, "forests": 3, "ram_gb": 12.25, "label": "9 VMs (incl. linux01) · 3 forests · ~12.25 GB alloc (~15 GB real)"},
+    "minimal":   {"vms": 7, "forests": 1, "ram_gb": 9.75,  "label": "7 VMs · corp.local + linux01 · ~9.75 GB alloc (rock-solid)"},
+    "single-dc": {"vms": 1, "forests": 1, "ram_gb": 1.5,  "label": "1 VM · smoke test · ~1.5 GB RAM"},
 }
 
 PACKER_TEMPLATES = [
@@ -508,6 +509,12 @@ class BuildMonitor:
 
 def phase_packer_build(cfg: dict) -> bool:
     step("Phase 1: Packer — building base images")
+    # All-fresh model (qemu): each Windows VM installs from the ISO directly in
+    # phase 3, so every VM gets a unique machine SID and no shared base image is
+    # needed. Skip the packer build entirely. (virtualbox still uses base images.)
+    if cfg["provider"] == "qemu":
+        log("Skipped — all-fresh: Windows VMs install from ISO in phase 3 (unique SID, no base image).")
+        return True
     packer_dir = DUNDER_HOME / "packer"
     only_flag  = "*.qemu.*" if cfg["provider"] == "qemu" else "*.virtualbox-iso.*"
     log_dir    = DUNDER_HOME / "packer-output" / "logs"
@@ -515,6 +522,20 @@ def phase_packer_build(cfg: dict) -> bool:
     results    = {}
 
     info(f"Live build logs: {log_dir}/<template>.log  (tail -f to watch full output)")
+
+    # Install required plugins (qemu / virtualbox) before building — otherwise
+    # `packer build` fails with "Missing plugins / Did you run packer init?".
+    # Use `packer plugins install` (NOT `packer init`): init parses the whole
+    # template dir and collides on the 3 templates' shared variables/locals,
+    # and it installs into the running user's home (matters under sudo).
+    info("Installing packer plugins (qemu, virtualbox)...")
+    for _plugin in ("github.com/hashicorp/qemu", "github.com/hashicorp/virtualbox"):
+        _r = subprocess.run(["packer", "plugins", "install", _plugin],
+                            cwd=str(packer_dir), capture_output=True, text=True)
+        if _r.returncode == 0:
+            log(f"plugin ready: {_plugin.split('/')[-1]}")
+        else:
+            warn(f"plugin install {_plugin} exit {_r.returncode}: {(_r.stderr or _r.stdout).strip()[:200]}")
 
     def build_template(tpl: str):
         provider = cfg["provider"]
@@ -573,7 +594,10 @@ def phase_packer_build(cfg: dict) -> bool:
         phys_cores = multiprocessing.cpu_count() // 2 or 1
 
     needed = len(PACKER_TEMPLATES) * 2  # 2 vCPUs per template
-    _PARALLEL_BUILD = phys_cores >= needed
+    # Require host headroom (+2 cores) so the host stays responsive — building
+    # N templates in parallel pins N*2 vCPUs; on a 4-core host that's 100% and
+    # the machine hangs. Parallel only when cores comfortably exceed the load.
+    _PARALLEL_BUILD = phys_cores >= needed + 2
     if _PARALLEL_BUILD:
         info(f"Host has {phys_cores} physical cores — building {len(PACKER_TEMPLATES)} templates in parallel")
         threads = [threading.Thread(target=build_template, args=(tpl,)) for tpl in PACKER_TEMPLATES]
@@ -1042,13 +1066,16 @@ def action_settings(cfg: dict):
     print(f"  {cfg_summary_line(cfg)}")
 
 
-def action_ansible_tags(cfg: dict):
-    """Run Ansible with specific tags."""
+def action_ansible_tags(cfg: dict, preset: str = None):
+    """Run Ansible with specific tags. `preset` skips the prompt (GOAD-style)."""
     print(f"\n  {BLD}Run Ansible with tags{NC}")
-    tag_input = prompt_input("Ansible tag(s) (comma-separated, e.g. kerberos,adcs)", default="all")
-    if not prompt_confirm(f"Run ansible-playbook --tags '{tag_input}'?", default=True):
-        info("Aborted.")
-        return
+    if preset:
+        tag_input = preset
+    else:
+        tag_input = prompt_input("Ansible tag(s) (comma-separated, e.g. kerberos,adcs)", default="all")
+        if not prompt_confirm(f"Run ansible-playbook --tags '{tag_input}'?", default=True):
+            info("Aborted.")
+            return
 
     ansible_dir = DUNDER_HOME / "ansible"
     inventory   = ansible_dir / "inventory.yml"
@@ -1098,66 +1125,260 @@ def action_resume_phase(cfg: dict):
 # Main menu
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────────────────
+# GOAD-style menu rendering (dotted-leader entries, grouped sections)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def print_logo():
+    print(f"\n{C}{BLD}")
+    print(r"   ____  _    _ _   _ _____  ______ _____  ")
+    print(r"  |  _ \| |  | | \ | |  __ \|  ____|  __ \ ")
+    print(r"  | |  | | |  | |  \| | |  | | |__  | |__) |")
+    print(r"  | |  | | |  | | . ` | |  | |  __| |  _  / ")
+    print(r"  | |__| | |__| | |\  | |__| | |____| | \ \ ")
+    print(r"  |_____/ \____/|_| \_|_____/|______|_|  \_\\")
+    print(f"     {NC}{BLD}Dunder Mifflin Vulnerable Active Directory{NC}")
+    print(f"{C}{BLD}       {Y}pwning is the best policy{NC}")
+    print(f"\n{DIM}  management console — type {NC}{BLD}help{NC}{DIM} or {NC}{BLD}?{NC}{DIM} to list commands{NC}")
+
+
+def _menu_title(title):
+    print(f"\n{C}{BLD}*** {title} ***{NC}")
+
+
+def _menu_entry(command, description):
+    line = f"  {command} ".ljust(40, ".")
+    print(f"{BLD}{line}{NC} {DIM}{description}{NC}")
+
+
+def print_menu():
+    _menu_title("Lab lifecycle")
+    _menu_entry("check",            "preflight — verify host deps before deploy")
+    _menu_entry("install",          "full pipeline: media → packer → net → VMs → ansible → verify")
+    _menu_entry("build",            "packer base images only (phases 0–1)")
+    _menu_entry("network",          "create bridges + dnsmasq (phase 2)")
+    _menu_entry("vms",              "create + boot all VMs (phase 3)")
+    _menu_entry("provision",        "run all Ansible (phase 5 — VMs must be up)")
+    _menu_entry("resume <n>",       "run full pipeline from phase n (0–6)")
+
+    _menu_title("VM control")
+    _menu_entry("status",           "show VM / network / media state")
+    _menu_entry("start",            "start existing stopped VMs")
+    _menu_entry("stop",             "gracefully stop all running VMs")
+    _menu_entry("destroy",          "delete VMs + tear down networks")
+    _menu_entry("snapshot",         "snapshot all VM disks after a good provision")
+    _menu_entry("reset",            "restore VMs to snapshot in SECONDS (vs re-provision)")
+    _menu_entry("vnc",              "show VNC endpoint for each running VM")
+
+    _menu_title("Provisioning / validation")
+    _menu_entry("provision_tags <t>", "run Ansible with specific tag(s), e.g. kerberos,adcs")
+    _menu_entry("verify",           "run vulnerability reachability checks")
+
+    _menu_title("Configuration")
+    _menu_entry("settings",         "interactive — change all settings at once")
+    _menu_entry("set_profile <p>",  "full | minimal | single-dc")
+    _menu_entry("set_provider <p>", "qemu | virtualbox")
+    _menu_entry("set_ram <gb>",     "RAM budget in GB")
+    _menu_entry("set_attacker <ip>","attacker / listener IP")
+    _menu_entry("set_flag_mode <m>","ctf | training")
+    _menu_entry("set_disk <path>",  "VM disk path")
+
+    _menu_title("Shell")
+    _menu_entry("help / ?",         "show this menu")
+    _menu_entry("exit / quit",      "leave the console")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GOAD-style interactive shell (cmd.Cmd REPL with settings-aware prompt)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class DunderShell(_cmd.Cmd):
+    def __init__(self, cfg: dict, start_phase: int = 0):
+        super().__init__()
+        self.cfg = cfg
+        self.start_phase = start_phase
+        self._refresh_prompt()
+
+    # ---- prompt + intro ----
+    def _refresh_prompt(self):
+        c = self.cfg
+        self.prompt = (
+            f"\n{C}dunder{NC} "
+            f"[{BLD}{c['profile']}{NC}·{BLD}{c['provider']}{NC}·{BLD}{c['flag_mode']}{NC}] "
+            f"{DIM}{vm_status_quick(c)}{NC} > "
+        )
+
+    def preloop(self):
+        print_logo()
+        print(f"\n  {cfg_summary_line(self.cfg)}")
+        print_menu()
+
+    # ---- help ----
+    def do_help(self, arg):
+        """Show the command menu."""
+        print_menu()
+    do_menu = do_help
+
+    def emptyline(self):
+        pass
+
+    def default(self, line):
+        warn(f"Unknown command: {line.strip()} — type 'help'.")
+
+    # ---- lifecycle ----
+    def do_check(self, arg):
+        "Preflight — verify host dependencies."
+        preflight_checks(self.cfg)
+
+    def do_install(self, arg):
+        "Full pipeline (media → packer → net → VMs → ansible → verify)."
+        action_deploy(self.cfg, start_phase=self.start_phase)
+    do_deploy = do_install
+
+    def do_build(self, arg):
+        "Packer base images only."
+        action_build(self.cfg)
+
+    def do_network(self, arg):
+        "Create bridges + dnsmasq (phase 2)."
+        phase_network_setup(self.cfg)
+
+    def do_vms(self, arg):
+        "Create + boot all VMs (phase 3)."
+        phase_vm_create(self.cfg)
+    do_create = do_vms
+
+    def do_provision(self, arg):
+        "Run all Ansible (phase 5)."
+        action_provision(self.cfg)
+
+    def do_resume(self, arg):
+        "resume <n> — run the full pipeline from phase n (0–6)."
+        try:
+            n = int(arg.strip())
+            assert 0 <= n <= 6
+        except (ValueError, AssertionError):
+            warn("usage: resume <0-6>"); return
+        action_deploy(self.cfg, start_phase=n)
+
+    # ---- VM control ----
+    def do_status(self, arg):
+        "Show VM / network / media state."
+        action_status(self.cfg)
+        self._refresh_prompt()
+
+    def do_start(self, arg):
+        "Start existing stopped VMs."
+        action_start(self.cfg); self._refresh_prompt()
+
+    def do_stop(self, arg):
+        "Gracefully stop all running VMs."
+        action_stop(self.cfg); self._refresh_prompt()
+
+    def do_destroy(self, arg):
+        "Delete VMs + tear down networks."
+        action_destroy(self.cfg); self._refresh_prompt()
+
+    def do_snapshot(self, arg):
+        "Snapshot all VM disks (run after a good provision — stops VMs first)."
+        vm_script = DUNDER_HOME / "providers" / self.cfg["provider"] / "vm-create.sh"
+        if vm_script.exists():
+            run_cmd("Snapshot VMs",
+                    ["bash", str(vm_script), "snapshot", self.cfg["profile"]],
+                    env={"CFG_DISK_PATH": self.cfg["disk_path"]})
+        self._refresh_prompt()
+
+    def do_reset(self, arg):
+        "Restore all VMs to the last snapshot in seconds, then start them."
+        vm_script = DUNDER_HOME / "providers" / self.cfg["provider"] / "vm-create.sh"
+        if vm_script.exists():
+            run_cmd("Reset VMs",
+                    ["bash", str(vm_script), "reset", self.cfg["profile"]],
+                    env={"CFG_DISK_PATH": self.cfg["disk_path"]})
+        self._refresh_prompt()
+
+    def do_vnc(self, arg):
+        "Show the VNC endpoint for each running VM."
+        vm_script = DUNDER_HOME / "providers" / self.cfg["provider"] / "vm-create.sh"
+        if vm_script.exists():
+            run_cmd("VNC endpoints", ["bash", str(vm_script), "status"],
+                    env={"CFG_DISK_PATH": self.cfg["disk_path"]})
+
+    # ---- provisioning / validation ----
+    def do_provision_tags(self, arg):
+        "provision_tags <tags> — run Ansible with specific tag(s)."
+        action_ansible_tags(self.cfg, preset=arg.strip() or None)
+
+    def do_verify(self, arg):
+        "Run vulnerability reachability checks."
+        action_verify(self.cfg)
+
+    # ---- configuration ----
+    def do_settings(self, arg):
+        "Interactive — change all settings."
+        action_settings(self.cfg); self._refresh_prompt()
+
+    def do_set_profile(self, arg):
+        "set_profile <full|minimal|single-dc>"
+        v = arg.strip()
+        if v not in PROFILES:
+            warn(f"profile must be one of: {', '.join(PROFILES)}"); return
+        self.cfg["profile"] = v; log(f"profile = {v}"); self._refresh_prompt()
+
+    def complete_set_profile(self, text, *_):
+        return [p for p in PROFILES if p.startswith(text)]
+
+    def do_set_provider(self, arg):
+        "set_provider <qemu|virtualbox>"
+        v = arg.strip()
+        if v not in ("qemu", "virtualbox"):
+            warn("provider must be qemu or virtualbox"); return
+        self.cfg["provider"] = v; log(f"provider = {v}"); self._refresh_prompt()
+
+    def complete_set_provider(self, text, *_):
+        return [p for p in ("qemu", "virtualbox") if p.startswith(text)]
+
+    def do_set_ram(self, arg):
+        "set_ram <gb>"
+        try:
+            self.cfg["ram_budget"] = float(arg.strip()); log(f"ram_budget = {self.cfg['ram_budget']} GB")
+        except ValueError:
+            warn("usage: set_ram <number>")
+
+    def do_set_attacker(self, arg):
+        "set_attacker <ip>"
+        if arg.strip():
+            self.cfg["attacker_ip"] = arg.strip(); log(f"attacker_ip = {arg.strip()}")
+
+    def do_set_flag_mode(self, arg):
+        "set_flag_mode <ctf|training>"
+        v = arg.strip()
+        if v not in ("ctf", "training"):
+            warn("flag_mode must be ctf or training"); return
+        self.cfg["flag_mode"] = v; log(f"flag_mode = {v}"); self._refresh_prompt()
+
+    def complete_set_flag_mode(self, text, *_):
+        return [m for m in ("ctf", "training") if m.startswith(text)]
+
+    def do_set_disk(self, arg):
+        "set_disk <path>"
+        if arg.strip():
+            self.cfg["disk_path"] = arg.strip(); log(f"disk_path = {arg.strip()}")
+
+    # ---- exit ----
+    def do_exit(self, arg):
+        "Leave the console."
+        info("Goodbye.")
+        return True
+    do_quit = do_exit
+
+    def do_EOF(self, arg):
+        print()
+        return self.do_exit(arg)
+
+
 def main_menu(cfg: dict, start_phase: int = 0):
-    while True:
-        print_banner()
-        print(f"  {cfg_summary_line(cfg)}")
-        print(f"  {DIM}VMs: {vm_status_quick(cfg)}{NC}")
-        print()
-        print(f"  {BLD}[1]{NC} Deploy         {DIM}full pipeline (phases 0–6){NC}")
-        print(f"  {BLD}[2]{NC} Build          {DIM}packer base images only{NC}")
-        print(f"  {BLD}[3]{NC} Provision      {DIM}Ansible only (VMs must be up){NC}")
-        print(f"  {BLD}[4]{NC} Ansible tags   {DIM}run specific playbook tags{NC}")
-        print(f"  {BLD}[5]{NC} Resume phase   {DIM}restart pipeline from a specific phase{NC}")
-        print(f"  {BLD}[6]{NC} Start VMs      {DIM}start existing stopped VMs{NC}")
-        print(f"  {BLD}[7]{NC} Stop VMs       {DIM}gracefully stop all running VMs{NC}")
-        print(f"  {BLD}[8]{NC} Destroy        {DIM}delete VMs + tear down networks{NC}")
-        print(f"  {BLD}[9]{NC} Status         {DIM}show VM, network, and media state{NC}")
-        print(f"  {BLD}[v]{NC} Verify         {DIM}run vulnerability checks{NC}")
-        print(f"  {BLD}[s]{NC} Settings       {DIM}change profile, provider, paths, flags{NC}")
-        print(f"  {BLD}[0]{NC} Exit")
-        print()
-
-        choice = input(f"  > ").strip().lower()
-
-        if choice == "0" or choice == "q":
-            info("Goodbye.")
-            break
-        elif choice == "1":
-            action_deploy(cfg, start_phase=start_phase)
-            pause()
-        elif choice == "2":
-            action_build(cfg)
-            pause()
-        elif choice == "3":
-            action_provision(cfg)
-            pause()
-        elif choice == "4":
-            action_ansible_tags(cfg)
-            pause()
-        elif choice == "5":
-            action_resume_phase(cfg)
-            pause()
-        elif choice == "6":
-            action_start(cfg)
-            pause()
-        elif choice == "7":
-            action_stop(cfg)
-            pause()
-        elif choice == "8":
-            action_destroy(cfg)
-            pause()
-        elif choice == "9":
-            action_status(cfg)
-            pause()
-        elif choice == "v":
-            action_verify(cfg)
-            pause()
-        elif choice == "s":
-            action_settings(cfg)
-            pause()
-        else:
-            warn("Invalid choice — enter a number 0–9 or v/s.")
+    DunderShell(cfg, start_phase).cmdloop()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

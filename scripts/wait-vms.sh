@@ -9,7 +9,9 @@ set -euo pipefail
 
 DUNDER_HOME="${DUNDER_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 VM_DIR="${CFG_DISK_PATH:-${DUNDER_HOME}/vms}"
-MAX_WAIT_MINUTES="${MAX_WAIT_MINUTES:-30}"
+# All-fresh model: VMs install Windows from ISO on first create (~15-20 min
+# each, run in parallel), not a seconds-fast CoW clone boot. Allow for it.
+MAX_WAIT_MINUTES="${MAX_WAIT_MINUTES:-60}"
 POLL_INTERVAL=20
 
 log()  { echo -e "\033[0;32m[+]\033[0m $*"; }
