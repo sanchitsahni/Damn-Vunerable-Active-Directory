@@ -28,9 +28,14 @@
     reboot_timeout: 600
   when: adcs_feature.reboot_required
 
-- name: Check whether a CA is already configured (certsvc present)
+- name: Check whether a CA is actually CONFIGURED (not just the service present)
+  # The certsvc service exists right after Install-WindowsFeature ADCS-Cert-Authority
+  # but is NOT configured yet. Test the registry 'Active' CA value instead — only
+  # set once Install-AdcsCertificationAuthority has run. (A bare Get-Service check
+  # made us skip CA config, then Web Enrollment failed with ERROR_INVALID_STATE.)
   ansible.windows.win_shell: |
-    if (Get-Service certsvc -ErrorAction SilentlyContinue) { "configured" } else { "absent" }
+    $a = (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\CertSvc\Configuration" -Name Active -ErrorAction SilentlyContinue).Active
+    if ($a) { "configured" } else { "absent" }
   register: ca_state
   changed_when: false
 
