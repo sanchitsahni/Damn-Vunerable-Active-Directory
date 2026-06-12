@@ -1,6 +1,6 @@
 #Requires -Version 5
 # ==============================================================================
-# vuln_privesc — group-membership PE surfaces (BATCHED, dc01 only).
+# vuln_privesc — group-membership PE surfaces (BATCHED, coruscant only).
 # PE-005/006/059 svc_darryl in Warehouse (SeBackup/SeRestore -> NTDS.dit),
 # PE-057 developer1 in Server Operators, PE-018 SYSVOL Scripts DACL loosen,
 # PE-019 SYSTEM-only flag (SeBackup read path). Replaces ~8 round-trips with 1.
@@ -33,7 +33,7 @@ try {
     Get-ChildItem $gpoRoot -Directory | ForEach-Object {
       $scripts = Join-Path $_.FullName "Machine\Scripts\Startup"
       if (-not (Test-Path $scripts)) { New-Item -ItemType Directory -Path $scripts -Force | Out-Null }
-      icacls $scripts /grant "CORP\Authenticated Users:(OI)(CI)M" 2>$null | Out-Null
+      icacls $scripts /grant "EMPIRE\Authenticated Users:(OI)(CI)M" 2>$null | Out-Null
     }
     Log "CHANGED: PE-018 SYSVOL Scripts DACL loosened"
   } else { Log "OK: PE-018 SYSVOL Policies path not found (skipped)" }

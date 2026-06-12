@@ -1,6 +1,6 @@
 #Requires -Version 5
 # ==============================================================================
-# vuln_ia_surface — extended domain-misconfig surface (BATCHED, dc01 only).
+# vuln_ia_surface — extended domain-misconfig surface (BATCHED, coruscant only).
 # Replaces ~8 WinRM round-trips with 1 local run. Self-idempotent blocks emit
 # CHANGED:/OK:/ERROR:. IA-113 weak pw policy, IA-114 Weak-PSO, IA-115 AdminCount,
 # IA-117 MachineAccountQuota=100, IA-119 plaintext cred in GPO. Spec, not bugs.
@@ -35,7 +35,7 @@ try {
 
 # ── IA-115: AdminCount=1 on non-admin accounts (SDProp bypass) ───────────────
 try {
-  foreach ($user in @('svc_web', 'jim.halpert')) {
+  foreach ($user in @('svc_c3po', 'jim.halpert')) {
     $u = Get-ADUser -Filter "SamAccountName -eq '$user'" -Properties AdminCount -ErrorAction SilentlyContinue
     if ($u -and $u.AdminCount -ne 1) {
       Set-ADUser -Identity $u -Replace @{adminCount=1} -ErrorAction SilentlyContinue

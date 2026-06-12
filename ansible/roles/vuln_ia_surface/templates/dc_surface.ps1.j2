@@ -3,7 +3,7 @@
 # vuln_ia_surface — DC initial-access surface (BATCHED, all_dcs).
 # Replaces ~13 WinRM round-trips with 1. Rendered per-DC by Jinja so the
 # corp-only blocks (IA-003 dsHeuristics, REC-015 SYSVOL creds) are emitted only
-# on dc01.corp.local. IA-004/041 AXFR, IA-046 ADWS, IA-014 ZeroLogon, IA-040
+# on coruscant.empire.local. IA-004/041 AXFR, IA-046 ADWS, IA-014 ZeroLogon, IA-040
 # WinRM-HTTPS run on every DC. Deliberately vulnerable lab.
 # ==============================================================================
 $ErrorActionPreference = 'Continue'
@@ -12,8 +12,8 @@ New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
 Import-Module ActiveDirectory -ErrorAction SilentlyContinue
 
-{% if inventory_hostname == 'dc01.corp.local' %}
-# ── IA-003: anonymous LDAP bind via dsHeuristics (corp.local only) ───────────
+{% if inventory_hostname == 'coruscant.empire.local' %}
+# ── IA-003: anonymous LDAP bind via dsHeuristics (empire.local only) ───────────
 try {
   $dn = "CN=Directory Service,CN=Windows NT,CN=Services,CN=Configuration,{{ ia_domain_dn }}"
   $cur = (Get-ADObject -Identity $dn -Properties dSHeuristics -ErrorAction SilentlyContinue).dSHeuristics
@@ -75,8 +75,8 @@ try {
   }
 } catch { Log "ERROR: IA-040 $($_.Exception.Message)" }
 
-{% if inventory_hostname == 'dc01.corp.local' %}
-# ── REC-015: plaintext credentials in a SYSVOL logon script (corp.local only) ─
+{% if inventory_hostname == 'coruscant.empire.local' %}
+# ── REC-015: plaintext credentials in a SYSVOL logon script (empire.local only) ─
 try {
   $sysvolScript = '{{ ia_sysvol_script_path }}'
   if (Test-Path $sysvolScript) { Log "OK: REC-015 SYSVOL script already present" }

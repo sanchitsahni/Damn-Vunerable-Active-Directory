@@ -1,6 +1,6 @@
 #Requires -Version 5
 # ==============================================================================
-# vuln_ia_surface — file01 initial-access surface (BATCHED, file01 only).
+# vuln_ia_surface — scarif initial-access surface (BATCHED, scarif only).
 # Replaces ~28 WinRM round-trips with 1. IA-034/050 SNMP, IA-035 anon FTP,
 # IA-036 Telnet, IA-037 anon NFS, IA-038 SMB1/EternalBlue, IA-044/015 Spooler +
 # shared printer, IA-047 WSD/SSDP, IA-040 WinRM-HTTPS. Feature installs are
@@ -119,7 +119,7 @@ try {
     if (-not (Get-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -ErrorAction SilentlyContinue)) {
       New-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow | Out-Null
     }
-    Log "CHANGED: IA-040 WinRM HTTPS listener created on file01"
+    Log "CHANGED: IA-040 WinRM HTTPS listener created on scarif"
   }
 } catch { Log "ERROR: IA-040 $($_.Exception.Message)" }
 

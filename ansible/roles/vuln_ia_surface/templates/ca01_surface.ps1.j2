@@ -1,6 +1,6 @@
 #Requires -Version 5
 # ==============================================================================
-# vuln_ia_surface — ca01 initial-access surface (BATCHED, ca01 only).
+# vuln_ia_surface — endor initial-access surface (BATCHED, endor only).
 # Replaces ~8 WinRM round-trips with 1. IA-039/049 IIS WebDAV write (aspx PUT
 # webshell), IA-045 WebClient (HTTP coercion), IA-040 WinRM-HTTPS 5986 listener.
 # IIS features are pre-baked in packer; install here is an idempotent fallback.
@@ -52,7 +52,7 @@ try {
     Set-Service WebClient -StartupType Automatic -ErrorAction Stop
     if ((Get-Service WebClient).Status -ne 'Running') {
       Start-Service WebClient -ErrorAction Stop
-      Log "CHANGED: IA-045 WebClient started on ca01"
+      Log "CHANGED: IA-045 WebClient started on endor"
     } else { Log "OK: IA-045 WebClient already running" }
   }
 } catch { Log "ERROR: IA-045 $($_.Exception.Message)" }
@@ -68,7 +68,7 @@ try {
     if (-not (Get-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -ErrorAction SilentlyContinue)) {
       New-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow | Out-Null
     }
-    Log "CHANGED: IA-040 WinRM HTTPS listener created on ca01"
+    Log "CHANGED: IA-040 WinRM HTTPS listener created on endor"
   }
 } catch { Log "ERROR: IA-040 $($_.Exception.Message)" }
 

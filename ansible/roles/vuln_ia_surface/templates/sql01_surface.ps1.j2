@@ -1,6 +1,6 @@
 #Requires -Version 5
 # ==============================================================================
-# vuln_ia_surface — sql01 initial-access surface (BATCHED single run).
+# vuln_ia_surface — kamino initial-access surface (BATCHED single run).
 # Rendered by ansible.windows.win_template, executed once via win_shell — this
 # replaces 6 separate WinRM round-trips with 1. Each block is self-idempotent
 # (check-then-set inline) and emits CHANGED:/OK:/ERROR: markers that the Ansible
@@ -73,7 +73,7 @@ try {
     if (-not (Get-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -ErrorAction SilentlyContinue)) {
       New-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow | Out-Null
     }
-    Log "CHANGED: IA-040 WinRM HTTPS listener created on sql01"
+    Log "CHANGED: IA-040 WinRM HTTPS listener created on kamino"
   }
 } catch { Log "ERROR: IA-040 $($_.Exception.Message)" }
 

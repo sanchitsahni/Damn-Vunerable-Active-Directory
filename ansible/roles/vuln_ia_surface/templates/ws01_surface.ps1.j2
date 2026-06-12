@@ -1,6 +1,6 @@
 #Requires -Version 5
 # ==============================================================================
-# vuln_ia_surface — ws01 initial-access surface (BATCHED, ws01 only).
+# vuln_ia_surface — tatooine initial-access surface (BATCHED, tatooine only).
 # Replaces ~13 WinRM round-trips with 1. IA-019..022 ASR off, IA-024 .library-ms
 # NTLM-leak (CVE-2025-24071), IA-027/043 RDP NLA off, IA-033 WSH/AMSI off,
 # IA-045 WebClient, IA-047 WSD/SSDP, IA-040 WinRM-HTTPS. Deliberately vulnerable.
@@ -115,7 +115,7 @@ try {
     if (-not (Get-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -ErrorAction SilentlyContinue)) {
       New-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow | Out-Null
     }
-    Log "CHANGED: IA-040 WinRM HTTPS listener created on ws01"
+    Log "CHANGED: IA-040 WinRM HTTPS listener created on tatooine"
   }
 } catch { Log "ERROR: IA-040 $($_.Exception.Message)" }
 
