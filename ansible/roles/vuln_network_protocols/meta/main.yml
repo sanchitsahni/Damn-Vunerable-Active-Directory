@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   role_name: vuln_network_protocols
-  author: DVAD
+  author: EMPIRE
   description: >
     Injects network-layer (TCP/UDP) protocol weaknesses across the lab so a
     player can practice the full spectrum of network attacks from the attacker

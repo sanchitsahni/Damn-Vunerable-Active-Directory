@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# DVAD - Massgrave Windows Activation
+# EMPIRE - Massgrave Windows Activation
 # ==============================================================================
 set -euo pipefail
 
@@ -16,11 +16,11 @@ generate_activation_script() {
     cat << 'MGSCRIPT'
 <#
 .SYNOPSIS
-DVAD Windows Activation via Massgrave
+EMPIRE Windows Activation via Massgrave
 #>
 $ErrorActionPreference = "Continue"
 
-Write-Host "=== DVAD Activation Starting ==="
+Write-Host "=== EMPIRE Activation Starting ==="
 
 # Disable IE first run wizard
 $null = New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Internet Explorer\Main" -Name "DisableFirstRunCustomize" -Value 2 -PropertyType DWord -Force -ErrorAction SilentlyContinue
@@ -42,9 +42,9 @@ try {
 }
 
 # Create activation success marker
-New-Item -ItemType File -Path "C:\dvad-activated.txt" -Force
+New-Item -ItemType File -Path "C:\empire-activated.txt" -Force
 
-Write-Host "=== DVAD Activation Complete ==="
+Write-Host "=== EMPIRE Activation Complete ==="
 MGSCRIPT
 }
 
@@ -71,7 +71,7 @@ activate_vm() {
 
     # Create ISO with activation script
     local iso_path="${activation_dir}/${vm_name}-activate.iso"
-    local iso_dir="/tmp/dvad-activate-${vm_name}"
+    local iso_dir="/tmp/empire-activate-${vm_name}"
     mkdir -p "$iso_dir"
     cp "${activation_dir}/activate.ps1" "$iso_dir/activate.ps1"
 

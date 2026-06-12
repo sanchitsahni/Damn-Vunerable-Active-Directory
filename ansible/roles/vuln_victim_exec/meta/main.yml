@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   role_name: vuln_victim_exec
-  author: DVAD
+  author: EMPIRE
   description: >
     Victim-executor simulation for tatooine (and scarif where relevant).
     Scheduled tasks running as real domain users (leia.organa, luke.skywalker,

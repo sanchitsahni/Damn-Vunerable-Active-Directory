@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# DVAD VirtualBox Provider - VM Create / Start / Stop / Destroy / Status
+# EMPIRE VirtualBox Provider - VM Create / Start / Stop / Destroy / Status
 # ==============================================================================
 set -euo pipefail
 IFS=$'\n\t'
@@ -131,7 +131,7 @@ profile_vms() {
 # vm_exists <vm_name> → returns 0 if registered in VirtualBox
 vm_exists() {
     local name="$1"
-    VBoxManage list vms 2>/dev/null | grep -q "\"dvad-${name}\""
+    VBoxManage list vms 2>/dev/null | grep -q "\"empire-${name}\""
 }
 
 # ==============================================================================
@@ -173,13 +173,13 @@ setup_host_only_networks() {
 
 # ==============================================================================
 # import_ova <vm_name>
-# Imports the .ova into VirtualBox under the name dvad-<vm_name>.
+# Imports the .ova into VirtualBox under the name empire-<vm_name>.
 # ==============================================================================
 import_ova() {
     local vm_name="$1"
     parse_vm_def "${vm_name}"
 
-    local vbox_name="dvad-${vm_name}"
+    local vbox_name="empire-${vm_name}"
 
     if vm_exists "${vm_name}"; then
         info "VM ${vbox_name} already registered in VirtualBox."
@@ -213,12 +213,12 @@ create_vm() {
     local vm_name="$1"
     parse_vm_def "${vm_name}"
 
-    local vbox_name="dvad-${vm_name}"
+    local vbox_name="empire-${vm_name}"
     local fqdn="${VM_FQDN[$vm_name]:-$vm_name}"
     local ip="${VM_IP[$vm_name]}"
 
     # Ensure the base OVA is imported (used as the source for clonevm)
-    local base_reg_name="dvad-${vm_name}-base"
+    local base_reg_name="empire-${vm_name}-base"
     local ova_path
     ova_path="$(resolve_base_ova "${vm_base_ova}")"
 
@@ -260,7 +260,7 @@ create_vm() {
 # ==============================================================================
 start_vm() {
     local vm_name="$1"
-    local vbox_name="dvad-${vm_name}"
+    local vbox_name="empire-${vm_name}"
 
     if ! vm_exists "${vm_name}"; then
         err "VM ${vbox_name} is not registered. Run create first."
@@ -284,7 +284,7 @@ start_vm() {
 # ==============================================================================
 stop_vm() {
     local vm_name="$1"
-    local vbox_name="dvad-${vm_name}"
+    local vbox_name="empire-${vm_name}"
 
     if ! VBoxManage list runningvms 2>/dev/null | grep -q "\"${vbox_name}\""; then
         info "${vbox_name} is not running."
@@ -302,7 +302,7 @@ stop_vm() {
 # ==============================================================================
 destroy_vm() {
     local vm_name="$1"
-    local vbox_name="dvad-${vm_name}"
+    local vbox_name="empire-${vm_name}"
 
     if ! vm_exists "${vm_name}"; then
         info "${vbox_name} is not registered — nothing to destroy."
@@ -342,7 +342,7 @@ destroy_all() {
 # status
 # ==============================================================================
 status() {
-    echo "=== DVAD VirtualBox VM Status ==="
+    echo "=== EMPIRE VirtualBox VM Status ==="
 
     local running_vms
     running_vms="$(VBoxManage list runningvms 2>/dev/null || true)"
@@ -351,7 +351,7 @@ status() {
     printf "%-12s %-26s %-12s\n" "----" "----" "-----"
 
     for vm_name in "${PROFILE_FULL[@]}"; do
-        local vbox_name="dvad-${vm_name}"
+        local vbox_name="empire-${vm_name}"
         local fqdn="${VM_FQDN[$vm_name]:-$vm_name}"
         local state
 

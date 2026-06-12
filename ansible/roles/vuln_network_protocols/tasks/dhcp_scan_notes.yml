@@ -4,7 +4,7 @@
 # Target: coruscant.empire.local (documentation drop only - no listener)
 #
 # NET-011  DHCP starvation / rogue DHCP - DOCUMENTED, not injected as a service.
-#          The whole lab shares ONE L2 segment (10.10.0.0/16, bridge dvad-ctf)
+#          The whole lab shares ONE L2 segment (10.10.0.0/16, bridge empire-ctf)
 #          and DHCP is served by a project-local dnsmasq on the KVM host, not by
 #          a Windows DHCP server. Standing up a competing Windows DHCP scope on
 #          the same segment would race the host dnsmasq and break VM addressing,

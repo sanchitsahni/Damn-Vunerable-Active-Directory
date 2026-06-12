@@ -151,7 +151,7 @@
   ansible.windows.win_shell: |
     $g = Get-LocalGroup -Name "Dev_Team" -ErrorAction SilentlyContinue
     if (-not $g) {
-      New-LocalGroup -Name "Dev_Team" -Description "DVAD Sales (PE-004/027)" | Out-Null
+      New-LocalGroup -Name "Dev_Team" -Description "EMPIRE Sales (PE-004/027)" | Out-Null
       Write-Output "changed: Dev_Team created"
     } else {
       Write-Output "ok: Dev_Team exists"
@@ -204,7 +204,7 @@
   ansible.windows.win_copy:
     dest: 'C:\Tools\drivers\README.txt'
     content: |
-      DVAD Vulnerable Driver Drop Zone (PE-004 / PE-049)
+      EMPIRE Vulnerable Driver Drop Zone (PE-004 / PE-049)
       =====================================================
       Place RTCore64.sys (MSI Afterburner <=4.6.4 or RTSS) here.
       Obtain from: https://github.com/TheCruZ/kdmapper (bundled)
@@ -511,7 +511,7 @@
   ansible.windows.win_shell: |
     $g = Get-LocalGroup -Name "Print_Ops" -ErrorAction SilentlyContinue
     if (-not $g) {
-      New-LocalGroup -Name "Print_Ops" -Description "DVAD Print Ops (PE-058)" | Out-Null
+      New-LocalGroup -Name "Print_Ops" -Description "EMPIRE Print Ops (PE-058)" | Out-Null
       Write-Output "changed: Print_Ops created"
     } else {
       Write-Output "ok: Print_Ops exists"

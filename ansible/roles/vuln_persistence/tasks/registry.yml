@@ -51,7 +51,7 @@
 
 # ------------------------------------------------------------------------------
 # PER-018: Golden Ticket precondition — reset krbtgt to known lab password.
-# With a known krbtgt hash (derived from KrbtgtDVAD2024!) participants can forge
+# With a known krbtgt hash (derived from KrbtgtEMPIRE2024!) participants can forge
 # TGTs for any user, including those that do not exist.
 # Password reset is always applied (no reliable way to check current hash).
 # ------------------------------------------------------------------------------
@@ -59,7 +59,7 @@
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     try {
-      $p = ConvertTo-SecureString "KrbtgtDVAD2024!" -AsPlainText -Force
+      $p = ConvertTo-SecureString "KrbtgtEMPIRE2024!" -AsPlainText -Force
       Set-ADAccountPassword -Identity krbtgt -NewPassword $p -Reset -ErrorAction Stop
       Write-Output "changed: krbtgt password reset"
     } catch {
@@ -73,7 +73,7 @@
   ansible.windows.win_copy:
     dest: 'C:\Flags\FLAG-PER-018-GoldenTicket.txt'
     content: |
-      PER-018: krbtgt password is KrbtgtDVAD2024!
+      PER-018: krbtgt password is KrbtgtEMPIRE2024!
       Derive the NT hash to forge TGTs for any principal.
 
 - name: PER-021 - Drop hint for Diamond/Sapphire tickets (same krbtgt prereq)

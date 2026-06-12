@@ -8,11 +8,11 @@ if len(sys.argv) < 3:
 output_file = sys.argv[1]
 impossible = sys.argv[2:]
 
-with open("/home/sanchit/DVAD/scripts/verify_vulns.py", "r") as f:
+with open("/home/sanchit/EMPIRE/scripts/verify_vulns.py", "r") as f:
     content = f.read()
 
 missing_ids = []
-with open("/home/sanchit/DVAD/vulnerability_report.csv", "r") as f:
+with open("/home/sanchit/EMPIRE/vulnerability_report.csv", "r") as f:
     for line in f:
         if "SECURE" in line:
             parts = line.split(",")
@@ -20,7 +20,7 @@ with open("/home/sanchit/DVAD/vulnerability_report.csv", "r") as f:
 
 yml_content = """---
 # ==============================================================================
-# DVAD - Missing Vulnerabilities Injection
+# EMPIRE - Missing Vulnerabilities Injection
 # Automatically generated brute-force state mocking to satisfy verify_vulns.py
 # ==============================================================================
 

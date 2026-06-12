@@ -12,12 +12,12 @@
 # ==============================================================================
 
 # ==============================================================================
-# ESC1 — DVADUserESC1
+# ESC1 — EMPIREUserESC1
 # Enrollee supplies Subject (CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT = 0x1)
 # + Domain Users can enroll + Client Authentication EKU + no manager approval.
 # Allows requesting a cert with any UPN as the SAN → impersonate any user.
 # ==============================================================================
-- name: ESC1 - Check if DVADUserESC1 template exists
+- name: ESC1 - Check if EMPIREUserESC1 template exists
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $t = Get-ADObject -LDAPFilter "(cn={{ esc1_template }})" `
@@ -27,7 +27,7 @@
   changed_when: false
   failed_when: result_esc1_check.rc != 0
 
-- name: ESC1 - Create DVADUserESC1 template (enrollee supplies subject)
+- name: ESC1 - Create EMPIREUserESC1 template (enrollee supplies subject)
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     Import-Module ADCSAdministration -ErrorAction SilentlyContinue
@@ -85,11 +85,11 @@
     "already exists" not in (result_esc1_create.stderr | default("") | lower)
 
 # ==============================================================================
-# ESC2 — DVADMachineESC2
+# ESC2 — EMPIREMachineESC2
 # EKU = Any Purpose (2.5.29.37.0) — certificate can be used for anything,
 # including client auth and code signing. Domain Users can enroll.
 # ==============================================================================
-- name: ESC2 - Check if DVADMachineESC2 template exists
+- name: ESC2 - Check if EMPIREMachineESC2 template exists
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $t = Get-ADObject -LDAPFilter "(cn={{ esc2_template }})" `
@@ -99,7 +99,7 @@
   changed_when: false
   failed_when: result_esc2_check.rc != 0
 
-- name: ESC2 - Create DVADMachineESC2 template (Any Purpose EKU)
+- name: ESC2 - Create EMPIREMachineESC2 template (Any Purpose EKU)
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $configNC     = (Get-ADRootDSE).configurationNamingContext
@@ -148,11 +148,11 @@
     "already exists" not in (result_esc2_create.stderr | default("") | lower)
 
 # ==============================================================================
-# ESC3 — DVADAgentESC3
+# ESC3 — EMPIREAgentESC3
 # Certificate Request Agent EKU (1.3.6.1.4.1.311.20.2.1).
 # Holder can enroll on behalf of any user → full impersonation chain.
 # ==============================================================================
-- name: ESC3 - Check if DVADAgentESC3 template exists
+- name: ESC3 - Check if EMPIREAgentESC3 template exists
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $t = Get-ADObject -LDAPFilter "(cn={{ esc3_template }})" `
@@ -162,7 +162,7 @@
   changed_when: false
   failed_when: result_esc3_check.rc != 0
 
-- name: ESC3 - Create DVADAgentESC3 template (Certificate Request Agent EKU)
+- name: ESC3 - Create EMPIREAgentESC3 template (Certificate Request Agent EKU)
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $configNC      = (Get-ADRootDSE).configurationNamingContext
@@ -211,11 +211,11 @@
     "already exists" not in (result_esc3_create.stderr | default("") | lower)
 
 # ==============================================================================
-# ESC4 — DVADWriteESC4
+# ESC4 — EMPIREWriteESC4
 # Normal User template clone, but Domain Users have GenericAll (WriteDacl).
 # Attacker can modify template to add ESC1 conditions → then enroll.
 # ==============================================================================
-- name: ESC4 - Check if DVADWriteESC4 template exists
+- name: ESC4 - Check if EMPIREWriteESC4 template exists
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $t = Get-ADObject -LDAPFilter "(cn={{ esc4_template }})" `
@@ -225,7 +225,7 @@
   changed_when: false
   failed_when: result_esc4_check.rc != 0
 
-- name: ESC4 - Create DVADWriteESC4 template with GenericAll for Domain Users
+- name: ESC4 - Create EMPIREWriteESC4 template with GenericAll for Domain Users
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $configNC      = (Get-ADRootDSE).configurationNamingContext
@@ -261,7 +261,7 @@
     result_esc4_create.rc != 0 and
     "already exists" not in (result_esc4_create.stderr | default("") | lower)
 
-- name: ESC4 - Check if Domain Users already have GenericAll ACE on DVADWriteESC4
+- name: ESC4 - Check if Domain Users already have GenericAll ACE on EMPIREWriteESC4
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $configNC      = (Get-ADRootDSE).configurationNamingContext
@@ -277,7 +277,7 @@
   changed_when: false
   failed_when: result_esc4_acl_check.rc != 0
 
-- name: ESC4 - Grant Domain Users GenericAll on DVADWriteESC4 template
+- name: ESC4 - Grant Domain Users GenericAll on EMPIREWriteESC4 template
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $configNC      = (Get-ADRootDSE).configurationNamingContext
@@ -338,12 +338,12 @@
   failed_when: result_esc5_set.rc != 0
 
 # ==============================================================================
-# ESC13 — DVADIssuanceESC13
+# ESC13 — EMPIREIssuanceESC13
 # Issuance policy OID linked to a high-privilege group.
 # When a certificate is issued under this policy, the holder is treated as a
 # member of the linked group (Universal Group Membership).
 # ==============================================================================
-- name: ESC13 - Check if DVADIssuanceESC13 template exists
+- name: ESC13 - Check if EMPIREIssuanceESC13 template exists
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $t = Get-ADObject -LDAPFilter "(cn={{ esc13_template }})" `
@@ -353,7 +353,7 @@
   changed_when: false
   failed_when: result_esc13_check.rc != 0
 
-- name: ESC13 - Create DVADIssuanceESC13 template and link OID to Domain Admins
+- name: ESC13 - Create EMPIREIssuanceESC13 template and link OID to Domain Admins
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $configNC      = (Get-ADRootDSE).configurationNamingContext
@@ -363,11 +363,11 @@
 
     # Create a new issuance policy OID object linked to Domain Admins
     $oidGuid    = [guid]::NewGuid().ToString()
-    $policyOID  = "1.3.6.1.4.1.311.21.8.dvadesc13"
+    $policyOID  = "1.3.6.1.4.1.311.21.8.empireesc13"
     $daGroup    = Get-ADGroup -Identity "Domain Admins"
 
     # OID object in AD (msDS-OIDToGroupLink wires OID → group)
-    $oidName = "DVADIssuancePolicy"
+    $oidName = "EMPIREIssuancePolicy"
     $existingOID = Get-ADObject -LDAPFilter "(cn=$oidName)" -SearchBase $oidBase -ErrorAction SilentlyContinue
     if (-not $existingOID) {
       New-ADObject -Name $oidName -Type "msPKI-Enterprise-Oid" -Path $oidBase `
@@ -422,13 +422,13 @@
     "already exists" not in (result_esc13_create.stderr | default("") | lower)
 
 # ==============================================================================
-# ESC15 — DVADNoSecExtESC15 (CVE-2024-49019)
+# ESC15 — EMPIRENoSecExtESC15 (CVE-2024-49019)
 # Template missing the szOID_NTDS_CA_SECURITY_EXT extension.
 # This extension normally embeds the requester SID; when absent the issued
 # certificate can be used to authenticate as a different principal.
 # msPKI-Template-Schema-Version=1 suppresses the extension on older DCs.
 # ==============================================================================
-- name: ESC15 - Check if DVADNoSecExtESC15 template exists
+- name: ESC15 - Check if EMPIRENoSecExtESC15 template exists
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $t = Get-ADObject -LDAPFilter "(cn={{ esc15_template }})" `
@@ -438,7 +438,7 @@
   changed_when: false
   failed_when: result_esc15_check.rc != 0
 
-- name: ESC15 - Create DVADNoSecExtESC15 template (missing NTDS-CA-Security extension)
+- name: ESC15 - Create EMPIRENoSecExtESC15 template (missing NTDS-CA-Security extension)
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $configNC      = (Get-ADRootDSE).configurationNamingContext

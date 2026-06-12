@@ -12,7 +12,7 @@ attacker_ip:  "10.10.0.1"
 cve_2025_24054_attacker: "{{ attacker_ip }}"
 
 # CVE-2025-26633: MSC file execution (LOLbin path on tatooine)
-cve_2025_26633_msc_drop: 'C:\Tools\dvad_msc_exec.msc'
+cve_2025_26633_msc_drop: 'C:\Tools\empire_msc_exec.msc'
 
 # CVE-2025-29824: CLFS driver LPE indicator
 cve_2025_29824_note: true

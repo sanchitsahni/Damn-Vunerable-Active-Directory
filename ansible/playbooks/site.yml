@@ -1,6 +1,6 @@
 ---
 # ==============================================================================
-# DVAD site.yml — Master Playbook
+# EMPIRE site.yml — Master Playbook
 #
 # Dependency order:
 #   1. empire.local DC must be fully promoted before child/finance/root DCs

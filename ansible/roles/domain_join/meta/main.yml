@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   role_name: domain_join
-  author: DVAD
+  author: EMPIRE
   description: Joins a Windows member server to its domain with idempotency check
   min_ansible_version: "2.12"
   platforms:

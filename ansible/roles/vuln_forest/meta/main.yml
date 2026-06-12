@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   role_name: vuln_forest
-  author: DVAD
+  author: EMPIRE
   description: >
     Injects forest-compromise misconfigurations on coruscant.empire.local
     (DF-003 DCSync, DF-007 ExtraSID, DF-009 FSP Domain Admins,

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# DVAD QEMU Provider - Network Setup
+# EMPIRE QEMU Provider - Network Setup
 #
-# Creates 1 lab bridge (dvad-ctf, 10.10.0.0/16) + 1 NAT bridge for Windows
-# activation, then starts a per-project dnsmasq under /tmp/dvad-dnsmasq/ with
+# Creates 1 lab bridge (empire-ctf, 10.10.0.0/16) + 1 NAT bridge for Windows
+# activation, then starts a per-project dnsmasq under /tmp/empire-dnsmasq/ with
 # static leases keyed on the VM MAC addresses.
 #
-# All three forests live on the single dvad-ctf bridge:
+# All three forests live on the single empire-ctf bridge:
 #   corp/eu = 10.10.0.x   finance = 10.10.20.x   root = 10.10.30.x
 # so the attacker host at 10.10.0.1 reaches every domain on-link (no
 # cross-bridge routing needed) for trust-attack chains.
@@ -29,17 +29,17 @@ err()  { echo -e "\033[0;31m[ERROR]\033[0m $*" >&2; }
 # ==============================================================================
 # Constants
 # ==============================================================================
-BRIDGE_CTF="dvad-ctf"         # corp + eu + finance + root   10.10.0.0/16
-BRIDGE_NAT="dvad-nat"          # outbound NAT                10.0.2.0/24
+BRIDGE_CTF="empire-ctf"         # corp + eu + finance + root   10.10.0.0/16
+BRIDGE_NAT="empire-nat"          # outbound NAT                10.0.2.0/24
 
 GW_CTF="10.10.0.1"
 GW_NAT="10.0.2.1"
 
-DNSMASQ_DIR="/tmp/dvad-dnsmasq"
-DNSMASQ_CONF="${DNSMASQ_DIR}/dvad-dnsmasq.conf"
-DNSMASQ_STATIC="${DNSMASQ_DIR}/dvad-static.conf"
-DNSMASQ_PID="${DNSMASQ_DIR}/dvad-dnsmasq.pid"
-DNSMASQ_LOG="${DNSMASQ_DIR}/dvad-dnsmasq.log"
+DNSMASQ_DIR="/tmp/empire-dnsmasq"
+DNSMASQ_CONF="${DNSMASQ_DIR}/empire-dnsmasq.conf"
+DNSMASQ_STATIC="${DNSMASQ_DIR}/empire-static.conf"
+DNSMASQ_PID="${DNSMASQ_DIR}/empire-dnsmasq.pid"
+DNSMASQ_LOG="${DNSMASQ_DIR}/empire-dnsmasq.log"
 
 # ==============================================================================
 # Detect outbound interface reliably (never hardcoded eth0/wlan0)
@@ -110,20 +110,20 @@ setup_nat() {
 
     if command -v nft &>/dev/null; then
         # nftables path
-        # Create the dvad table + chains only once
-        if ! sudo -n nft list table inet dvad &>/dev/null 2>&1; then
-            sudo -n nft add table inet dvad
-            sudo -n nft add chain inet dvad postrouting \
+        # Create the empire table + chains only once
+        if ! sudo -n nft list table inet empire &>/dev/null 2>&1; then
+            sudo -n nft add table inet empire
+            sudo -n nft add chain inet empire postrouting \
                 '{ type nat hook postrouting priority srcnat; policy accept; }'
-            sudo -n nft add chain inet dvad forward \
+            sudo -n nft add chain inet empire forward \
                 '{ type filter hook forward priority 0; policy accept; }'
         fi
 
         # Masquerade from each lab subnet to the internet
         for subnet in "10.10.0.0/16" "10.0.2.0/24"; do
             local rule="ip saddr ${subnet} oifname \"${out_iface}\" masquerade"
-            if ! sudo -n nft list chain inet dvad postrouting 2>/dev/null | grep -qF "ip saddr ${subnet}"; then
-                sudo -n nft add rule inet dvad postrouting ${rule}
+            if ! sudo -n nft list chain inet empire postrouting 2>/dev/null | grep -qF "ip saddr ${subnet}"; then
+                sudo -n nft add rule inet empire postrouting ${rule}
                 info "Added nft masquerade rule: ${subnet} → ${out_iface}"
             fi
         done
@@ -149,12 +149,12 @@ setup_nat() {
 # ==============================================================================
 # setup_cross_bridge_routes
 # No-op under the single-bridge plan: corp (10.10.0.x), finance (10.10.20.x)
-# and root (10.10.30.x) all live on dvad-ctf (10.10.0.0/16), so every domain
+# and root (10.10.30.x) all live on empire-ctf (10.10.0.0/16), so every domain
 # is already on-link from the attacker host at 10.10.0.1. No inter-bridge
 # routing or forwarding rules are required for trust-attack paths.
 # ==============================================================================
 setup_cross_bridge_routes() {
-    info "Single-bridge topology — all forests on dvad-ctf (10.10.0.0/16), no cross-bridge routes needed."
+    info "Single-bridge topology — all forests on empire-ctf (10.10.0.0/16), no cross-bridge routes needed."
 }
 
 # ==============================================================================
@@ -166,7 +166,7 @@ write_dnsmasq_config() {
 
     # Static lease file — MACs from the VM topology table
     cat > "${DNSMASQ_STATIC}" <<'STATIC_EOF'
-# DVAD static DHCP leases — keyed on VM MAC addresses
+# EMPIRE static DHCP leases — keyed on VM MAC addresses
 # empire.local / eu.empire.local
 dhcp-host=52:54:00:01:01:01,coruscant.empire.local,10.10.0.10,infinite
 dhcp-host=52:54:00:01:01:02,deathstar.eu.empire.local,10.10.0.11,infinite
@@ -184,7 +184,7 @@ STATIC_EOF
 
     # Main dnsmasq configuration
     cat > "${DNSMASQ_CONF}" <<DNSMASQ_EOF
-# DVAD Lab dnsmasq configuration
+# EMPIRE Lab dnsmasq configuration
 # Managed by providers/qemu/network-setup.sh — do not edit by hand.
 
 bind-interfaces
@@ -196,7 +196,7 @@ log-dhcp
 # Include static leases
 conf-file=${DNSMASQ_STATIC}
 
-# ── All forests on dvad-ctf (10.10.0.0/16) ──────────────────────────────────
+# ── All forests on empire-ctf (10.10.0.0/16) ──────────────────────────────────
 # corp/eu = 10.10.0.x, finance = 10.10.20.x, root = 10.10.30.x.
 # Static leases (above) pin the DC/server/workstation IPs; this dynamic range
 # only serves stray DHCP clients on the corp segment.
@@ -206,7 +206,7 @@ dhcp-option=${BRIDGE_CTF},3,${GW_CTF}
 dhcp-option=${BRIDGE_CTF},6,10.10.0.10
 dhcp-option=${BRIDGE_CTF},15,empire.local
 
-# ── NAT bridge (dvad-nat, 10.0.2.0/24) ───────────────────────────────────────
+# ── NAT bridge (empire-nat, 10.0.2.0/24) ───────────────────────────────────────
 interface=${BRIDGE_NAT}
 dhcp-range=${BRIDGE_NAT},10.0.2.100,10.0.2.200,255.255.255.0,12h
 dhcp-option=${BRIDGE_NAT},3,${GW_NAT}
@@ -219,7 +219,7 @@ DNSMASQ_EOF
 # start_dnsmasq
 # ==============================================================================
 start_dnsmasq() {
-    # Kill any existing dvad dnsmasq instance (optional cleanup — not critical)
+    # Kill any existing empire dnsmasq instance (optional cleanup — not critical)
     if [[ -f "${DNSMASQ_PID}" ]]; then
         local old_pid
         old_pid="$(cat "${DNSMASQ_PID}")"
@@ -257,9 +257,9 @@ start_dnsmasq() {
 # setup  — main entry point to bring up the full network stack
 # ==============================================================================
 setup() {
-    log "=== DVAD Network Setup ==="
+    log "=== EMPIRE Network Setup ==="
 
-    # 1. Single lab bridge — all forests share dvad-ctf on 10.10.0.0/16
+    # 1. Single lab bridge — all forests share empire-ctf on 10.10.0.0/16
     create_bridge "${BRIDGE_CTF}" "${GW_CTF}/16"
 
     # 2. NAT bridge for Windows activation (outbound internet only)
@@ -281,10 +281,10 @@ setup() {
     # 7. Summary
     echo ""
     log "Network setup complete. Bridges:"
-    ip -br link show | grep "^dvad" || true
+    ip -br link show | grep "^empire" || true
     echo ""
     log "Bridge IPs:"
-    ip -br addr show | grep "^dvad" || true
+    ip -br addr show | grep "^empire" || true
     echo ""
     log "dnsmasq config: ${DNSMASQ_CONF}"
     log "dnsmasq log:    ${DNSMASQ_LOG}"
@@ -297,7 +297,7 @@ setup() {
 # destroy  — tear down everything created by setup
 # ==============================================================================
 destroy() {
-    warn "=== DVAD Network Teardown ==="
+    warn "=== EMPIRE Network Teardown ==="
 
     # Stop dnsmasq
     if [[ -f "${DNSMASQ_PID}" ]]; then
@@ -308,8 +308,8 @@ destroy() {
             sudo -n kill "${pid}" 2>/dev/null || true
         fi
     fi
-    # Belt-and-suspenders: kill any stray dvad dnsmasq processes
-    sudo -n pkill -f "dnsmasq.*dvad" 2>/dev/null || true
+    # Belt-and-suspenders: kill any stray empire dnsmasq processes
+    sudo -n pkill -f "dnsmasq.*empire" 2>/dev/null || true
     rm -rf "${DNSMASQ_DIR}"
 
     # Remove bridges
@@ -323,9 +323,9 @@ destroy() {
 
     # Remove firewall rules
     if command -v nft &>/dev/null; then
-        if sudo -n nft list table inet dvad &>/dev/null 2>&1; then
-            log "Removing nftables dvad table..."
-            sudo -n nft delete table inet dvad
+        if sudo -n nft list table inet empire &>/dev/null 2>&1; then
+            log "Removing nftables empire table..."
+            sudo -n nft delete table inet empire
         fi
     else
         # Best-effort iptables cleanup

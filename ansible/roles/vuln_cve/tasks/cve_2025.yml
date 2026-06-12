@@ -165,7 +165,7 @@
       CVSS: 8.1 CRITICAL
       Target: coruscant.empire.local port 389 (LDAP) / 636 (LDAPS)
 
-      Lab exposure: LDAP port 389 accessible from dvad-ctf bridge (10.10.0.0/21)
+      Lab exposure: LDAP port 389 accessible from empire-ctf bridge (10.10.0.0/21)
       No authentication required for initial trigger.
 
       Status: Unpatched in this lab (Windows Update disabled in gold image).

@@ -20,7 +20,7 @@
   ansible.windows.win_shell: |
     $v = (Get-ItemProperty `
             -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' `
-            -Name 'DVADAutorun' -ErrorAction SilentlyContinue).DVADAutorun
+            -Name 'EMPIREAutorun' -ErrorAction SilentlyContinue).EMPIREAutorun
     if ($v) { Write-Output "present: $v" } else { Write-Output "absent" }
   register: pe061_check
   changed_when: false
@@ -29,7 +29,7 @@
 - name: PE-061 - Create auto-run entry pointing to world-writable path
   ansible.windows.win_regedit:
     path: 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
-    name: DVADAutorun
+    name: EMPIREAutorun
     data: "{{ autorun_target }}"
     type: string
   when: "'absent' in pe061_check.stdout"
@@ -50,21 +50,21 @@
     $v = (Get-ItemProperty `
             -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' `
             -Name 'Notification Packages' -ErrorAction SilentlyContinue).'Notification Packages'
-    if ($v -contains 'dvad_notify') { Write-Output "present" }
+    if ($v -contains 'empire_notify') { Write-Output "present" }
     else { Write-Output "absent: current=$($v -join ',')" }
   register: pe063_check
   changed_when: false
   failed_when: pe063_check.rc != 0
 
-- name: PE-063 - Add dvad_notify to LSA Notification Packages
+- name: PE-063 - Add empire_notify to LSA Notification Packages
   ansible.windows.win_shell: |
     $current = (Get-ItemProperty `
                   -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' `
                   -Name 'Notification Packages').'Notification Packages'
-    $new = $current + @('dvad_notify')
+    $new = $current + @('empire_notify')
     Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' `
       -Name 'Notification Packages' -Value $new
-    Write-Output "changed: dvad_notify added to LSA notification packages"
+    Write-Output "changed: empire_notify added to LSA notification packages"
   register: pe063_set
   changed_when: "'changed:' in pe063_set.stdout"
   failed_when: pe063_set.rc != 0

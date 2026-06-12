@@ -1,5 +1,5 @@
 ## Current Status
-Last visited: 2026-06-12T09:05:35Z
+Last visited: 2026-06-12T15:02:00Z
 
 - [x] Initial repo structure discovery and mapping
 - [x] Create PROJECT.md and define milestones
@@ -12,10 +12,21 @@ Last visited: 2026-06-12T09:05:35Z
 - [x] M2: Documentation Design - COMPLETE
   - [x] Formulated detailed layout structure and new file divisions
   - [x] Planned Mermaid diagrams for attack chains
-- [/] M3: Verification Tooling - IN_PROGRESS
-  - [ ] Implement scripts/check_docs.py static coverage checker
-- [ ] M4: Documentation Updates
-- [ ] M5: Verification & Sign-off
+- [x] M3: Verification Tooling - COMPLETE
+  - [x] Implemented scripts/check_docs.py static coverage and Mermaid checker
+- [x] M4: Documentation Updates - COMPLETE
+  - [x] Partitioned documentation updates into 7 parallel tracks
+  - [x] Spawned 7 parallel worker subagents (Initial Access, Credentials, Lateral, PrivEsc, Persistence/Forest, Web/Net, Linux)
+  - [x] Linux Documentation (hosts/linux01-corp.md) complete
+  - [x] Privilege Escalation Documentation (05-privilege-escalation.md) complete (PE-061..128, CVEs, drifts resolved)
+  - [x] Web & Network Documentation (10-web-vulnerabilities.md, 11-network-vulnerabilities.md) complete (WEB-, NET-, SRV-)
+  - [x] Persistence & Forest Compromise Documentation (06-persistence.md, 07-forest-compromise.md) complete (PER-, DF-, Mermaid diagrams)
+  - [x] Lateral Movement Documentation (04-lateral-movement.md) complete (LAT-001..095, drifts resolved)
+  - [x] Initial Access Documentation (02a-initial-access.md) complete (IA-007, IA-052..119, drifts resolved)
+  - [x] Credentials Documentation (03-credential-access.md) complete (CRED-014, CRED-052, CRED-066..130, CLO-001..095)
+- [/] M5: Verification & Sign-off - IN_PROGRESS
+  - [ ] Run verification script scripts/check_docs.py and assert success
+  - [ ] Write final project report
 
 ## Iteration Status
-Current iteration: 5 / 32
+Current iteration: 10 / 32

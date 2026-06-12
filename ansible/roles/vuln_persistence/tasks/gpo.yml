@@ -3,21 +3,21 @@
 # vuln_persistence/tasks/gpo.yml
 # Target: coruscant.empire.local
 #
-# PER-034  Attacker-writable GPO (DVADBackdoorGPO) linked to empire.local OU
+# PER-034  Attacker-writable GPO (EMPIREBackdoorGPO) linked to empire.local OU
 #          with Domain Users holding GpoEdit rights — anyone can inject logon
 #          scripts or Computer\Preferences payloads.
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# PER-034: Create DVADBackdoorGPO if it does not exist, then grant
+# PER-034: Create EMPIREBackdoorGPO if it does not exist, then grant
 # Domain Users GpoEditDeleteModifySecurity permission on it.
 # ------------------------------------------------------------------------------
-- name: PER-034 - Create DVADBackdoorGPO if absent
+- name: PER-034 - Create EMPIREBackdoorGPO if absent
   ansible.windows.win_shell: |
     Import-Module GroupPolicy
-    $gpo = Get-GPO -Name "DVADBackdoorGPO" -ErrorAction SilentlyContinue
+    $gpo = Get-GPO -Name "EMPIREBackdoorGPO" -ErrorAction SilentlyContinue
     if (-not $gpo) {
-      $gpo = New-GPO -Name "DVADBackdoorGPO" -Comment "DVAD writable GPO (PER-034)" -ErrorAction Stop
+      $gpo = New-GPO -Name "EMPIREBackdoorGPO" -Comment "EMPIRE writable GPO (PER-034)" -ErrorAction Stop
       Write-Output "changed: GPO created"
     } else {
       Write-Output "ok: GPO exists"
@@ -26,13 +26,13 @@
   changed_when: "'changed:' in result_gpo_create.stdout"
   failed_when: result_gpo_create.rc != 0
 
-- name: PER-034 - Link DVADBackdoorGPO to empire.local domain root OU
+- name: PER-034 - Link EMPIREBackdoorGPO to empire.local domain root OU
   ansible.windows.win_shell: |
     Import-Module GroupPolicy
     $domain = (Get-ADDomain).DNSRoot
     # New-GPLink errors if link already exists; treat that as idempotent success
     try {
-      New-GPLink -Name "DVADBackdoorGPO" -Target "DC=empire,DC=local" -ErrorAction Stop | Out-Null
+      New-GPLink -Name "EMPIREBackdoorGPO" -Target "DC=empire,DC=local" -ErrorAction Stop | Out-Null
       Write-Output "changed: GPO linked"
     } catch {
       if ($_.Exception.Message -match "already") {
@@ -45,11 +45,11 @@
   changed_when: "'changed:' in result_gpo_link.stdout"
   failed_when: result_gpo_link.rc != 0
 
-- name: PER-034 - Grant Domain Users GpoEdit rights on DVADBackdoorGPO
+- name: PER-034 - Grant Domain Users GpoEdit rights on EMPIREBackdoorGPO
   ansible.windows.win_shell: |
     Import-Module GroupPolicy
     try {
-      Set-GPPermission -Name "DVADBackdoorGPO" `
+      Set-GPPermission -Name "EMPIREBackdoorGPO" `
         -PermissionLevel GpoEditDeleteModifySecurity `
         -TargetName "Domain Users" -TargetType Group `
         -ErrorAction Stop
@@ -68,10 +68,10 @@
 
 # Stage a ScheduledTasks.xml in the GPO so there is an immediate SYSTEM
 # task trigger for participants who exercise the write path.
-- name: PER-034 - Stage ScheduledTasks.xml in DVADBackdoorGPO SYSVOL path
+- name: PER-034 - Stage ScheduledTasks.xml in EMPIREBackdoorGPO SYSVOL path
   ansible.windows.win_shell: |
     Import-Module GroupPolicy
-    $gpo    = Get-GPO -Name "DVADBackdoorGPO" -ErrorAction Stop
+    $gpo    = Get-GPO -Name "EMPIREBackdoorGPO" -ErrorAction Stop
     $domain = (Get-ADDomain).DNSRoot
     $dir    = "C:\Windows\SYSVOL\sysvol\$domain\Policies\{$($gpo.Id)}\Machine\Preferences\ScheduledTasks"
     if (-not (Test-Path $dir)) {
@@ -91,9 +91,9 @@
       <?xml version="1.0" encoding="utf-8"?>
       <ScheduledTasks clsid="{CC63F200-7309-4ba0-B154-A71CD118DBCC}">
         <ImmediateTaskV2 clsid="{9756B581-76EC-4169-9AFC-0CA8D43ADB5F}"
-          name="DVAD-GPO-Backdoor" image="0" changed="2024-01-01 00:00:00"
+          name="EMPIRE-GPO-Backdoor" image="0" changed="2024-01-01 00:00:00"
           uid="{22222222-2222-2222-2222-222222222222}">
-          <Properties action="C" name="DVAD-GPO-Backdoor"
+          <Properties action="C" name="EMPIRE-GPO-Backdoor"
             runAs="NT AUTHORITY\SYSTEM" logonType="S4U">
             <Task version="1.3">
               <RegistrationInfo><Author>SYSTEM</Author></RegistrationInfo>
@@ -107,7 +107,7 @@
               <Actions Context="Author">
                 <Exec>
                   <Command>cmd.exe</Command>
-                  <Arguments>/c rem dvad-backdoor-per034</Arguments>
+                  <Arguments>/c rem empire-backdoor-per034</Arguments>
                 </Exec>
               </Actions>
             </Task>

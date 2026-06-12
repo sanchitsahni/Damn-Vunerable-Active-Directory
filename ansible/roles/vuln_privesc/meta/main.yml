@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   role_name: vuln_privesc
-  author: DVAD
+  author: EMPIRE
   description: >
     Injects privilege-escalation misconfigurations
     (PE-001 SeImpersonate, PE-005/006/057/059 operator groups, PE-007/008 service

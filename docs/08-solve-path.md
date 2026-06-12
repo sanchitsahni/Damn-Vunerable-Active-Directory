@@ -1099,8 +1099,8 @@ When you have *something* but don't know where to go, walk this tree:
 ┌─ Am I on the host bridge with zero creds? ──┐
 │   Yes → Phase 0 (02a-initial-access.md):    │
 │   ├── Anon SMB/LDAP/DNS, Kerbrute → users   │
-│   ├── AS-REP roast (no creds) → IA-006      │
-│   ├── Password spray → IA-007               │
+│   ├── AS-REP roast (no creds) → CRED-002    │
+│   ├── Password spray → IA-006               │
 │   ├── Responder/mitm6 (if you have L2) → IA-008/009 │
 │   ├── PetitPotam+relay+ADCS → IA-013        │
 │   ├── ZeroLogon → IA-014                    │

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# DVAD - Wait for VM Readiness
+# EMPIRE - Wait for VM Readiness
 # Polls each VM's WinRM port until all are answering or timeout expires.
 # Since VMs boot from a pre-built QCOW2 (WinRM already enabled), this
 # should complete within 3-5 minutes of QEMU start.
@@ -63,7 +63,7 @@ wait_for_all() {
     done
 
     if [ ${#all_vms[@]} -eq 0 ]; then
-        warn "No DVAD VM disks found in ${VM_DIR}. Did create_all_vms run?"
+        warn "No EMPIRE VM disks found in ${VM_DIR}. Did create_all_vms run?"
         return 0
     fi
 

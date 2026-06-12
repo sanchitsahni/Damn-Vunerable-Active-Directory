@@ -1059,12 +1059,12 @@ def action_status(cfg: dict):
         print(f"\n  {BLD}Networks:{NC}")
         result = subprocess.run(["ip", "link", "show"], capture_output=True, text=True)
         bridges = [l.split(":")[1].strip() for l in result.stdout.splitlines()
-                   if "dvad" in l and ":" in l]
+                   if "empire" in l and ":" in l]
         if bridges:
             for b in bridges:
                 log(f"  bridge: {b}")
         else:
-            warn("  No dvad-* bridges found — network not set up.")
+            warn("  No empire-* bridges found — network not set up.")
 
     print(f"\n  {BLD}Packer outputs:{NC}")
     packer_out = EMPIRE_HOME / "packer-output"

@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   role_name: vuln_persistence
-  author: DVAD
+  author: EMPIRE
   description: >
     Injects persistence misconfigurations on coruscant.empire.local:
     PER-002 IFEO debugger, PER-014 RID hijack surface, PER-015 AdminSDHolder ACL,

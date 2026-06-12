@@ -12,8 +12,8 @@ function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Wri
 
 # ── PE-081..090: grant extended privileges via secedit ───────────────────────
 try {
-  $tmpCfg = "$env:TEMP\dvad_pe_privs.cfg"
-  $tmpDb  = "$env:TEMP\dvad_pe_privs.sdb"
+  $tmpCfg = "$env:TEMP\empire_pe_privs.cfg"
+  $tmpDb  = "$env:TEMP\empire_pe_privs.sdb"
   secedit /export /cfg $tmpCfg /quiet 2>&1 | Out-Null
   $content = Get-Content $tmpCfg -Raw
   if ($content -match 'SeAssignPrimaryTokenPrivilege') {

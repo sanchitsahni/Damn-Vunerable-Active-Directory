@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   role_name: vuln_adcs
-  author: DVAD
+  author: EMPIRE
   description: Configures ADCS ESC1-ESC13/ESC15 attack-vector templates and CA-level misconfigurations
   min_ansible_version: "2.12"
   platforms:

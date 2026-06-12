@@ -213,7 +213,7 @@
           @job_name = 'Dunder_Backdoor_Job',
           @step_name = 'RunCmd',
           @subsystem = 'CmdExec',
-          @command = 'cmd /c echo DVAD-SRV-009 > C:\Flags\sqlagent_ran.txt';
+          @command = 'cmd /c echo EMPIRE-SRV-009 > C:\Flags\sqlagent_ran.txt';
 
         EXEC msdb.dbo.sp_add_schedule
           @schedule_name = 'Never',

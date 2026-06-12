@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   role_name: vuln_lateral
-  author: DVAD
+  author: EMPIRE
   description: >
     Injects lateral-movement attack-surface misconfigurations
     (LAT-012 SID-history trust, LAT-016/026 RBCD, LAT-021/022/034 ACL,

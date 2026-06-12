@@ -7,7 +7,7 @@
 # PE-010   AlwaysInstallElevated registry keys (tatooine + scarif)
 # PE-013   SeDebugPrivilege for Domain Users (coruscant)
 # PE-014   SeBackupPrivilege for Backup_Operators (coruscant)
-# PE-015   Weak service DACL — Authenticated Users can modify svc_dvad_weak
+# PE-015   Weak service DACL — Authenticated Users can modify svc_empire_weak
 # PE-016   Unquoted service path (scarif) — svc_pathsvc
 # PE-017   DLL hijack via writable service binary directory (kamino)
 # PE-020   Scheduled task runs as SYSTEM with world-writable script
@@ -51,29 +51,29 @@
 
 # ------------------------------------------------------------------------------
 # PE-015: Weak service DACL — Authenticated Users have SERVICE_ALL_ACCESS on
-# svc_dvad_weak. Allows config change (binpath) to any Authenticated User.
+# svc_empire_weak. Allows config change (binpath) to any Authenticated User.
 # ------------------------------------------------------------------------------
-- name: PE-015 - Check if svc_dvad_weak service exists
+- name: PE-015 - Check if svc_empire_weak service exists
   ansible.windows.win_shell: |
-    $s = Get-Service -Name 'svc_dvad_weak' -ErrorAction SilentlyContinue
+    $s = Get-Service -Name 'svc_empire_weak' -ErrorAction SilentlyContinue
     if ($s) { Write-Output "present" } else { Write-Output "absent" }
   register: pe015_check
   changed_when: false
   failed_when: pe015_check.rc != 0
   when: inventory_hostname in ['scarif.empire.local', 'tatooine.empire.local']
 
-- name: PE-015 - Create svc_dvad_weak service with world-accessible DACL
+- name: PE-015 - Create svc_empire_weak service with world-accessible DACL
   ansible.windows.win_shell: |
     # Create service pointing to a benign binary
-    sc.exe create svc_dvad_weak `
+    sc.exe create svc_empire_weak `
       binPath= "C:\Windows\System32\cmd.exe /k echo weak" `
-      DisplayName= "DVAD Weak Service" `
+      DisplayName= "EMPIRE Weak Service" `
       start= disabled `
       type= own 2>&1
     # Grant Authenticated Users full control (SC_MANAGER_ALL_ACCESS, SERVICE_ALL_ACCESS)
-    sc.exe sdset svc_dvad_weak `
+    sc.exe sdset svc_empire_weak `
       "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;RPWPCR;;;AU)" 2>&1
-    Write-Output "changed: svc_dvad_weak created with weak DACL"
+    Write-Output "changed: svc_empire_weak created with weak DACL"
   register: pe015_set
   changed_when: "'changed:' in pe015_set.stdout"
   failed_when: pe015_set.rc != 0 and 'already exists' not in (pe015_set.stdout | default('') | lower)
@@ -97,8 +97,8 @@
 - name: PE-016 - Create svc_pathsvc with unquoted service path
   ansible.windows.win_shell: |
     sc.exe create svc_pathsvc `
-      binPath= C:\Program Files\DVAD Path Service\svc_pathsvc.exe `
-      DisplayName= "DVAD Path Service" `
+      binPath= C:\Program Files\EMPIRE Path Service\svc_pathsvc.exe `
+      DisplayName= "EMPIRE Path Service" `
       start= auto `
       type= own 2>&1
     Write-Output "changed: svc_pathsvc created with unquoted path"
@@ -111,7 +111,7 @@
 
 - name: PE-016 - Ensure unquoted service directory exists (world-writable)
   ansible.windows.win_shell: |
-    $dir = 'C:\Program Files\DVAD Path Service'
+    $dir = 'C:\Program Files\EMPIRE Path Service'
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
     icacls $dir /grant "Everyone:(OI)(CI)F" /T /C /Q 2>&1 | Out-Null
     Write-Output "changed: directory world-writable"
@@ -158,9 +158,9 @@
 # PE-020: Scheduled task runs as SYSTEM with world-writable script.
 # Any user who can write to the script path can execute code as SYSTEM.
 # ------------------------------------------------------------------------------
-- name: PE-020 - Check if dvad_privesc task exists
+- name: PE-020 - Check if empire_privesc task exists
   ansible.windows.win_shell: |
-    $t = Get-ScheduledTask -TaskName 'DvadPrivesc' -ErrorAction SilentlyContinue
+    $t = Get-ScheduledTask -TaskName 'EmpirePrivesc' -ErrorAction SilentlyContinue
     if ($t) { Write-Output "present" } else { Write-Output "absent" }
   register: pe020_check
   changed_when: false
@@ -170,7 +170,7 @@
 - name: PE-020 - Create SYSTEM scheduled task with writable script
   ansible.windows.win_shell: |
     # Create world-writable script
-    $scriptPath = 'C:\Tools\dvad_privesc.ps1'
+    $scriptPath = 'C:\Tools\empire_privesc.ps1'
     if (-not (Test-Path $scriptPath)) {
       Set-Content $scriptPath '# PE-020: Replace this content to execute as SYSTEM'
     }
@@ -182,12 +182,12 @@
     $principal = New-ScheduledTaskPrincipal `
                    -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
     $settings  = New-ScheduledTaskSettingsSet -Hidden
-    Register-ScheduledTask -TaskName 'DvadPrivesc' `
+    Register-ScheduledTask -TaskName 'EmpirePrivesc' `
       -Action $action -Trigger $trigger `
       -Principal $principal -Settings $settings `
       -Description 'PE-020: SYSTEM task with world-writable script' `
       -Force | Out-Null
-    Write-Output "changed: DvadPrivesc task created"
+    Write-Output "changed: EmpirePrivesc task created"
   register: pe020_set
   changed_when: "'changed:' in pe020_set.stdout"
   failed_when: pe020_set.rc != 0

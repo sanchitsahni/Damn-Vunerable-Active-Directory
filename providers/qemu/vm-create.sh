@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# DVAD QEMU Provider - VM Create / Launch / Destroy / Status
+# EMPIRE QEMU Provider - VM Create / Launch / Destroy / Status
 # ==============================================================================
 set -euo pipefail
 IFS=$'\n\t'
@@ -60,25 +60,25 @@ declare -A VM_DEFS
 #   mandalore 1280  Ubuntu + lightweight services
 #   tatooine    1024  Server Core victim member (no roles, just sim tasks)
 VM_DEFS=(
-    # empire.local / eu.empire.local segment — bridge dvad-ctf
-    ["coruscant"]="52:54:00:01:01:01|1792|40|2|5901|dvad-ctf|server2022"
-    ["deathstar"]="52:54:00:01:01:02|1280|25|2|5902|dvad-ctf|server2022"
-    ["endor"]="52:54:00:01:01:03|1536|25|2|5903|dvad-ctf|server2022"
-    ["scarif"]="52:54:00:01:01:04|1280|20|2|5904|dvad-ctf|server2019"
-    ["kamino"]="52:54:00:01:01:05|1792|25|2|5905|dvad-ctf|server2022"
+    # empire.local / eu.empire.local segment — bridge empire-ctf
+    ["coruscant"]="52:54:00:01:01:01|1792|40|2|5901|empire-ctf|server2022"
+    ["deathstar"]="52:54:00:01:01:02|1280|25|2|5902|empire-ctf|server2022"
+    ["endor"]="52:54:00:01:01:03|1536|25|2|5903|empire-ctf|server2022"
+    ["scarif"]="52:54:00:01:01:04|1280|20|2|5904|empire-ctf|server2019"
+    ["kamino"]="52:54:00:01:01:05|1792|25|2|5905|empire-ctf|server2022"
     # tatooine — Server Core member acting as the victim "workstation" (headless,
     # no GUI). Was Win10 Desktop; converted to reuse the server2022 base so the
     # whole lab is GUI-less and lower-RAM. All AD/network/coercion attacks still
     # apply via vuln_victim_exec + vuln_traffic_sim. GUI-only CVEs were removed.
-    ["tatooine"]="52:54:00:01:01:06|1024|30|2|5906|dvad-ctf|server2022"
-    # rebel.local segment — single bridge dvad-ctf (10.10.20.x)
-    ["yavin4"]="52:54:00:02:01:01|1280|25|2|5907|dvad-ctf|server2022"
-    # trade.corp segment — single bridge dvad-ctf (10.10.30.x)
-    ["neimoidia"]="52:54:00:03:01:01|1280|25|2|5908|dvad-ctf|server2022"
+    ["tatooine"]="52:54:00:01:01:06|1024|30|2|5906|empire-ctf|server2022"
+    # rebel.local segment — single bridge empire-ctf (10.10.20.x)
+    ["yavin4"]="52:54:00:02:01:01|1280|25|2|5907|empire-ctf|server2022"
+    # trade.corp segment — single bridge empire-ctf (10.10.30.x)
+    ["neimoidia"]="52:54:00:03:01:01|1280|25|2|5908|empire-ctf|server2022"
     # mandalore — Ubuntu 22.04 cloud member (Linux-in-AD). NOT a packer build:
     # base_image "ubuntu" resolves to media/ubuntu-22.04-cloud.img and the
     # launch branch boots it COW + a cloud-init NoCloud seed ISO (no install).
-    ["mandalore"]="52:54:00:01:01:07|1280|20|2|5909|dvad-ctf|ubuntu"
+    ["mandalore"]="52:54:00:01:01:07|1280|20|2|5909|empire-ctf|ubuntu"
 )
 
 # Ordered name → FQDN mapping (associative arrays are unordered in Bash)
@@ -148,11 +148,11 @@ profile_vms() {
 }
 
 # ensure_tap <vm_name> <bridge>
-# Creates tap interface dvad-<vmname> attached to <bridge> if it doesn't exist.
+# Creates tap interface empire-<vmname> attached to <bridge> if it doesn't exist.
 ensure_tap() {
     local vm_name="$1"
     local bridge="$2"
-    local tap="dvad-${vm_name}"
+    local tap="empire-${vm_name}"
 
     if ip link show "${tap}" &>/dev/null 2>&1; then
         info "TAP ${tap} already exists."
@@ -168,7 +168,7 @@ ensure_tap() {
 # destroy_tap <vm_name>
 destroy_tap() {
     local vm_name="$1"
-    local tap="dvad-${vm_name}"
+    local tap="empire-${vm_name}"
     if ip link show "${tap}" &>/dev/null 2>&1; then
         sudo -n ip link set "${tap}" down 2>/dev/null || true
         sudo -n ip link delete "${tap}" 2>/dev/null || true
@@ -268,7 +268,7 @@ install_windows_vm() {
     local ua_iso="${VM_STATE_DIR}/${vm_name}-unattend.iso"
 
     ensure_tap "${vm_name}" "${vm_bridge}"
-    local tap="dvad-${vm_name}"
+    local tap="empire-${vm_name}"
     local vnc_display="${VNC_BIND}:$((vm_vnc_port - 5900))"
 
     log "Installing ${vm_name} (${fqdn}) FRESH from ${win_iso##*/} — VNC ${vnc_display}"
@@ -490,7 +490,7 @@ launch_linux_vm() {
 
     ensure_tap "${vm_name}" "${vm_bridge}"
 
-    local tap="dvad-${vm_name}"
+    local tap="empire-${vm_name}"
     local vnc_display="${VNC_BIND}:$((vm_vnc_port - 5900))"
 
     log "Launching Linux ${vm_name} (${fqdn}) — VNC ${vnc_display} (port ${vm_vnc_port})"
@@ -574,7 +574,7 @@ launch_vm() {
 
     ensure_tap "${vm_name}" "${vm_bridge}"
 
-    local tap="dvad-${vm_name}"
+    local tap="empire-${vm_name}"
     local vnc_display="${VNC_BIND}:$((vm_vnc_port - 5900))"
 
     log "Launching ${vm_name} (${fqdn}) — VNC ${vnc_display} (port ${vm_vnc_port})"
@@ -697,14 +697,19 @@ destroy_all() {
         kill -9 "${pid}" 2>/dev/null || true
     done
 
-    # 2) Remove every dvad-* TAP (not the dvad-ctf / dvad-nat bridges).
+    # 2) Remove every project TAP (empire-* AND legacy dvad-* orphans from the
+    #    pre-rename naming) — but never the empire-ctf/empire-nat bridges.
     local iface
-    for iface in $(ip -o link show 2>/dev/null | grep -oE 'dvad-[a-z0-9]+' | sort -u); do
+    for iface in $(ip -o link show 2>/dev/null | grep -oE '(empire|dvad)-[a-z0-9]+' | sort -u); do
         case "${iface}" in
-            dvad-ctf|dvad-nat) continue ;;   # bridges, kept by network-setup.sh
+            empire-ctf|empire-nat|dvad-ctf|dvad-nat) continue ;;   # bridges
         esac
         sudo -n ip link set "${iface}" down 2>/dev/null || true
         sudo -n ip link delete "${iface}" 2>/dev/null || true
+    done
+    # Tear down the legacy dvad-ctf/dvad-nat bridges if they linger from before.
+    for br in dvad-ctf dvad-nat; do
+        ip link show "${br}" &>/dev/null && { sudo -n ip link set "${br}" down 2>/dev/null || true; sudo -n ip link delete "${br}" 2>/dev/null || true; }
     done
 
     # 3) Clean stray per-VM state files (disks/pids/mons/logs/ISOs/markers).
@@ -719,7 +724,7 @@ destroy_all() {
 # Prints running/stopped state for every defined VM.
 # ==============================================================================
 status() {
-    echo "=== DVAD QEMU VM Status ==="
+    echo "=== EMPIRE QEMU VM Status ==="
     printf "%-12s %-26s %-8s %s\n" "NAME" "FQDN" "STATE" "DETAIL"
     printf "%-12s %-26s %-8s %s\n" "----" "----" "-----" "------"
 

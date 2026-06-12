@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   role_name: vuln_ia_surface
-  author: DVAD
+  author: EMPIRE
   description: >
     Configures the full initial-access attack surface for IA-003 through IA-050:
     anonymous LDAP (IA-003), DNS AXFR (IA-004/041), ZeroLogon (IA-014),

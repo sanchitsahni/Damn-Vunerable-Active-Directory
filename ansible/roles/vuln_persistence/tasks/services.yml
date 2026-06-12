@@ -6,7 +6,7 @@
 # PER-004  Malicious scheduled task (SynchTask — calls schtasks.exe payload)
 # PER-005  COM object persistence via registry hijack entry
 # PER-006  WMI event subscription persistence (WMI filter + consumer + binding)
-# PER-017  Malicious service binary stub (dvad_svc)
+# PER-017  Malicious service binary stub (empire_svc)
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
@@ -36,7 +36,7 @@
     Register-ScheduledTask -TaskName 'SynchTask' `
       -Action $action -Trigger $trigger `
       -Principal $principal -Settings $settings `
-      -Description 'PER-004: Attacker-planted scheduled task (DVAD lab)' `
+      -Description 'PER-004: Attacker-planted scheduled task (EMPIRE lab)' `
       -Force -ErrorAction Stop | Out-Null
     Write-Output "changed: SynchTask created"
   register: per004_set
@@ -68,7 +68,7 @@
   ansible.windows.win_regedit:
     path: 'HKLM:\SOFTWARE\Classes\CLSID\{BCDE0395-E52F-467C-8E3D-C4579291692E}\InProcServer32'
     name: "(default)"
-    data: 'C:\Tools\dvad_com.dll'
+    data: 'C:\Tools\empire_com.dll'
     type: string
   when: "'absent' in per005_check.stdout"
 
@@ -79,7 +79,7 @@
       PER-005: COM Object Hijack Persistence
       ========================================
       Registry: HKLM:\SOFTWARE\Classes\CLSID\{BCDE0395-E52F-467C-8E3D-C4579291692E}\InProcServer32
-      Payload:  C:\Tools\dvad_com.dll (place your DLL here)
+      Payload:  C:\Tools\empire_com.dll (place your DLL here)
 
       This CLSID (MMDeviceEnumerator) is loaded by many Windows processes.
       When a process loads this CLSID, the DLL at the registry path executes.
@@ -148,28 +148,28 @@
 
 # ------------------------------------------------------------------------------
 # PER-017: Malicious service binary stub.
-# Creates dvad_svc Windows service pointing to a non-existent binary path.
-# When the binary is placed at C:\Tools\dvad_svc.exe, the service executes it.
+# Creates empire_svc Windows service pointing to a non-existent binary path.
+# When the binary is placed at C:\Tools\empire_svc.exe, the service executes it.
 # Unquoted service path vulnerability is also present (space in path, no quotes).
 # ------------------------------------------------------------------------------
-- name: PER-017 - Check if dvad_svc service exists
+- name: PER-017 - Check if empire_svc service exists
   ansible.windows.win_shell: |
-    $s = Get-Service -Name 'dvad_svc' -ErrorAction SilentlyContinue
+    $s = Get-Service -Name 'empire_svc' -ErrorAction SilentlyContinue
     if ($s) { Write-Output "present" } else { Write-Output "absent" }
   register: per017_check
   changed_when: false
   failed_when: per017_check.rc != 0
 
-- name: PER-017 - Create dvad_svc persistence service with unquoted path
+- name: PER-017 - Create empire_svc persistence service with unquoted path
   ansible.windows.win_shell: |
     # Unquoted service path with spaces — T1574.009
-    sc.exe create dvad_svc `
-      binPath= C:\Program Files\DVAD Service\dvad_svc.exe `
-      DisplayName= "DVAD Synchronization Service" `
+    sc.exe create empire_svc `
+      binPath= C:\Program Files\EMPIRE Service\empire_svc.exe `
+      DisplayName= "EMPIRE Synchronization Service" `
       start= auto `
       type= own 2>&1
-    sc.exe description dvad_svc "PER-017: Persistence service — unquoted path in C:\Program Files" 2>&1
-    Write-Output "changed: dvad_svc service created"
+    sc.exe description empire_svc "PER-017: Persistence service — unquoted path in C:\Program Files" 2>&1
+    Write-Output "changed: empire_svc service created"
   register: per017_set
   changed_when: "'changed:' in per017_set.stdout"
   failed_when: per017_set.rc != 0 and 'already exists' not in (per017_set.stderr | default('') | lower)
@@ -177,7 +177,7 @@
 
 - name: PER-017 - Ensure service binary directory exists
   ansible.windows.win_file:
-    path: 'C:\Program Files\DVAD Service'
+    path: 'C:\Program Files\EMPIRE Service'
     state: directory
   when: inventory_hostname == 'coruscant.empire.local'
 
@@ -187,14 +187,14 @@
     content: |
       PER-017: Malicious Service + Unquoted Service Path
       ====================================================
-      Service: dvad_svc
-      Binary:  C:\Program Files\DVAD Service\dvad_svc.exe  (UNQUOTED — no quotes)
+      Service: empire_svc
+      Binary:  C:\Program Files\EMPIRE Service\empire_svc.exe  (UNQUOTED — no quotes)
       Start:   Automatic
 
       Unquoted path: Windows tries these in order before the real binary:
         C:\Program.exe
-        C:\Program Files\DVAD.exe         ← world-writable C:\ → plant here
-        C:\Program Files\DVAD Service\dvad_svc.exe
+        C:\Program Files\EMPIRE.exe         ← world-writable C:\ → plant here
+        C:\Program Files\EMPIRE Service\empire_svc.exe
 
       Replace any of the above with a malicious binary. Restart service or reboot.
       Tools: icacls, PowerUp.ps1 Get-ServiceUnquoted, accesschk.exe

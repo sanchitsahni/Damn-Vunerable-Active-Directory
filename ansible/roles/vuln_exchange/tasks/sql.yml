@@ -106,9 +106,9 @@
     # SRV-018: Impersonation — grant EXECUTE AS OWNER on TrustDB
     sqlcmd -S localhost -E -Q "
       USE TrustDB;
-      CREATE PROC dbo.dvad_impersonate AS EXECUTE AS OWNER;
+      CREATE PROC dbo.empire_impersonate AS EXECUTE AS OWNER;
         EXEC master..xp_cmdshell 'whoami'; REVERT;
-      GRANT EXECUTE ON dbo.dvad_impersonate TO public;
+      GRANT EXECUTE ON dbo.empire_impersonate TO public;
     " 2>&1
     Write-Output "changed: SQL Server misconfigurations applied"
   register: srv_sql_set

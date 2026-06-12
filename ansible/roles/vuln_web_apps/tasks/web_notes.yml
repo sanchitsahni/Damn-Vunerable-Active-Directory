@@ -35,7 +35,7 @@
         Relay: ntlmrelayx.py --target smb://coruscant.empire.local -tf targets.txt
 
         Affected URLs: http://scarif.empire.local/secure/
-        To test: curl --ntlm -u dvad\luke.skywalker:SithLord123! http://scarif.empire.local/secure/
+        To test: curl --ntlm -u empire\luke.skywalker:SithLord123! http://scarif.empire.local/secure/
 
     - path: 'C:\Flags\FLAG-WEB-070-WebShell-Chain.txt'
       content: |

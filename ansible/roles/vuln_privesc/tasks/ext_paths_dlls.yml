@@ -10,7 +10,7 @@
 # PE-023  Startup folder writable by Domain Users
 # PE-041  Modifiable service path folder: C:\Program Files\DunderSvc2\ writable
 #         by Authenticated Users + service.exe placeholder
-# PE-042  Modifiable registry service path: DVADRegSvc with writable ImagePath key
+# PE-042  Modifiable registry service path: EMPIRERegSvc with writable ImagePath key
 # PE-025  Token privilege helper files: token_helper.exe + privileges.txt
 # ==============================================================================
 
@@ -152,7 +152,7 @@
   ansible.windows.win_copy:
     dest: 'C:\Tools\privileges.txt'
     content: |
-      DVAD Privilege Escalation Surface — Token Privileges Inventory
+      EMPIRE Privilege Escalation Surface — Token Privileges Inventory
       ==============================================================
       Host: {{ inventory_hostname }}
 
@@ -217,9 +217,9 @@
       Write-Output "ok: DunderSvc2 already exists"
     }
   when: inventory_hostname == 'scarif.empire.local'
-  register: result_dvadsvc2_create
-  changed_when: "'changed:' in result_dvadsvc2_create.stdout"
-  failed_when: result_dvadsvc2_create.rc != 0
+  register: result_empiresvc2_create
+  changed_when: "'changed:' in result_empiresvc2_create.stdout"
+  failed_when: result_empiresvc2_create.rc != 0
 
 - name: PE-041 - Grant Authenticated Users full control on DunderSvc2 folder
   ansible.windows.win_shell: |
@@ -243,32 +243,32 @@
 
 # ------------------------------------------------------------------------------
 # PE-042: Modifiable registry service path
-# DVADRegSvc's ImagePath registry value is writable by Authenticated Users.
+# EMPIRERegSvc's ImagePath registry value is writable by Authenticated Users.
 # An attacker can modify the ImagePath and trigger the service to run arbitrary
 # code under SYSTEM at next service start.
 # ------------------------------------------------------------------------------
-- name: PE-042 - Create DVADRegSvc service (placeholder binary in C:\Tools)
+- name: PE-042 - Create EMPIRERegSvc service (placeholder binary in C:\Tools)
   ansible.windows.win_shell: |
     # Placeholder binary (reuse toolsvc.exe location for simplicity)
-    $binPath = "C:\Tools\dvadregsvc.exe"
+    $binPath = "C:\Tools\empireregsvc.exe"
     if (-not (Test-Path $binPath)) {
       Set-Content -Path $binPath -Value "EMPIRE_PLACEHOLDER" -Force
     }
-    $svc = Get-Service -Name "DVADRegSvc" -ErrorAction SilentlyContinue
+    $svc = Get-Service -Name "EMPIRERegSvc" -ErrorAction SilentlyContinue
     if (-not $svc) {
-      sc.exe create DVADRegSvc binpath= $binPath start= demand | Out-Null
-      Write-Output "changed: DVADRegSvc created"
+      sc.exe create EMPIRERegSvc binpath= $binPath start= demand | Out-Null
+      Write-Output "changed: EMPIRERegSvc created"
     } else {
-      Write-Output "ok: DVADRegSvc already exists"
+      Write-Output "ok: EMPIRERegSvc already exists"
     }
   when: inventory_hostname == 'scarif.empire.local'
-  register: result_dvadregsvc_create
-  changed_when: "'changed:' in result_dvadregsvc_create.stdout"
-  failed_when: result_dvadregsvc_create.rc != 0
+  register: result_empireregsvc_create
+  changed_when: "'changed:' in result_empireregsvc_create.stdout"
+  failed_when: result_empireregsvc_create.rc != 0
 
-- name: PE-042 - Grant Authenticated Users SetValue on DVADRegSvc ImagePath key
+- name: PE-042 - Grant Authenticated Users SetValue on EMPIRERegSvc ImagePath key
   ansible.windows.win_shell: |
-    $keyPath = "HKLM:\SYSTEM\CurrentControlSet\Services\DVADRegSvc"
+    $keyPath = "HKLM:\SYSTEM\CurrentControlSet\Services\EMPIRERegSvc"
     if (Test-Path $keyPath) {
       $acl  = Get-Acl $keyPath
       $rule = New-Object System.Security.AccessControl.RegistryAccessRule(
@@ -276,15 +276,15 @@
       $acl.AddAccessRule($rule)
       Set-Acl $keyPath $acl
     } else {
-      Write-Error "DVADRegSvc registry key not found — service may not have been created"; exit 1
+      Write-Error "EMPIRERegSvc registry key not found — service may not have been created"; exit 1
     }
   when: inventory_hostname == 'scarif.empire.local'
   register: result_pe042_acl
   failed_when: result_pe042_acl.rc != 0
 
-- name: PE-042 - Verify DVADRegSvc registry key and ACL
+- name: PE-042 - Verify EMPIRERegSvc registry key and ACL
   ansible.windows.win_shell: |
-    $keyPath = "HKLM:\SYSTEM\CurrentControlSet\Services\DVADRegSvc"
+    $keyPath = "HKLM:\SYSTEM\CurrentControlSet\Services\EMPIRERegSvc"
     $keyOk   = Test-Path $keyPath
     if ($keyOk) {
       $acl   = Get-Acl $keyPath
@@ -295,7 +295,7 @@
       Write-Output "Key exists: $keyOk | Authenticated Users SetValue: $aclOk"
       if (-not $aclOk) { exit 1 }
     } else {
-      Write-Error "DVADRegSvc key not found"; exit 1
+      Write-Error "EMPIRERegSvc key not found"; exit 1
     }
   when: inventory_hostname == 'scarif.empire.local'
   register: result_pe042_check

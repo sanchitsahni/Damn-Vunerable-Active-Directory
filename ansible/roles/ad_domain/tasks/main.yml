@@ -26,7 +26,7 @@
     Set-Content -Path $path -Value $script -Encoding ASCII
     $action  = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File $path"
     $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(3)
-    Register-ScheduledTask -TaskName "DvadSetStaticIP" -Action $action -Trigger $trigger `
+    Register-ScheduledTask -TaskName "EmpireSetStaticIP" -Action $action -Trigger $trigger `
       -RunLevel Highest -User "SYSTEM" -Force | Out-Null
   changed_when: false   # netsh is not idempotent, but we always want it applied
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# DVAD - Lab Finalization and Verification
+# EMPIRE - Lab Finalization and Verification
 # Post-Ansible sanity checks and handout generation
 # ==============================================================================
 set -euo pipefail
@@ -36,7 +36,7 @@ run_verification() {
     fi
 
     # Verify network bridges exist
-    for br in dvad-ctf dvad-finance dvad-root; do
+    for br in empire-ctf empire-finance empire-root; do
         if ip link show "$br" &>/dev/null; then
             log "Bridge $br is up."
         else
@@ -45,7 +45,7 @@ run_verification() {
     done
 
     # Verify dnsmasq is responsive
-    if pgrep -f "dnsmasq.*dvad" &>/dev/null; then
+    if pgrep -f "dnsmasq.*empire" &>/dev/null; then
         log "dnsmasq is running."
     else
         warn "dnsmasq is NOT running. DHCP may be unavailable."
@@ -58,7 +58,7 @@ run_verification() {
     # Print connection info
     echo ""
     echo "========================================"
-    echo "  DVAD LAB CONNECTION INFORMATION       "
+    echo "  EMPIRE LAB CONNECTION INFORMATION       "
     echo "========================================"
     echo ""
     echo "  VNC Console Access:"
@@ -92,14 +92,14 @@ run_verification() {
     mkdir -p "$handout_dir"
     cat > "${handout_dir}/README.txt" << 'EOF'
 ================================================================================
-   DVAD - Game of AD v2.0 - Handout
+   EMPIRE - Game of AD v2.0 - Handout
 ================================================================================
 
 Getting Started:
   1. Connect to victim workstation via VNC on port 5906
   2. Login: corp\loki / SithLord123!
-  3. Open PowerShell, navigate to C:\DVAD\tools
-  4. Read the handout: C:\DVAD\handout\CTF-Handout.txt
+  3. Open PowerShell, navigate to C:\EMPIRE\tools
+  4. Read the handout: C:\EMPIRE\handout\CTF-Handout.txt
 
 Key Targets:
   coruscant.empire.local      10.10.0.10

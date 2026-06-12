@@ -3,8 +3,8 @@ import os
 import re
 import yaml
 
-STUDY_DIR = "/home/sanchit/DVAD/STUDY"
-VARS_FILE = "/home/sanchit/DVAD/ansible/roles/flag_factory/vars/main.yml"
+STUDY_DIR = "/home/sanchit/EMPIRE/STUDY"
+VARS_FILE = "/home/sanchit/EMPIRE/ansible/roles/flag_factory/vars/main.yml"
 
 def get_study_flags():
     flags = set()

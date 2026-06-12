@@ -13,7 +13,7 @@ ia_domain_dn: "DC=empire,DC=local"
 ia_sysvol_script_path: 'C:\Windows\SYSVOL\sysvol\empire.local\scripts\setup.bat'
 ia_sysvol_script_content: |
   @echo off
-  rem *** DVAD lab bootstrap — credentials intentionally exposed ***
+  rem *** EMPIRE lab bootstrap — credentials intentionally exposed ***
   net use \\coruscant\C$ /user:corp\svc_bobafett Darryl2024!
   net use \\coruscant\C$ /user:EMPIRE\Administrator SithLord123!
 
@@ -28,11 +28,11 @@ ia_nfs_share_name: "EMPIRE_NFS"
 ia_nfs_share_path: 'C:\Shares\NFS'
 
 # FTP site name (IA-035)
-ia_ftp_site_name: "DVAD-FTP"
+ia_ftp_site_name: "EMPIRE-FTP"
 ia_ftp_site_port: 21
 
 # Shared printer name (IA-044)
-ia_printer_share_name: "DVAD-PRN"
+ia_printer_share_name: "EMPIRE-PRN"
 
 # SNMP community strings (IA-034 / IA-050)
 ia_snmp_communities:

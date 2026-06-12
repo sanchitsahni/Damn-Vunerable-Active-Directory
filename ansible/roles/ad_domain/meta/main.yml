@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   role_name: ad_domain
-  author: DVAD
+  author: EMPIRE
   description: Promotes a Windows Server to Domain Controller and builds base AD structure
   min_ansible_version: "2.12"
   platforms:

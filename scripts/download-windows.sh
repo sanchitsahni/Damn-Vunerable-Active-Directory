@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# DVAD Windows Media Downloader
+# EMPIRE Windows Media Downloader
 # Downloads Windows Server 2022 Eval ISO from Microsoft
 # ==============================================================================
 set -euo pipefail

@@ -38,7 +38,7 @@
     dest: 'C:\Users\Administrator\.ssh\id_rsa'
     content: |
       -----BEGIN OPENSSH PRIVATE KEY-----
-      CRED-125: SSH private key placeholder (DVAD lab)
+      CRED-125: SSH private key placeholder (EMPIRE lab)
       Place real SSH key here for extraction exercise.
       Extract with: Get-Content C:\Users\Administrator\.ssh\id_rsa
       Also check: C:\Users\*\.ssh\id_rsa, id_ed25519, id_ecdsa
@@ -55,9 +55,9 @@
     dest: 'C:\Users\Administrator\.aws\credentials'
     content: |
       [default]
-      # CRED-126: AWS credentials stub (DVAD lab simulation)
-      aws_access_key_id = AKIA00000000DVAD1234
-      aws_secret_access_key = dvadlab+secret/key+for+aws+access+2024
+      # CRED-126: AWS credentials stub (EMPIRE lab simulation)
+      aws_access_key_id = AKIA00000000EMPIRE1234
+      aws_secret_access_key = empirelab+secret/key+for+aws+access+2024
 
       [production]
       aws_access_key_id = AKIA00000000PROD5678
@@ -98,7 +98,7 @@
       desktopheight:i:1080
       full address:s:coruscant.empire.local
       username:s:EMPIRE\Administrator
-      password 51:b:DVAD-CRED-130-stub-DPAPI-encrypted-password-placeholder
+      password 51:b:EMPIRE-CRED-130-stub-DPAPI-encrypted-password-placeholder
       authentication level:i:0
 
 - name: CRED-121..150 - Drop browser credential extraction note

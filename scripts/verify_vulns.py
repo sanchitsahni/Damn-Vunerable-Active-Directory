@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ==============================================================================
-# DVAD Vulnerability Verifier — Auto-checks for all 382 attack vectors
+# EMPIRE Vulnerability Verifier — Auto-checks for all 382 attack vectors
 # Sources: docs/, STUDY/, PLAN.md
 # Rule totals: IA-050 + REC-015 + ENUM-080 + CRED-065 + LAT-035 + PE-060 + PER-037 + DF-040 = 382
 # ==============================================================================
@@ -1262,7 +1262,7 @@ def verify_ad_vulns():
     total = len(rules)
 
     print(f"\n{C.CYAN}{C.BOLD}{'='*100}{C.END}")
-    print(f"{C.CYAN}{C.BOLD}  DVAD Vulnerability Verifier — {total} Automated Checks{C.END}")
+    print(f"{C.CYAN}{C.BOLD}  EMPIRE Vulnerability Verifier — {total} Automated Checks{C.END}")
     print(f"{C.CYAN}{C.BOLD}  Sources: docs/ · STUDY/ · PLAN.md{C.END}")
     print(f"{C.CYAN}{C.BOLD}{'='*100}{C.END}\n")
 

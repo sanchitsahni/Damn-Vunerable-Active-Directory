@@ -85,7 +85,7 @@
           <compilation debug="true" targetFramework="4.8"/>
           <!-- WEB-009: SQL credentials in web.config (world-readable) -->
           <connectionStrings>
-            <add name="DVADDb" connectionString="{{ sql_conn_string }}" providerName="System.Data.SqlClient"/>
+            <add name="EMPIREDb" connectionString="{{ sql_conn_string }}" providerName="System.Data.SqlClient"/>
           </connectionStrings>
         </system.web>
         <system.webServer>
@@ -93,7 +93,7 @@
           <httpProtocol>
             <customHeaders>
               <add name="X-Powered-By" value="ASP.NET"/>
-              <add name="X-DVAD-Version" value="1.0-vulnerable"/>
+              <add name="X-EMPIRE-Version" value="1.0-vulnerable"/>
             </customHeaders>
           </httpProtocol>
           <!-- WEB-003: Directory browsing -->
@@ -113,7 +113,7 @@
         </system.webServer>
         <!-- WEB-009: Plaintext API key in app settings -->
         <appSettings>
-          <add key="ApiKey" value="dvad-secret-key-2024-insecure"/>
+          <add key="ApiKey" value="empire-secret-key-2024-insecure"/>
           <add key="AdminPassword" value="SithLord123!"/>
           <add key="SqlSaPassword" value="{{ sql_conn_string }}"/>
         </appSettings>
@@ -132,7 +132,7 @@
       <html>
       <head><title>WEB-012: File Upload Surface</title></head>
       <body>
-        <h2>DVAD File Upload (WEB-012)</h2>
+        <h2>EMPIRE File Upload (WEB-012)</h2>
         <!-- File upload with no extension validation -->
         <form method="post" enctype="multipart/form-data">
           <input type="file" name="file" /><br/>

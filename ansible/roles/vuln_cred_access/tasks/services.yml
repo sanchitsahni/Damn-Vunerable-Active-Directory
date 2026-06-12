@@ -4,7 +4,7 @@
 # Target: coruscant.empire.local (all_dcs guard via main.yml)
 #
 # CRED-006  SAM access via recovery console — RecoveryConsole\SecurityLevel reg
-# CRED-007  DVADVSSBackup scheduled task (daily VSS shadow copy on C:)
+# CRED-007  EMPIREVSSBackup scheduled task (daily VSS shadow copy on C:)
 # CRED-015  DCShadow surface — sheev.palpatine in Schema Admins + DC OU write
 # CRED-019  PrintNightmare spool driver dir writable by Authenticated Users
 # CRED-021  DFS Namespace + DFSR features installed; Dfs + DFSR services running
@@ -37,19 +37,19 @@
   when: result_rc_sec_check.stdout | trim != "1"
 
 # ------------------------------------------------------------------------------
-# CRED-007: DVADVSSBackup scheduled task — daily shadow copy on C:
+# CRED-007: EMPIREVSSBackup scheduled task — daily shadow copy on C:
 # Ensures a VSS snapshot exists on coruscant so NTDS.dit can be extracted via shadow.
 # Check task existence before creating.
 # ------------------------------------------------------------------------------
-- name: CRED-007 - Check DVADVSSBackup scheduled task existence
+- name: CRED-007 - Check EMPIREVSSBackup scheduled task existence
   ansible.windows.win_shell: |
-    $t = Get-ScheduledTask -TaskName "DVADVSSBackup" -ErrorAction SilentlyContinue
+    $t = Get-ScheduledTask -TaskName "EMPIREVSSBackup" -ErrorAction SilentlyContinue
     if ($t) { Write-Output "present" } else { Write-Output "absent" }
   register: result_vss_task_check
   changed_when: false
   failed_when: result_vss_task_check.rc != 0
 
-- name: CRED-007 - Create DVADVSSBackup daily shadow copy task on coruscant
+- name: CRED-007 - Create EMPIREVSSBackup daily shadow copy task on coruscant
   ansible.windows.win_shell: |
     $action  = New-ScheduledTaskAction `
       -Execute "vssadmin.exe" `
@@ -59,7 +59,7 @@
       -ExecutionTimeLimit (New-TimeSpan -Minutes 30) `
       -StartWhenAvailable
     Register-ScheduledTask `
-      -TaskName "DVADVSSBackup" `
+      -TaskName "EMPIREVSSBackup" `
       -Action $action `
       -Trigger $trigger `
       -Settings $settings `

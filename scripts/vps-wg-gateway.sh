@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# DVAD - VPS WireGuard Gateway
+# EMPIRE - VPS WireGuard Gateway
 # Spins up a WireGuard server on the VPS that routes the attacker peer
 # into the lab subnets (10.10.0.0/21 + 10.20.0.0/24 + 10.30.0.0/24).
 #
@@ -14,18 +14,18 @@
 #   WG_SERVER_ADDR=10.99.0.1/24      WG-internal address of the server
 #   WG_CLIENT_ADDR=10.99.0.2/32      WG-internal address assigned to the attacker peer
 #   WG_NET=10.99.0.0/24              WG tunnel subnet
-#   WG_IFACE=wg-dvad                 Interface name
+#   WG_IFACE=wg-empire                 Interface name
 #   LAB_SUBNETS="10.10.0.0/21 10.20.0.0/24 10.30.0.0/24"   Routed into the tunnel
 #   WG_DIR=/etc/wireguard            Where server config lives
-#   OUT_CLIENT_CONF=./dvad-attacker.conf   Where to write the attacker conf
+#   OUT_CLIENT_CONF=./empire-attacker.conf   Where to write the attacker conf
 #
 # After 'up', copy the printed conf (or the file at $OUT_CLIENT_CONF) to your
 # Kali / BlackArch laptop, then:
-#   sudo wg-quick up ./dvad-attacker.conf
+#   sudo wg-quick up ./empire-attacker.conf
 #   nxc smb 10.10.0.10 -u alice -p 'SithLord123!'
 #
 # Security note:
-#   Every VM in DVAD is intentionally vulnerable. DO NOT publish the lab
+#   Every VM in EMPIRE is intentionally vulnerable. DO NOT publish the lab
 #   subnets to the internet directly. This script firewalls inbound traffic so
 #   ONLY the WG port + (optionally) SSH reach the VPS; all attacker access to
 #   the lab is forced through the WG tunnel.
@@ -38,10 +38,10 @@ WG_PORT="${WG_PORT:-51820}"
 WG_SERVER_ADDR="${WG_SERVER_ADDR:-10.99.0.1/24}"
 WG_CLIENT_ADDR="${WG_CLIENT_ADDR:-10.99.0.2/32}"
 WG_NET="${WG_NET:-10.99.0.0/24}"
-WG_IFACE="${WG_IFACE:-wg-dvad}"
+WG_IFACE="${WG_IFACE:-wg-empire}"
 LAB_SUBNETS="${LAB_SUBNETS:-10.10.0.0/21 10.20.0.0/24 10.30.0.0/24}"
 WG_DIR="${WG_DIR:-/etc/wireguard}"
-OUT_CLIENT_CONF="${OUT_CLIENT_CONF:-./dvad-attacker.conf}"
+OUT_CLIENT_CONF="${OUT_CLIENT_CONF:-./empire-attacker.conf}"
 
 ACTION="${1:-up}"
 
@@ -119,7 +119,7 @@ write_server_conf() {
     local allowed_for_client="${WG_CLIENT_ADDR}"
 
     cat > "${WG_DIR}/${WG_IFACE}.conf" <<EOF
-# DVAD WireGuard Gateway — generated $(date -u +%Y-%m-%dT%H:%M:%SZ)
+# EMPIRE WireGuard Gateway — generated $(date -u +%Y-%m-%dT%H:%M:%SZ)
 [Interface]
 PrivateKey = ${srv_priv}
 Address    = ${WG_SERVER_ADDR}
@@ -130,30 +130,30 @@ ListenPort = ${WG_PORT}
 # clients otherwise look like 10.99.0.2 to Windows, which trips host firewall
 # / SMB-restriction logic on some Windows configs).
 #
-# We explicitly FORWARD between wg-dvad and every DVAD bridge, in case the
+# We explicitly FORWARD between wg-empire and every EMPIRE bridge, in case the
 # host's default FORWARD policy is DROP (common on hardened VPSes). Bridges
-# created by qemu/network/setup-network.sh: dvad-ctf, dvad-finance, dvad-root.
+# created by qemu/network/setup-network.sh: empire-ctf, empire-finance, empire-root.
 PostUp   = sysctl -w net.ipv4.ip_forward=1
 PostUp   = iptables -A FORWARD -i %i -o ${wan} -j ACCEPT
 PostUp   = iptables -A FORWARD -i ${wan} -o %i -m state --state RELATED,ESTABLISHED -j ACCEPT
-PostUp   = iptables -A FORWARD -i %i -o dvad-ctf -j ACCEPT
-PostUp   = iptables -A FORWARD -o %i -i dvad-ctf -j ACCEPT
-PostUp   = iptables -A FORWARD -i %i -o dvad-finance -j ACCEPT
-PostUp   = iptables -A FORWARD -o %i -i dvad-finance -j ACCEPT
-PostUp   = iptables -A FORWARD -i %i -o dvad-root -j ACCEPT
-PostUp   = iptables -A FORWARD -o %i -i dvad-root -j ACCEPT
+PostUp   = iptables -A FORWARD -i %i -o empire-ctf -j ACCEPT
+PostUp   = iptables -A FORWARD -o %i -i empire-ctf -j ACCEPT
+PostUp   = iptables -A FORWARD -i %i -o empire-finance -j ACCEPT
+PostUp   = iptables -A FORWARD -o %i -i empire-finance -j ACCEPT
+PostUp   = iptables -A FORWARD -i %i -o empire-root -j ACCEPT
+PostUp   = iptables -A FORWARD -o %i -i empire-root -j ACCEPT
 PostUp   = iptables -t nat -A POSTROUTING -s ${WG_NET} -o ${wan} -j MASQUERADE
 $(for sn in ${LAB_SUBNETS}; do
     echo "PostUp   = iptables -t nat -A POSTROUTING -s ${WG_NET} -d ${sn} -j MASQUERADE"
 done)
 PostDown = iptables -D FORWARD -i %i -o ${wan} -j ACCEPT || true
 PostDown = iptables -D FORWARD -i ${wan} -o %i -m state --state RELATED,ESTABLISHED -j ACCEPT || true
-PostDown = iptables -D FORWARD -i %i -o dvad-ctf -j ACCEPT || true
-PostDown = iptables -D FORWARD -o %i -i dvad-ctf -j ACCEPT || true
-PostDown = iptables -D FORWARD -i %i -o dvad-finance -j ACCEPT || true
-PostDown = iptables -D FORWARD -o %i -i dvad-finance -j ACCEPT || true
-PostDown = iptables -D FORWARD -i %i -o dvad-root -j ACCEPT || true
-PostDown = iptables -D FORWARD -o %i -i dvad-root -j ACCEPT || true
+PostDown = iptables -D FORWARD -i %i -o empire-ctf -j ACCEPT || true
+PostDown = iptables -D FORWARD -o %i -i empire-ctf -j ACCEPT || true
+PostDown = iptables -D FORWARD -i %i -o empire-finance -j ACCEPT || true
+PostDown = iptables -D FORWARD -o %i -i empire-finance -j ACCEPT || true
+PostDown = iptables -D FORWARD -i %i -o empire-root -j ACCEPT || true
+PostDown = iptables -D FORWARD -o %i -i empire-root -j ACCEPT || true
 PostDown = iptables -t nat -D POSTROUTING -s ${WG_NET} -o ${wan} -j MASQUERADE || true
 $(for sn in ${LAB_SUBNETS}; do
     echo "PostDown = iptables -t nat -D POSTROUTING -s ${WG_NET} -d ${sn} -j MASQUERADE || true"
@@ -184,8 +184,8 @@ write_client_conf() {
     done
 
     cat > "${OUT_CLIENT_CONF}" <<EOF
-# DVAD attacker peer — paste on your Kali / BlackArch laptop
-# Save as dvad-attacker.conf, then: sudo wg-quick up ./dvad-attacker.conf
+# EMPIRE attacker peer — paste on your Kali / BlackArch laptop
+# Save as empire-attacker.conf, then: sudo wg-quick up ./empire-attacker.conf
 [Interface]
 PrivateKey = ${cli_priv}
 Address    = ${WG_CLIENT_ADDR}
@@ -254,8 +254,8 @@ do_up() {
     echo "======================================================================"
     echo
     log "Next steps on your Kali / BlackArch laptop:"
-    echo "   scp root@${endpoint}:${OUT_CLIENT_CONF} ./dvad-attacker.conf"
-    echo "   sudo wg-quick up ./dvad-attacker.conf"
+    echo "   scp root@${endpoint}:${OUT_CLIENT_CONF} ./empire-attacker.conf"
+    echo "   sudo wg-quick up ./empire-attacker.conf"
     echo "   ping 10.10.0.10        # coruscant.empire.local"
     echo "   nxc smb 10.10.0.10 -u alice -p 'SithLord123!'"
     echo

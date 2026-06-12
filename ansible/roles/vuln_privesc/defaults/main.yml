@@ -10,7 +10,7 @@ ad_domain_netbios: "EMPIRE"
 tools_dir: 'C:\Tools'
 
 # PE-061: auto-run entry pointing at a binary in the world-writable tools dir
-autorun_target: 'C:\Tools\dvad_autorun.exe'
+autorun_target: 'C:\Tools\empire_autorun.exe'
 
 # Service-account passwords for privilege-assignment surfaces (intentionally weak)
 svc_jabba_password: "SithLord123!"

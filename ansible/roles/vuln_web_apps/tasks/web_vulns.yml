@@ -24,11 +24,11 @@
       <!DOCTYPE html>
       <html>
       <head>
-        <title>DVAD Corp Portal</title>
+        <title>EMPIRE Corp Portal</title>
         <style>body{font-family:Arial;margin:40px;} .nav a{margin-right:15px;} h1{color:#2c3e50;}</style>
       </head>
       <body>
-        <h1>DVAD Corp Internal Portal</h1>
+        <h1>EMPIRE Corp Internal Portal</h1>
         <div class="nav">
           <a href="login.aspx">Login</a>
           <a href="products.aspx">Products</a>
@@ -36,7 +36,7 @@
           <a href="upload.aspx">File Upload</a>
         </div>
         <hr/>
-        <p>Welcome to the DVAD Corp internal portal. Please log in to access resources.</p>
+        <p>Welcome to the EMPIRE Corp internal portal. Please log in to access resources.</p>
         <p><small>Version: 1.0 | Server: <%= Request.ServerVariables["SERVER_NAME"] %></small></p>
       </body>
       </html>
@@ -49,11 +49,11 @@
       <%@ Import Namespace="System.Data.SqlClient" %>
       <!DOCTYPE html>
       <html>
-      <head><title>DVAD Corp — Login</title>
+      <head><title>EMPIRE Corp — Login</title>
         <style>body{font-family:Arial;margin:40px;} input{margin:5px;padding:5px;} .err{color:red;}</style>
       </head>
       <body>
-        <h2>DVAD Corp Login</h2>
+        <h2>EMPIRE Corp Login</h2>
         <form method="post">
           <label>Username: <input type="text" name="user" /></label><br/>
           <label>Password: <input type="password" name="pass" /></label><br/>

@@ -19,16 +19,16 @@
 - name: PER-001 - Check HKLM Run key
   ansible.windows.win_shell: |
     $v = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" `
-            -Name DVADPersist -ErrorAction SilentlyContinue).DVADPersist
+            -Name EMPIREPersist -ErrorAction SilentlyContinue).EMPIREPersist
     if ($v) { Write-Output "present" } else { Write-Output "absent" }
   register: per001_hklm_check
   changed_when: false
   failed_when: per001_hklm_check.rc != 0
 
-- name: PER-001 - Set HKLM Run key (DVADPersist)
+- name: PER-001 - Set HKLM Run key (EMPIREPersist)
   ansible.windows.win_regedit:
     path: 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
-    name: DVADPersist
+    name: EMPIREPersist
     data: 'C:\Tools\beacon.exe'
     type: string
   when: "'absent' in per001_hklm_check.stdout"
@@ -36,16 +36,16 @@
 - name: PER-001 - Check HKCU Run key
   ansible.windows.win_shell: |
     $v = (Get-ItemProperty -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" `
-            -Name DVADPersistUser -ErrorAction SilentlyContinue).DVADPersistUser
+            -Name EMPIREPersistUser -ErrorAction SilentlyContinue).EMPIREPersistUser
     if ($v) { Write-Output "present" } else { Write-Output "absent" }
   register: per001_hkcu_check
   changed_when: false
   failed_when: per001_hkcu_check.rc != 0
 
-- name: PER-001 - Set HKCU Run key (DVADPersistUser)
+- name: PER-001 - Set HKCU Run key (EMPIREPersistUser)
   ansible.windows.win_regedit:
     path: 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
-    name: DVADPersistUser
+    name: EMPIREPersistUser
     data: 'C:\Tools\beacon.exe'
     type: string
   when: "'absent' in per001_hkcu_check.stdout"
@@ -58,23 +58,23 @@
     path: '{{ tools_dir }}'
     state: directory
 
-- name: PER-007 - Create placeholder dvad_helper.dll
+- name: PER-007 - Create placeholder empire_helper.dll
   ansible.windows.win_copy:
-    dest: 'C:\Tools\dvad_helper.dll'
-    content: "DVAD placeholder DLL — PER-007 netsh helper"
+    dest: 'C:\Tools\empire_helper.dll'
+    content: "EMPIRE placeholder DLL — PER-007 netsh helper"
   register: per007_dll
 
 - name: PER-007 - Check existing netsh helper list
   ansible.windows.win_shell: |
     $out = & netsh.exe show helper 2>&1 | Out-String
-    if ($out -match 'dvad_helper') { Write-Output "present" } else { Write-Output "absent" }
+    if ($out -match 'empire_helper') { Write-Output "present" } else { Write-Output "absent" }
   register: per007_check
   changed_when: false
   failed_when: per007_check.rc != 0
 
 - name: PER-007 - Register netsh helper DLL
   ansible.windows.win_shell: |
-    & netsh.exe add helper C:\Tools\dvad_helper.dll 2>&1 | Out-Null
+    & netsh.exe add helper C:\Tools\empire_helper.dll 2>&1 | Out-Null
   when: "'absent' in per007_check.stdout"
 
 # ------------------------------------------------------------------------------
@@ -94,7 +94,7 @@
 - name: PER-008 - Create evil.dll placeholder
   ansible.windows.win_copy:
     dest: 'C:\Tools\evil.dll'
-    content: "DVAD placeholder DLL — PER-008 COM hijack"
+    content: "EMPIRE placeholder DLL — PER-008 COM hijack"
   when: "'absent' in per008_check.stdout"
 
 - name: PER-008 - Set COM hijack InprocServer32 (Performance Monitor CLSID)
@@ -134,12 +134,12 @@
 - name: PER-010 - Create placeholder w32tm.dll
   ansible.windows.win_copy:
     dest: 'C:\Windows\Temp\w32tm.dll'
-    content: "DVAD placeholder DLL — PER-010 W32Time hijack"
+    content: "EMPIRE placeholder DLL — PER-010 W32Time hijack"
 
-- name: PER-010 - Check W32Time DVADProvider DllName key
+- name: PER-010 - Check W32Time EMPIREProvider DllName key
   ansible.windows.win_shell: |
     $v = (Get-ItemProperty `
-            -Path "Registry::HKLM\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders\DVADProvider" `
+            -Path "Registry::HKLM\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders\EMPIREProvider" `
             -Name DllName -ErrorAction SilentlyContinue).DllName
     if ($v) { Write-Output "present" } else { Write-Output "absent" }
   register: per010_check
@@ -148,7 +148,7 @@
 
 - name: PER-010 - Set W32Time TimeProvider DllName
   ansible.windows.win_regedit:
-    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders\DVADProvider'
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders\EMPIREProvider'
     name: DllName
     data: 'C:\Windows\Temp\w32tm.dll'
     type: string
@@ -156,30 +156,30 @@
 
 - name: PER-010 - Disable the rogue provider at startup (Enabled=0)
   ansible.windows.win_regedit:
-    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders\DVADProvider'
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders\EMPIREProvider'
     name: Enabled
     data: 0
     type: dword
 
 # ------------------------------------------------------------------------------
-# PER-011: BootExecute — prepend DVADCheck entry
+# PER-011: BootExecute — prepend EMPIRECheck entry
 # ------------------------------------------------------------------------------
 - name: PER-011 - Read current BootExecute value
   ansible.windows.win_shell: |
     $val = (Get-ItemProperty `
               -Path "Registry::HKLM\SYSTEM\CurrentControlSet\Control\Session Manager" `
               -Name BootExecute).BootExecute
-    if ($val -contains 'DVADCheck') { Write-Output "present" } else { Write-Output "absent" }
+    if ($val -contains 'EMPIRECheck') { Write-Output "present" } else { Write-Output "absent" }
   register: per011_check
   changed_when: false
   failed_when: per011_check.rc != 0
 
-- name: PER-011 - Prepend DVADCheck to BootExecute
+- name: PER-011 - Prepend EMPIRECheck to BootExecute
   ansible.windows.win_shell: |
     $k = "Registry::HKLM\SYSTEM\CurrentControlSet\Control\Session Manager"
     $cur = (Get-ItemProperty -Path $k -Name BootExecute).BootExecute
     $new = [System.Collections.ArrayList]@()
-    $new.Add('DVADCheck') | Out-Null
+    $new.Add('EMPIRECheck') | Out-Null
     foreach ($e in $cur) { $new.Add($e) | Out-Null }
     Set-ItemProperty -Path $k -Name BootExecute -Value ([string[]]$new) -Type MultiString
   when: "'absent' in per011_check.stdout"
@@ -187,10 +187,10 @@
 # ------------------------------------------------------------------------------
 # PER-012: AppInit_DLLs
 # ------------------------------------------------------------------------------
-- name: PER-012 - Create placeholder dvad_appinit.dll
+- name: PER-012 - Create placeholder empire_appinit.dll
   ansible.windows.win_copy:
-    dest: 'C:\Tools\dvad_appinit.dll'
-    content: "DVAD placeholder DLL — PER-012 AppInit_DLLs"
+    dest: 'C:\Tools\empire_appinit.dll'
+    content: "EMPIRE placeholder DLL — PER-012 AppInit_DLLs"
 
 - name: PER-012 - Check AppInit_DLLs current value
   ansible.windows.win_shell: |
@@ -209,7 +209,7 @@
     data: '{{ item.data }}'
     type: '{{ item.type }}'
   loop:
-    - { name: AppInit_DLLs,            data: 'C:\Tools\dvad_appinit.dll', type: string }
+    - { name: AppInit_DLLs,            data: 'C:\Tools\empire_appinit.dll', type: string }
     - { name: LoadAppInit_DLLs,        data: 1,                           type: dword  }
     - { name: RequireSignedAppInit_DLLs, data: 0,                         type: dword  }
   when: "'absent' in per012_check.stdout"

