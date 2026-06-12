@@ -152,7 +152,7 @@ profile_vms() {
 ensure_tap() {
     local vm_name="$1"
     local bridge="$2"
-    local tap="empire-${vm_name}"
+    local tap="emp-${vm_name}"   # short prefix: Linux IFNAMSIZ caps iface names at 15 chars
 
     if ip link show "${tap}" &>/dev/null 2>&1; then
         info "TAP ${tap} already exists."
@@ -168,7 +168,7 @@ ensure_tap() {
 # destroy_tap <vm_name>
 destroy_tap() {
     local vm_name="$1"
-    local tap="empire-${vm_name}"
+    local tap="emp-${vm_name}"   # short prefix: Linux IFNAMSIZ caps iface names at 15 chars
     if ip link show "${tap}" &>/dev/null 2>&1; then
         sudo -n ip link set "${tap}" down 2>/dev/null || true
         sudo -n ip link delete "${tap}" 2>/dev/null || true
@@ -273,7 +273,7 @@ install_windows_vm() {
     local ua_iso="${VM_STATE_DIR}/${vm_name}-unattend.iso"
 
     ensure_tap "${vm_name}" "${vm_bridge}"
-    local tap="empire-${vm_name}"
+    local tap="emp-${vm_name}"   # short prefix: Linux IFNAMSIZ caps iface names at 15 chars
     local vnc_display="${VNC_BIND}:$((vm_vnc_port - 5900))"
 
     log "Installing ${vm_name} (${fqdn}) FRESH from ${win_iso##*/} — VNC ${vnc_display}"
@@ -495,7 +495,7 @@ launch_linux_vm() {
 
     ensure_tap "${vm_name}" "${vm_bridge}"
 
-    local tap="empire-${vm_name}"
+    local tap="emp-${vm_name}"   # short prefix: Linux IFNAMSIZ caps iface names at 15 chars
     local vnc_display="${VNC_BIND}:$((vm_vnc_port - 5900))"
 
     log "Launching Linux ${vm_name} (${fqdn}) — VNC ${vnc_display} (port ${vm_vnc_port})"
@@ -579,7 +579,7 @@ launch_vm() {
 
     ensure_tap "${vm_name}" "${vm_bridge}"
 
-    local tap="empire-${vm_name}"
+    local tap="emp-${vm_name}"   # short prefix: Linux IFNAMSIZ caps iface names at 15 chars
     local vnc_display="${VNC_BIND}:$((vm_vnc_port - 5900))"
 
     log "Launching ${vm_name} (${fqdn}) — VNC ${vnc_display} (port ${vm_vnc_port})"
@@ -705,7 +705,7 @@ destroy_all() {
     # 2) Remove every project TAP (empire-* AND legacy dvad-* orphans from the
     #    pre-rename naming) — but never the empire-ctf/empire-nat bridges.
     local iface
-    for iface in $(ip -o link show 2>/dev/null | grep -oE '(empire|dvad)-[a-z0-9]+' | sort -u); do
+    for iface in $(ip -o link show 2>/dev/null | grep -oE '(emp|empire|dvad)-[a-z0-9]+' | sort -u); do
         case "${iface}" in
             empire-ctf|empire-nat|dvad-ctf|dvad-nat) continue ;;   # bridges
         esac
@@ -849,8 +849,14 @@ create_all() {
     log "Creating VMs — profile: ${profile} (${#vm_list[@]} VMs)"
     mkdir -p "${VM_STATE_DIR}"
 
+    # Stagger launches: firing all create_vm in the same instant makes 9 parallel
+    # 'sudo ip tuntap add' + qemu-img + xorriso + qemu-launch race on netlink/sudo,
+    # and under 'set -e' a raced ensure_tap silently aborts that VM's subshell ->
+    # dead VM with a blank disk. A few seconds apart keeps installs overlapping
+    # without the stampede.
     for vm_name in "${vm_list[@]}"; do
         create_vm "${vm_name}" &
+        sleep 5
     done
     wait
 
