@@ -9,6 +9,7 @@ import argparse
 import fcntl
 import shutil
 import signal
+import socket
 import subprocess
 import threading
 import time
@@ -640,17 +641,108 @@ def phase_vm_create(cfg: dict) -> bool:
     )
 
 
-def phase_wait_winrm(cfg: dict) -> bool:
-    step("Phase 4: Wait for WinRM on all VMs")
-    vm_script = DUNDER_HOME / "providers" / cfg["provider"] / "vm-create.sh"
-    if not vm_script.exists():
-        err(f"VM script not found: {vm_script}")
+# ── All-fresh VM readiness map ────────────────────────────────────────────────
+# vm name (matches vms/<name>.qcow2) -> (static IP, readiness port, VNC port).
+# Windows VMs come up on WinRM 5985; the Linux member on SSH 22.
+_VM_READY = {
+    "dc01":     ("10.10.0.10",  5985, 5901),
+    "dc01eu":   ("10.10.0.11",  5985, 5902),
+    "ca01":     ("10.10.0.12",  5985, 5903),
+    "file01":   ("10.10.0.13",  5985, 5904),
+    "sql01":    ("10.10.0.14",  5985, 5905),
+    "ws01":     ("10.10.0.100", 5985, 5906),
+    "dc01fin":  ("10.10.20.10", 5985, 5907),
+    "dc01root": ("10.10.30.10", 5985, 5908),
+    "linux01":  ("10.10.0.15",  22,   5909),
+}
+_PROFILE_VMS = {
+    "full":      ["dc01", "dc01eu", "ca01", "file01", "sql01", "ws01", "dc01fin", "dc01root", "linux01"],
+    "minimal":   ["dc01", "dc01eu", "ca01", "file01", "sql01", "ws01", "linux01"],
+    "single-dc": ["dc01"],
+}
+
+
+def _port_open(ip: str, port: int, timeout: float = 2.0) -> bool:
+    try:
+        with socket.create_connection((ip, port), timeout=timeout):
+            return True
+    except OSError:
         return False
-    return run_cmd(
-        "Wait WinRM",
-        ["bash", str(vm_script), "wait-winrm", "--profile", cfg["profile"]],
-        env={"CFG_DEPLOY_MODE": cfg["profile"]},
-    )
+
+
+def phase_wait_winrm(cfg: dict) -> bool:
+    step("Phase 4: Installing VMs — live progress until WinRM/SSH answers")
+    profile  = cfg["profile"]
+    vms      = _PROFILE_VMS.get(profile, _PROFILE_VMS["full"])
+    disk_dir = Path(cfg.get("disk_path") or (DUNDER_HOME / "vms"))
+    max_min  = int(os.environ.get("MAX_WAIT_MINUTES", "60"))
+    deadline = time.time() + max_min * 60
+    start    = time.time()
+    poll     = 15
+
+    info(f"All-fresh: each Windows VM installs from ISO (~15-20 min, parallel); "
+         f"linux01 boots cloud-init. Max wait {max_min} min.")
+
+    ready: set = set()
+    last_size: dict = {}
+    flat: dict = {v: 0 for v in vms}
+    drawn = 0
+
+    while True:
+        rows = []
+        for vm in vms:
+            ip, port, vnc = _VM_READY.get(vm, ("?", 5985, 0))
+            disk = disk_dir / f"{vm}.qcow2"
+            try:
+                size = disk.stat().st_size if disk.exists() else 0
+            except OSError:
+                size = 0
+
+            if vm not in ready and ip != "?" and _port_open(ip, port):
+                ready.add(vm)
+                try:
+                    (disk_dir / f"{vm}.installed").touch()
+                except OSError:
+                    pass
+
+            if vm in ready:
+                svc = "SSH" if port == 22 else "WinRM"
+                rows.append(f"  {G}{vm:<9}{NC} {G}● UP ({svc}){NC}  {DIM}{ip}{NC}")
+            else:
+                # disk growth = install proof-of-life; flag if flat too long
+                if size == last_size.get(vm, -1):
+                    flat[vm] += 1
+                else:
+                    flat[vm] = 0
+                last_size[vm] = size
+                gb   = size / 1e9
+                note = f" {Y}(disk flat — check VNC :{vnc}){NC}" if flat[vm] >= 8 else ""
+                rows.append(f"  {vm:<9} {C}○ installing{NC} {gb:5.1f} GB  "
+                            f"{DIM}{ip} · VNC :{vnc}{NC}{note}")
+
+        elapsed = _human_time(time.time() - start)
+        header  = f"{B}[*]{NC} {BLD}{len(ready)}/{len(vms)}{NC} ready · elapsed {elapsed}"
+        block   = "\n".join([header] + rows)
+
+        if drawn:
+            sys.stdout.write(f"\033[{drawn}A")
+        sys.stdout.write("\033[J" + block + "\n")
+        sys.stdout.flush()
+        drawn = len(rows) + 1
+
+        if len(ready) >= len(vms):
+            log(f"All {len(vms)} VM(s) reachable in {_human_time(time.time() - start)}.")
+            return True
+        if time.time() >= deadline:
+            warn(f"Timeout after {max_min} min — {len(ready)}/{len(vms)} ready. "
+                 f"Stamping markers so Ansible can still attempt the rest.")
+            for vm in vms:
+                try:
+                    (disk_dir / f"{vm}.installed").touch()
+                except OSError:
+                    pass
+            return True
+        time.sleep(poll)
 
 
 def phase_ansible(cfg: dict) -> bool:
