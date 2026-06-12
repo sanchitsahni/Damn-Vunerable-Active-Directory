@@ -223,24 +223,29 @@ build_unattend_iso() {
 }
 
 # _send_boot_keys <monitor_socket>
-# Background: nudges 'Enter' into the QEMU HMP monitor for ~30 s so the first
-# "Press any key to boot from CD or DVD" prompt starts Windows Setup. Later
-# reboots get no key, so the prompt times out and boots the (now-installed) disk.
+# Background: nudges 'Enter' into the QEMU HMP monitor so the "Press any key to
+# boot from CD or DVD" prompt starts Windows Setup. Under 9 PARALLEL installs the
+# prompt can appear well after boot (CPU contention), so send for ~5 min and
+# RECONNECT each time (the server,nowait monitor takes one client at a time).
+# Stop early once the disk grows past 600 MB (Setup is applying the image), so we
+# don't keep hammering Enter into a live WinPE session.
 _send_boot_keys() {
     local mon="$1"
-    ( python3 - "${mon}" <<'PY' 2>/dev/null || true
-import socket, sys, time
-sock = sys.argv[1]
-try:
-    s = socket.socket(socket.AF_UNIX); s.settimeout(3); s.connect(sock)
-    try: s.recv(8192)
-    except Exception: pass
-    for _ in range(30):
-        try: s.sendall(b"sendkey ret\n")
-        except Exception: break
-        time.sleep(1)
-except Exception:
-    pass
+    local disk="$2"
+    ( python3 - "${mon}" "${disk}" <<'PY' 2>/dev/null || true
+import socket, sys, time, os
+sock, disk = sys.argv[1], sys.argv[2]
+for _ in range(150):
+    try:
+        if os.path.exists(disk) and os.path.getsize(disk) > 600_000_000:
+            break
+        s = socket.socket(socket.AF_UNIX); s.settimeout(2); s.connect(sock)
+        try: s.recv(4096)
+        except Exception: pass
+        s.sendall(b"sendkey ret\n"); s.close()
+    except Exception:
+        pass
+    time.sleep(2)
 PY
     ) &
 }
@@ -307,7 +312,7 @@ install_windows_vm() {
     # Wait for the monitor socket, then nudge past "Press any key to boot from CD".
     local w=0
     while [[ ! -S "${mon_file}" && "${w}" -lt 10 ]]; do sleep 1; w=$(( w + 1 )); done
-    _send_boot_keys "${mon_file}"
+    _send_boot_keys "${mon_file}" "${disk_path}"
 
     if [[ -f "${pid_file}" ]]; then
         log "${vm_name} installing (unattended). WinRM expected up in ~15-20 min; phase 4 waits for it."
