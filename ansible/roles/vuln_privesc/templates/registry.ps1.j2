@@ -1,6 +1,6 @@
 #Requires -Version 5
 # ==============================================================================
-# vuln_privesc — registry PE surfaces (BATCHED). Jinja-gated per host:
+# vuln_privesc - registry PE surfaces (BATCHED). Jinja-gated per host:
 #   PE-011 AlwaysInstallElevated (HKLM+HKCU)  -> tatooine, scarif
 #   PE-012 ConsentPromptBehaviorAdmin=0       -> tatooine
 #   PE-024 HiveNightmare hive-file read ACL   -> tatooine
@@ -11,7 +11,7 @@ New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
 
 {% if inventory_hostname in ['tatooine.empire.local', 'scarif.empire.local'] %}
-# ── PE-011: AlwaysInstallElevated (both hives → MSI escalation) ───────────────
+# -- PE-011: AlwaysInstallElevated (both hives -> MSI escalation) ---------------
 try {
   foreach ($hive in @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer', 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Installer')) {
     if (-not (Test-Path $hive)) { New-Item -Path $hive -Force | Out-Null }
@@ -22,13 +22,13 @@ try {
 {% endif %}
 
 {% if inventory_hostname == 'tatooine.empire.local' %}
-# ── PE-012: auto-elevate UAC for admins (no consent prompt) ──────────────────
+# -- PE-012: auto-elevate UAC for admins (no consent prompt) ------------------
 try {
   Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -Name ConsentPromptBehaviorAdmin -Value 0 -Type DWord
   Log "CHANGED: PE-012 ConsentPromptBehaviorAdmin=0"
 } catch { Log "ERROR: PE-012 $($_.Exception.Message)" }
 
-# ── PE-024: HiveNightmare — BUILTIN\Users read on SAM/SYSTEM/SECURITY ─────────
+# -- PE-024: HiveNightmare - BUILTIN\Users read on SAM/SYSTEM/SECURITY ---------
 try {
   foreach ($h in @('SAM', 'SYSTEM', 'SECURITY')) {
     $path = "$env:windir\System32\config\$h"

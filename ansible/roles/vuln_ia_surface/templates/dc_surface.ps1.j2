@@ -1,6 +1,6 @@
 #Requires -Version 5
 # ==============================================================================
-# vuln_ia_surface — DC initial-access surface (BATCHED, all_dcs).
+# vuln_ia_surface - DC initial-access surface (BATCHED, all_dcs).
 # Replaces ~13 WinRM round-trips with 1. Rendered per-DC by Jinja so the
 # corp-only blocks (IA-003 dsHeuristics, REC-015 SYSVOL creds) are emitted only
 # on coruscant.empire.local. IA-004/041 AXFR, IA-046 ADWS, IA-014 ZeroLogon, IA-040
@@ -13,7 +13,7 @@ function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Wri
 Import-Module ActiveDirectory -ErrorAction SilentlyContinue
 
 {% if inventory_hostname == 'coruscant.empire.local' %}
-# ── IA-003: anonymous LDAP bind via dsHeuristics (empire.local only) ───────────
+# -- IA-003: anonymous LDAP bind via dsHeuristics (empire.local only) -----------
 try {
   $dn = "CN=Directory Service,CN=Windows NT,CN=Services,CN=Configuration,{{ ia_domain_dn }}"
   $cur = (Get-ADObject -Identity $dn -Properties dSHeuristics -ErrorAction SilentlyContinue).dSHeuristics
@@ -25,7 +25,7 @@ try {
 } catch { Log "ERROR: IA-003 $($_.Exception.Message)" }
 {% endif %}
 
-# ── IA-004 / IA-041: unrestricted DNS AXFR (this DC's own zone) ───────────────
+# -- IA-004 / IA-041: unrestricted DNS AXFR (this DC's own zone) ---------------
 try {
   $zone = "{{ ad_domain | default(ia_domain) }}"
   Import-Module DnsServer -ErrorAction SilentlyContinue
@@ -38,7 +38,7 @@ try {
   }
 } catch { Log "ERROR: IA-004 $($_.Exception.Message)" }
 
-# ── IA-046: ADWS Automatic + running ─────────────────────────────────────────
+# -- IA-046: ADWS Automatic + running -----------------------------------------
 try {
   $svc = Get-Service -Name ADWS -ErrorAction SilentlyContinue
   if ($null -eq $svc) { Log "OK: IA-046 ADWS not present (skipped)" }
@@ -49,7 +49,7 @@ try {
   }
 } catch { Log "ERROR: IA-046 $($_.Exception.Message)" }
 
-# ── IA-014: ZeroLogon surface — FullSecureChannelProtection=0 ────────────────
+# -- IA-014: ZeroLogon surface - FullSecureChannelProtection=0 ----------------
 try {
   $k = 'HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters'
   $v = (Get-ItemProperty -Path $k -Name FullSecureChannelProtection -ErrorAction SilentlyContinue).FullSecureChannelProtection
@@ -61,7 +61,7 @@ try {
   }
 } catch { Log "ERROR: IA-014 $($_.Exception.Message)" }
 
-# ── IA-040: WinRM-HTTPS 5986 self-signed listener ────────────────────────────
+# -- IA-040: WinRM-HTTPS 5986 self-signed listener ----------------------------
 try {
   $exists = winrm enumerate winrm/config/Listener 2>&1 | Select-String "Transport = HTTPS"
   if ($exists) { Log "OK: IA-040 WinRM HTTPS already present" }
@@ -76,7 +76,7 @@ try {
 } catch { Log "ERROR: IA-040 $($_.Exception.Message)" }
 
 {% if inventory_hostname == 'coruscant.empire.local' %}
-# ── REC-015: plaintext credentials in a SYSVOL logon script (empire.local only) ─
+# -- REC-015: plaintext credentials in a SYSVOL logon script (empire.local only) -
 try {
   $sysvolScript = '{{ ia_sysvol_script_path }}'
   if (Test-Path $sysvolScript) { Log "OK: REC-015 SYSVOL script already present" }

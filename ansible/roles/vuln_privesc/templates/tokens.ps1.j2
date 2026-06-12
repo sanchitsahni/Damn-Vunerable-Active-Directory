@@ -1,6 +1,6 @@
 #Requires -Version 5
 # ==============================================================================
-# vuln_privesc — token/privilege PE surfaces (BATCHED, all Windows hosts).
+# vuln_privesc - token/privilege PE surfaces (BATCHED, all Windows hosts).
 # Grants extended privileges via secedit + drops the abuse note (PE-081..100).
 # Replaces 2 WinRM round-trips with 1.
 # ==============================================================================
@@ -10,7 +10,7 @@ New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 New-Item -ItemType Directory -Force -Path 'C:\Flags' | Out-Null
 function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
 
-# ── PE-081..090: grant extended privileges via secedit ───────────────────────
+# -- PE-081..090: grant extended privileges via secedit -----------------------
 try {
   $tmpCfg = "$env:TEMP\empire_pe_privs.cfg"
   $tmpDb  = "$env:TEMP\empire_pe_privs.sdb"
@@ -33,16 +33,16 @@ try {
   Log "CHANGED: PE-081..090 extended privileges configured"
 } catch { Log "ERROR: PE-081 $($_.Exception.Message)" }
 
-# ── PE-081..100: abuse-surface note ──────────────────────────────────────────
+# -- PE-081..100: abuse-surface note ------------------------------------------
 try {
   $note = @'
 PE-081..100: Token/Privilege Abuse Surfaces
 =============================================
 Extended privileges granted to service accounts:
-  SeImpersonatePrivilege  — IIS/SQL: PrintSpoofer, RogueWinRM, GodPotato
-  SeAssignPrimaryToken    — direct token assignment
-  SeRestorePrivilege      — write anywhere (bypass ACLs via restore path)
-  SeLoadDriverPrivilege   — load arbitrary kernel driver → SYSTEM
+  SeImpersonatePrivilege  - IIS/SQL: PrintSpoofer, RogueWinRM, GodPotato
+  SeAssignPrimaryToken    - direct token assignment
+  SeRestorePrivilege      - write anywhere (bypass ACLs via restore path)
+  SeLoadDriverPrivilege   - load arbitrary kernel driver -> SYSTEM
 
 Tools:
   PrintSpoofer.exe -i -c cmd  (SeImpersonatePrivilege)
@@ -50,7 +50,7 @@ Tools:
   EfsPotato (combined EFS + SeImpersonate)
   JuicyPotatoNG.exe (newer Potato variant)
 
-Potato family exploits all rely on SeImpersonatePrivilege — always present
+Potato family exploits all rely on SeImpersonatePrivilege - always present
 on service accounts (IIS App Pool, SQL Server service, WCF service).
 '@
   Set-Content -Path 'C:\Flags\FLAG-PE-081-PrivilegeAbuse.txt' -Value $note

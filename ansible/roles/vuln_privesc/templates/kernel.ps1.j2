@@ -1,6 +1,6 @@
 #Requires -Version 5
 # ==============================================================================
-# vuln_privesc — kernel/BYOVD PE notes (BATCHED, all Windows hosts).
+# vuln_privesc - kernel/BYOVD PE notes (BATCHED, all Windows hosts).
 # Drops 3 technique-reference note files in one run instead of 3 win_copy calls.
 # ==============================================================================
 $ErrorActionPreference = 'Continue'
@@ -14,10 +14,10 @@ try {
 PE-101: Vulnerable Kernel Driver Loading
 ==========================================
 SeLoadDriverPrivilege (PE-085) allows loading arbitrary kernel drivers.
-Vulnerable drivers (BYOVD — Bring Your Own Vulnerable Driver):
-  - RTCore64.sys (MSI AfterBurner) — arbitrary kernel R/W
-  - dbutil_2_3.sys (Dell BIOS Update) — arbitrary kernel R/W
-  - mhyprot2.sys (Genshin Impact) — arbitrary process termination
+Vulnerable drivers (BYOVD - Bring Your Own Vulnerable Driver):
+  - RTCore64.sys (MSI AfterBurner) - arbitrary kernel R/W
+  - dbutil_2_3.sys (Dell BIOS Update) - arbitrary kernel R/W
+  - mhyprot2.sys (Genshin Impact) - arbitrary process termination
 
 BYOVD attack:
   1. Drop vulnerable driver to disk (D:\vulnerable.sys)
@@ -34,8 +34,8 @@ PE-110: Hypervisor / Virtual Firmware PE
 ==========================================
 Lab VMs run under QEMU/KVM or VirtualBox.
 Hypervisor escape is theoretical in this lab context; see:
-  - CVE-2024-38080 (Hyper-V LPE — FLAG-PE-CVE-2024-38080.txt)
-  - VENOM CVE-2015-3456 (QEMU floppy buffer overflow — historical)
+  - CVE-2024-38080 (Hyper-V LPE - FLAG-PE-CVE-2024-38080.txt)
+  - VENOM CVE-2015-3456 (QEMU floppy buffer overflow - historical)
   - VBoxHardenedLoader research for VirtualBox escape
 
 Host escape from QEMU:
@@ -48,12 +48,12 @@ Host escape from QEMU:
 PE-115: BYOVD Vulnerable Driver Reference
 ===========================================
 Commonly abused vulnerable drivers (all available without code signing bypass):
-  RTCore64.sys    — MSI AfterBurner (Micro-Star International)
-  dbutil_2_3.sys  — Dell BIOS Update Utility (CVE-2021-21551)
-  mhyprot2.sys    — Genshin Impact anti-cheat
-  gdrv.sys        — Gigabyte driver
-  AsrDrv104.sys   — ASRock driver
-  atillk64.sys    — ATI Technologies
+  RTCore64.sys    - MSI AfterBurner (Micro-Star International)
+  dbutil_2_3.sys  - Dell BIOS Update Utility (CVE-2021-21551)
+  mhyprot2.sys    - Genshin Impact anti-cheat
+  gdrv.sys        - Gigabyte driver
+  AsrDrv104.sys   - ASRock driver
+  atillk64.sys    - ATI Technologies
 
 LOLDrivers database: https://www.loldrivers.io/
 Sigma detection rule: process_creation_suspicious_driver_load.yml

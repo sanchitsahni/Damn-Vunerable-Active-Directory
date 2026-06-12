@@ -1,6 +1,6 @@
 #Requires -Version 5
 # ==============================================================================
-# vuln_ia_surface — tatooine initial-access surface (BATCHED, tatooine only).
+# vuln_ia_surface - tatooine initial-access surface (BATCHED, tatooine only).
 # Replaces ~13 WinRM round-trips with 1. IA-019..022 ASR off, IA-024 .library-ms
 # NTLM-leak (CVE-2025-24071), IA-027/043 RDP NLA off, IA-033 WSH/AMSI off,
 # IA-045 WebClient, IA-047 WSD/SSDP, IA-040 WinRM-HTTPS. Deliberately vulnerable.
@@ -10,7 +10,7 @@ $log = 'C:\DunderLab\vuln_ia_ws01.log'
 New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
 
-# ── IA-019..022: disable ASR rules (general defense weakening) ────────────────
+# -- IA-019..022: disable ASR rules (general defense weakening) ----------------
 try {
   $k = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Windows Defender Exploit Guard\ASR'
   if (-not (Test-Path $k)) { New-Item -Path $k -Force | Out-Null }
@@ -18,7 +18,7 @@ try {
   Log "CHANGED: IA-019..022 ASR rules disabled"
 } catch { Log "ERROR: IA-019 $($_.Exception.Message)" }
 
-# ── IA-024: crafted .library-ms NTLM hash leak (CVE-2025-24071) ──────────────
+# -- IA-024: crafted .library-ms NTLM hash leak (CVE-2025-24071) --------------
 try {
   $lib = 'C:\Users\Public\Documents\EMPIREResources.library-ms'
   if (Test-Path $lib) {
@@ -51,14 +51,14 @@ try {
   }
 } catch { Log "ERROR: IA-024 $($_.Exception.Message)" }
 
-# ── IA-027 / IA-043: RDP NLA disabled + RDP enabled ──────────────────────────
+# -- IA-027 / IA-043: RDP NLA disabled + RDP enabled --------------------------
 try {
   Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name UserAuthentication -Value 0 -Type DWord
   Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0 -Type DWord
   Log "CHANGED: IA-027/043 RDP NLA disabled + RDP enabled"
 } catch { Log "ERROR: IA-027 $($_.Exception.Message)" }
 
-# ── IA-027: RDP firewall rule (TCP 3389) ─────────────────────────────────────
+# -- IA-027: RDP firewall rule (TCP 3389) -------------------------------------
 try {
   if (-not (Get-NetFirewallRule -DisplayName "Remote Desktop - User Mode (TCP-In)" -ErrorAction SilentlyContinue)) {
     New-NetFirewallRule -DisplayName "Remote Desktop - User Mode (TCP-In)" -Direction Inbound -Protocol TCP -LocalPort 3389 -Action Allow | Out-Null
@@ -69,7 +69,7 @@ try {
   }
 } catch { Log "ERROR: IA-027 $($_.Exception.Message)" }
 
-# ── IA-033: Windows Script Host / AMSI bypass surface ────────────────────────
+# -- IA-033: Windows Script Host / AMSI bypass surface ------------------------
 try {
   $k = 'HKLM:\SOFTWARE\Microsoft\Windows Script Host\Settings'
   $v = (Get-ItemProperty -Path $k -Name Enabled -ErrorAction SilentlyContinue).Enabled
@@ -81,7 +81,7 @@ try {
   }
 } catch { Log "ERROR: IA-033 $($_.Exception.Message)" }
 
-# ── IA-045: WebClient service Automatic + running ────────────────────────────
+# -- IA-045: WebClient service Automatic + running ----------------------------
 try {
   $svc = Get-Service -Name WebClient -ErrorAction SilentlyContinue
   if ($null -eq $svc) { Log "OK: IA-045 WebClient not present (skipped)" }
@@ -92,7 +92,7 @@ try {
   }
 } catch { Log "ERROR: IA-045 $($_.Exception.Message)" }
 
-# ── IA-047: WSD / SSDP discovery services ────────────────────────────────────
+# -- IA-047: WSD / SSDP discovery services ------------------------------------
 try {
   $changed = $false
   foreach ($name in @('FDResPub', 'SSDPSRV', 'fdPHost')) {
@@ -105,7 +105,7 @@ try {
   if ($changed) { Log "CHANGED: IA-047 WSD/SSDP services configured" } else { Log "OK: IA-047 WSD/SSDP already running" }
 } catch { Log "ERROR: IA-047 $($_.Exception.Message)" }
 
-# ── IA-040: WinRM-HTTPS 5986 self-signed listener ────────────────────────────
+# -- IA-040: WinRM-HTTPS 5986 self-signed listener ----------------------------
 try {
   $exists = winrm enumerate winrm/config/Listener 2>&1 | Select-String "Transport = HTTPS"
   if ($exists) { Log "OK: IA-040 WinRM HTTPS already present" }

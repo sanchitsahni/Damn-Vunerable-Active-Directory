@@ -1,6 +1,6 @@
 #Requires -Version 5
 # ==============================================================================
-# vuln_ia_surface — endor initial-access surface (BATCHED, endor only).
+# vuln_ia_surface - endor initial-access surface (BATCHED, endor only).
 # Replaces ~8 WinRM round-trips with 1. IA-039/049 IIS WebDAV write (aspx PUT
 # webshell), IA-045 WebClient (HTTP coercion), IA-040 WinRM-HTTPS 5986 listener.
 # IIS features are pre-baked in packer; install here is an idempotent fallback.
@@ -10,7 +10,7 @@ $log = 'C:\DunderLab\vuln_ia_ca01.log'
 New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
 
-# ── IA-039: ensure WebDAV / dir-browsing IIS features ────────────────────────
+# -- IA-039: ensure WebDAV / dir-browsing IIS features ------------------------
 try {
   $f = Get-WindowsFeature -Name Web-DAV-Publishing -ErrorAction SilentlyContinue
   if ($f -and $f.InstallState -eq 'Installed') {
@@ -21,7 +21,7 @@ try {
   }
 } catch { Log "ERROR: IA-039 $($_.Exception.Message)" }
 
-# ── IA-039 / IA-049: WebDAV authoring + write rule on Default Web Site ────────
+# -- IA-039 / IA-049: WebDAV authoring + write rule on Default Web Site --------
 try {
   Import-Module WebAdministration -ErrorAction Stop
   $site = "IIS:\Sites\Default Web Site"
@@ -43,7 +43,7 @@ try {
   }
 } catch { Log "ERROR: IA-049 $($_.Exception.Message)" }
 
-# ── IA-045: WebClient service Automatic + running (HTTP coercion) ─────────────
+# -- IA-045: WebClient service Automatic + running (HTTP coercion) -------------
 try {
   $svc = Get-Service -Name WebClient -ErrorAction SilentlyContinue
   if ($null -eq $svc) {
@@ -57,7 +57,7 @@ try {
   }
 } catch { Log "ERROR: IA-045 $($_.Exception.Message)" }
 
-# ── IA-040: WinRM-HTTPS 5986 self-signed listener ────────────────────────────
+# -- IA-040: WinRM-HTTPS 5986 self-signed listener ----------------------------
 try {
   $exists = winrm enumerate winrm/config/Listener 2>&1 | Select-String "Transport = HTTPS"
   if ($exists) {

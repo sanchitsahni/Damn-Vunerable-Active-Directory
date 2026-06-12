@@ -1,6 +1,6 @@
 #Requires -Version 5
 # ==============================================================================
-# vuln_ia_surface — extended domain-misconfig surface (BATCHED, coruscant only).
+# vuln_ia_surface - extended domain-misconfig surface (BATCHED, coruscant only).
 # Replaces ~8 WinRM round-trips with 1 local run. Self-idempotent blocks emit
 # CHANGED:/OK:/ERROR:. IA-113 weak pw policy, IA-114 Weak-PSO, IA-115 AdminCount,
 # IA-117 MachineAccountQuota=100, IA-119 plaintext cred in GPO. Spec, not bugs.
@@ -12,23 +12,23 @@ function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Wri
 Import-Module ActiveDirectory -ErrorAction SilentlyContinue
 Import-Module GroupPolicy -ErrorAction SilentlyContinue
 
-# ── IA-113: weak default domain password policy ──────────────────────────────
+# -- IA-113: weak default domain password policy ------------------------------
 try {
   Set-ADDefaultDomainPasswordPolicy -ComplexityEnabled $false -MinPasswordLength 1 -MaxPasswordAge ([TimeSpan]::Zero) -MinPasswordAge ([TimeSpan]::Zero) -PasswordHistoryCount 0 -LockoutThreshold 0 -Identity "{{ ad_domain }}" -ErrorAction SilentlyContinue
   Log "CHANGED: IA-113 weak password policy set"
 } catch { Log "ERROR: IA-113 $($_.Exception.Message)" }
 
-# ── IA-114: Weak-PSO fine-grained policy for service accounts ────────────────
+# -- IA-114: Weak-PSO fine-grained policy for service accounts ----------------
 try {
   if (Get-ADFineGrainedPasswordPolicy -Filter "Name -eq 'Weak-PSO'" -ErrorAction SilentlyContinue) {
     Log "OK: IA-114 Weak-PSO already present"
   } else {
-    New-ADFineGrainedPasswordPolicy -Name 'Weak-PSO' -ComplexityEnabled $false -MinPasswordLength 1 -MaxPasswordAge ([TimeSpan]::Zero) -MinPasswordAge ([TimeSpan]::Zero) -PasswordHistoryCount 0 -LockoutThreshold 0 -Precedence 10 -ProtectedFromAccidentalDeletion $false -Description "IA-114: Weak PSO for service accounts — no complexity"
+    New-ADFineGrainedPasswordPolicy -Name 'Weak-PSO' -ComplexityEnabled $false -MinPasswordLength 1 -MaxPasswordAge ([TimeSpan]::Zero) -MinPasswordAge ([TimeSpan]::Zero) -PasswordHistoryCount 0 -LockoutThreshold 0 -Precedence 10 -ProtectedFromAccidentalDeletion $false -Description "IA-114: Weak PSO for service accounts - no complexity"
     Log "CHANGED: IA-114 Weak-PSO created"
   }
 } catch { Log "ERROR: IA-114 $($_.Exception.Message)" }
 
-# ── IA-115: AdminCount=1 on non-admin accounts (SDProp bypass) ───────────────
+# -- IA-115: AdminCount=1 on non-admin accounts (SDProp bypass) ---------------
 try {
   foreach ($user in @('svc_c3po', 'jim.halpert')) {
     $u = Get-ADUser -Filter "SamAccountName -eq '$user'" -Properties AdminCount -ErrorAction SilentlyContinue
@@ -39,7 +39,7 @@ try {
   }
 } catch { Log "ERROR: IA-115 $($_.Exception.Message)" }
 
-# ── IA-117: MachineAccountQuota = 100 ────────────────────────────────────────
+# -- IA-117: MachineAccountQuota = 100 ----------------------------------------
 try {
   $maq = (Get-ADDomain -Server localhost -ErrorAction Stop).MachineAccountQuota
   if ($maq -eq 100) { Log "OK: IA-117 MAQ already 100" }
@@ -49,7 +49,7 @@ try {
   }
 } catch { Log "ERROR: IA-117 $($_.Exception.Message)" }
 
-# ── IA-119: plaintext credential planted in a GPO registry value ─────────────
+# -- IA-119: plaintext credential planted in a GPO registry value -------------
 try {
   if (Get-GPO -Name "Default Domain Policy" -ErrorAction SilentlyContinue) {
     Set-GPRegistryValue -Name "Default Domain Policy" -Key "HKLM\Software\EMPIRELab" -ValueName "setup_password" -Type String -Value "Darryl2024! -- svc_darryl account credential" -ErrorAction SilentlyContinue | Out-Null

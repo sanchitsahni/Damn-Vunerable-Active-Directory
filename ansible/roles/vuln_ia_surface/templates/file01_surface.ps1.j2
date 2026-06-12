@@ -1,6 +1,6 @@
 #Requires -Version 5
 # ==============================================================================
-# vuln_ia_surface — scarif initial-access surface (BATCHED, scarif only).
+# vuln_ia_surface - scarif initial-access surface (BATCHED, scarif only).
 # Replaces ~28 WinRM round-trips with 1. IA-034/050 SNMP, IA-035 anon FTP,
 # IA-036 Telnet, IA-037 anon NFS, IA-038 SMB1/EternalBlue, IA-044/015 Spooler +
 # shared printer, IA-047 WSD/SSDP, IA-040 WinRM-HTTPS. Feature installs are
@@ -17,7 +17,7 @@ function Ensure-Feature($name) {
   return $true
 }
 
-# ── IA-034 / IA-050: SNMP feature + community strings (public RO, private RW) ─
+# -- IA-034 / IA-050: SNMP feature + community strings (public RO, private RW) -
 try {
   if (Ensure-Feature 'SNMP-Service') { Log "CHANGED: IA-034 SNMP-Service installed" } else { Log "OK: IA-034 SNMP already installed" }
   $ck = 'HKLM:\SYSTEM\CurrentControlSet\Services\SNMP\Parameters\ValidCommunities'
@@ -30,7 +30,7 @@ try {
   if ($svc -and $svc.Status -ne 'Running') { Set-Service SNMP -StartupType Automatic; Start-Service SNMP -ErrorAction SilentlyContinue; Log "CHANGED: IA-034 SNMP started" }
 } catch { Log "ERROR: IA-034 $($_.Exception.Message)" }
 
-# ── IA-035: anonymous IIS FTP site ───────────────────────────────────────────
+# -- IA-035: anonymous IIS FTP site -------------------------------------------
 try {
   if (Ensure-Feature 'Web-Ftp-Server') { Log "CHANGED: IA-035 Web-Ftp-Server installed" } else { Log "OK: IA-035 FTP feature already installed" }
   New-Item -ItemType Directory -Force -Path 'C:\FTPRoot' | Out-Null
@@ -48,7 +48,7 @@ try {
   }
 } catch { Log "ERROR: IA-035 $($_.Exception.Message)" }
 
-# ── IA-036: Telnet server ────────────────────────────────────────────────────
+# -- IA-036: Telnet server ----------------------------------------------------
 try {
   if (Ensure-Feature 'TelnetServer') { Log "CHANGED: IA-036 TelnetServer installed" } else { Log "OK: IA-036 Telnet feature already installed" }
   $svc = Get-Service -Name TlntSvr -ErrorAction SilentlyContinue
@@ -60,7 +60,7 @@ try {
   }
 } catch { Log "ERROR: IA-036 $($_.Exception.Message)" }
 
-# ── IA-037: anonymous NFS share ──────────────────────────────────────────────
+# -- IA-037: anonymous NFS share ----------------------------------------------
 try {
   if (Ensure-Feature 'FS-NFS-Service') { Log "CHANGED: IA-037 NFS feature installed" } else { Log "OK: IA-037 NFS feature already installed" }
   New-Item -ItemType Directory -Force -Path "{{ ia_nfs_share_path }}" | Out-Null
@@ -72,14 +72,14 @@ try {
   }
 } catch { Log "ERROR: IA-037 $($_.Exception.Message)" }
 
-# ── IA-038: SMB1 / EternalBlue surface ───────────────────────────────────────
+# -- IA-038: SMB1 / EternalBlue surface ---------------------------------------
 try {
   if (Ensure-Feature 'FS-SMB1') { Log "CHANGED: IA-038 FS-SMB1 installed" } else { Log "OK: IA-038 SMB1 feature already installed" }
   Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters' -Name SMB1 -Value 1 -Type DWord
   Log "CHANGED: IA-038 SMB1 enabled via registry"
 } catch { Log "ERROR: IA-038 $($_.Exception.Message)" }
 
-# ── IA-044 / IA-015: Print Spooler + shared printer (PrinterBug) ─────────────
+# -- IA-044 / IA-015: Print Spooler + shared printer (PrinterBug) -------------
 try {
   $svc = Get-Service -Name Spooler -ErrorAction SilentlyContinue
   if ($svc) {
@@ -96,7 +96,7 @@ try {
   }
 } catch { Log "ERROR: IA-044 $($_.Exception.Message)" }
 
-# ── IA-047: WSD / SSDP discovery services ────────────────────────────────────
+# -- IA-047: WSD / SSDP discovery services ------------------------------------
 try {
   $changed = $false
   foreach ($name in @('FDResPub', 'SSDPSRV', 'fdPHost')) {
@@ -109,7 +109,7 @@ try {
   if ($changed) { Log "CHANGED: IA-047 WSD/SSDP services configured" } else { Log "OK: IA-047 WSD/SSDP already running" }
 } catch { Log "ERROR: IA-047 $($_.Exception.Message)" }
 
-# ── IA-040: WinRM-HTTPS 5986 self-signed listener ────────────────────────────
+# -- IA-040: WinRM-HTTPS 5986 self-signed listener ----------------------------
 try {
   $exists = winrm enumerate winrm/config/Listener 2>&1 | Select-String "Transport = HTTPS"
   if ($exists) { Log "OK: IA-040 WinRM HTTPS already present" }

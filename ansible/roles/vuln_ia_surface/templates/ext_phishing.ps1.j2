@@ -1,6 +1,6 @@
 #Requires -Version 5
 # ==============================================================================
-# vuln_ia_surface — phishing/coercion drop surface (BATCHED, tatooine only).
+# vuln_ia_surface - phishing/coercion drop surface (BATCHED, tatooine only).
 # Replaces ~5 WinRM round-trips with 1. IA-052 LNK UNC coercion, IA-053 AutoPlay,
 # IA-056 HTA stub, IA-063 CHM note. Deliberately vulnerable lab.
 # ==============================================================================
@@ -9,7 +9,7 @@ $log = 'C:\DunderLab\vuln_ia_phishing.log'
 New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
 
-# ── IA-052: malicious LNK that triggers UNC authentication ───────────────────
+# -- IA-052: malicious LNK that triggers UNC authentication -------------------
 try {
   $lnkPath = '{{ phishing_drop_path }}\Shared Resources.lnk'
   if (Test-Path $lnkPath) {
@@ -25,7 +25,7 @@ try {
   }
 } catch { Log "ERROR: IA-052 $($_.Exception.Message)" }
 
-# ── IA-053: AutoPlay enabled for all drives ──────────────────────────────────
+# -- IA-053: AutoPlay enabled for all drives ----------------------------------
 try {
   $k = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer'
   if (-not (Test-Path $k)) { New-Item -Path $k -Force | Out-Null }
@@ -33,7 +33,7 @@ try {
   Log "CHANGED: IA-053 AutoPlay enabled"
 } catch { Log "ERROR: IA-053 $($_.Exception.Message)" }
 
-# ── IA-056: HTA payload stub in Downloads ────────────────────────────────────
+# -- IA-056: HTA payload stub in Downloads ------------------------------------
 try {
   $hta = @'
 <html>
@@ -41,7 +41,7 @@ try {
   showInTaskbar="no" singleInstance="yes" /></head>
 <script language="VBScript">
 ' IA-056: HTA execution surface (EMPIRE lab)
-' Replace with payload — executes in Medium integrity via mshta.exe
+' Replace with payload - executes in Medium integrity via mshta.exe
 Sub Window_OnLoad
   MsgBox "IA-056: HTA execution successful. Place payload here."
   window.close
@@ -53,7 +53,7 @@ End Sub
   Log "CHANGED: IA-056 HTA stub dropped"
 } catch { Log "ERROR: IA-056 $($_.Exception.Message)" }
 
-# ── IA-063: CHM/ActiveX technique note ───────────────────────────────────────
+# -- IA-063: CHM/ActiveX technique note ---------------------------------------
 try {
   New-Item -ItemType Directory -Force -Path 'C:\Flags' | Out-Null
   $chm = @'

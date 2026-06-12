@@ -1,7 +1,7 @@
 #Requires -Version 5
 # ==============================================================================
-# vuln_ia_surface — kamino initial-access surface (BATCHED single run).
-# Rendered by ansible.windows.win_template, executed once via win_shell — this
+# vuln_ia_surface - kamino initial-access surface (BATCHED single run).
+# Rendered by ansible.windows.win_template, executed once via win_shell - this
 # replaces 6 separate WinRM round-trips with 1. Each block is self-idempotent
 # (check-then-set inline) and emits CHANGED:/OK:/ERROR: markers that the Ansible
 # task parses for changed_when/failed_when.
@@ -15,7 +15,7 @@ $log = 'C:\DunderLab\vuln_ia_sql01.log'
 New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
 
-# ── IA-011: MSSQL sa enable + weak password + xp_cmdshell ────────────────────
+# -- IA-011: MSSQL sa enable + weak password + xp_cmdshell --------------------
 try {
   $instances = @('localhost', 'localhost\SQLEXPRESS', 'localhost\MSSQLSERVER')
   $connStr = $null
@@ -46,7 +46,7 @@ EXEC sp_configure 'xp_cmdshell', 1; RECONFIGURE WITH OVERRIDE;
   }
 } catch { Log "ERROR: IA-011 $($_.Exception.Message)" }
 
-# ── IA-048: SQL Browser service (instance discovery on UDP 1434) ─────────────
+# -- IA-048: SQL Browser service (instance discovery on UDP 1434) -------------
 try {
   $svc = Get-Service -Name SQLBrowser -ErrorAction SilentlyContinue
   if ($null -eq $svc) {
@@ -62,7 +62,7 @@ try {
   }
 } catch { Log "ERROR: IA-048 $($_.Exception.Message)" }
 
-# ── IA-040: WinRM-HTTPS 5986 self-signed listener ────────────────────────────
+# -- IA-040: WinRM-HTTPS 5986 self-signed listener ----------------------------
 try {
   $exists = winrm enumerate winrm/config/Listener 2>&1 | Select-String "Transport = HTTPS"
   if ($exists) {
