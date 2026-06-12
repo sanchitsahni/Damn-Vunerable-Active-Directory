@@ -1510,6 +1510,11 @@ Cron setup:
     p.add_argument("--flag-mode",          choices=["ctf", "training"], help="Flag visibility")
     p.add_argument("--log-file",           metavar="PATH",             help="Append all output to this file")
     p.add_argument("--install-cron",       action="store_true",        help="Write crontab + sudoers and exit")
+    p.add_argument("--from-phase",         metavar="PHASE",
+                   help="Run Ansible from this phase to the end and exit. "
+                        "Phases: 1 2 5 6 7 8 8b 9 10 11 13 14 16 17 18 19 20")
+    p.add_argument("--only-phase",         metavar="PHASE", help="Run only this Ansible phase and exit")
+    p.add_argument("--limit",              metavar="HOST",  help="Ansible --limit (restrict to host/group), e.g. endor.empire.local")
     return p
 
 
@@ -1699,6 +1704,44 @@ def setup_log_file(path: str):
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ── Ansible phase shortcuts (ordered as in playbooks/site.yml) ────────────────
+# Lets you re-run from / only a single phase instead of the whole pipeline.
+_ANSIBLE_PHASES = [
+    ("1", "phase1"), ("2", "phase2"), ("5", "phase5"), ("6", "phase6"), ("7", "phase7"),
+    ("8", "phase8"), ("8b", "vuln_adcs"), ("9", "phase9"), ("10", "phase10"), ("11", "phase11"),
+    ("13", "phase13"), ("14", "phase14"), ("16", "phase16"), ("17", "phase17"),
+    ("18", "phase18"), ("19", "phase19"), ("20", "phase20"),
+]
+
+
+def run_ansible_phase(cfg: dict, phase: str, only: bool = False, limit: str = None) -> int:
+    """Run site.yml from `phase` to the end (or only that phase). Returns exit code."""
+    ansible_dir = EMPIRE_HOME / "ansible"
+    inventory   = ansible_dir / "inventory.yml"
+    playbook    = ansible_dir / "playbooks" / "site.yml"
+    ids = [p for p, _ in _ANSIBLE_PHASES]
+    if phase not in ids:
+        err(f"Unknown phase '{phase}'. Valid: {', '.join(ids)}")
+        return 2
+    i = ids.index(phase)
+    if only:
+        tags = _ANSIBLE_PHASES[i][1]
+        step(f"Ansible — ONLY phase {phase} (tag: {tags})" + (f" · limit {limit}" if limit else ""))
+    else:
+        tags = ",".join(t for _, t in _ANSIBLE_PHASES[i:])
+        step(f"Ansible — phases {phase} → end" + (f" · limit {limit}" if limit else ""))
+        info(f"tags: {tags}")
+    cmd = [
+        "ansible-playbook", "-i", str(inventory), str(playbook),
+        "--tags", tags,
+        "-e", (f"attacker_ip={cfg['attacker_ip']} flag_mode={cfg['flag_mode']} "
+               f"deploy_profile={cfg['profile']}"),
+    ]
+    if limit:
+        cmd += ["--limit", limit]
+    return 0 if run_streaming("Ansible (phase run)", cmd, cwd=ansible_dir) else 1
+
+
 def main():
     parser = build_arg_parser()
     args   = parser.parse_args()
@@ -1734,6 +1777,16 @@ def main():
 
 
 def _run(args, cfg, lock):
+    # ── Phase shortcut: run Ansible from/only a phase, then exit ───────────
+    if args.from_phase or args.only_phase:
+        print_banner()
+        sys.exit(run_ansible_phase(
+            cfg,
+            args.from_phase or args.only_phase,
+            only=bool(args.only_phase),
+            limit=args.limit,
+        ))
+
     # ── Non-interactive / CI / cron path ──────────────────────────────────
     if args.yes:
         print_banner()
