@@ -41,6 +41,8 @@
   register: result_dcsync_check
   changed_when: false
   failed_when: result_dcsync_check.rc != 0
+  # michael.scott exists only in corp.local — don't run on finance/root/eu DCs.
+  when: inventory_hostname == 'dc01.corp.local'
 
 - name: DF-003 - Grant michael.scott DCSync extended rights on domain NC
   ansible.windows.win_shell: |
@@ -58,7 +60,9 @@
       $acl.AddAccessRule($ace)
     }
     Set-Acl -Path "AD:\$domDn" -AclObject $acl
-  when: "'absent' in result_dcsync_check.stdout"
+  when:
+    - inventory_hostname == 'dc01.corp.local'
+    - "'absent' in (result_dcsync_check.stdout | default(''))"
   register: result_dcsync_set
   failed_when: result_dcsync_set.rc != 0
 
@@ -93,7 +97,7 @@
     $t = "{{ item }}"
     $r1 = & netdom.exe trust corp.local /domain:$t /quarantine:No 2>&1
     $r2 = & netdom.exe trust corp.local /domain:$t /enablesidhistory:Yes 2>&1
-    Write-Output "Trust $t: quarantine=$r1 sidhistory=$r2"
+    Write-Output "Trust ${t}: quarantine=$r1 sidhistory=$r2"
   loop: "{{ corp_trust_targets }}"
   register: result_sid_filter
   # netdom may return non-zero if trust absent in minimal deploy; tolerate

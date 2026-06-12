@@ -92,7 +92,8 @@
   failed_when: >
     result_spn_dwight_add.rc != 0 and
     "already" not in (result_spn_dwight_add.stderr | default("") | lower) and
-    "duplicate" not in (result_spn_dwight_add.stderr | default("") | lower)
+    "duplicate" not in (result_spn_dwight_add.stderr | default("") | lower) and
+    "unique" not in (result_spn_dwight_add.stderr | default("") | lower)
   register: result_spn_dwight_add
 
 # ------------------------------------------------------------------------------
