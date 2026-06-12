@@ -2,21 +2,21 @@
 # ==============================================================================
 # ad_trust/tasks/main.yml
 # Configures cross-forest trusts:
-#   1. External trust:   corp.local <-> finance.local
-#   2. Tree-root trust:  corp.local <-> root.corp  (Forest trust type)
+#   1. External trust:   empire.local <-> rebel.local
+#   2. Tree-root trust:  empire.local <-> trade.corp  (Forest trust type)
 #
 # INTENTIONAL MISCONFIGURATIONS (do not remove):
 #   - SIDFilteringForestAware  = $false  \
 #   - SIDFilteringQuarantined  = $false  /  DF-008: SID filtering bypass
 #
-# Run on: dc01.corp.local (initiating side for both trusts)
+# Run on: coruscant.empire.local (initiating side for both trusts)
 # ==============================================================================
 
 # --------------------------------------------------------------------------
 # Preconditions: remote DCs must answer LDAP before trust negotiation
 # --------------------------------------------------------------------------
 
-- name: Assert finance.local DC is reachable on LDAP
+- name: Assert rebel.local DC is reachable on LDAP
   ansible.windows.win_shell: |
     $tcp = Test-NetConnection -ComputerName {{ finance_dc_ip }} -Port 389 -WarningAction SilentlyContinue
     if ($tcp.TcpTestSucceeded) { Write-Output "READY" } else { Write-Output "FAIL"; exit 1 }
@@ -26,7 +26,7 @@
   retries: 10
   delay: 30
 
-- name: Assert root.corp DC is reachable on LDAP
+- name: Assert trade.corp DC is reachable on LDAP
   ansible.windows.win_shell: |
     $tcp = Test-NetConnection -ComputerName {{ root_dc_ip }} -Port 389 -WarningAction SilentlyContinue
     if ($tcp.TcpTestSucceeded) { Write-Output "READY" } else { Write-Output "FAIL"; exit 1 }
@@ -37,18 +37,18 @@
   delay: 30
 
 # --------------------------------------------------------------------------
-# Trust 1: corp.local <-> finance.local  (External)
+# Trust 1: empire.local <-> rebel.local  (External)
 # --------------------------------------------------------------------------
 
 - name: Check if corp<->finance trust already exists
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $t = Get-ADTrust -Filter "Target -eq 'finance.local'" -ErrorAction SilentlyContinue
+    $t = Get-ADTrust -Filter "Target -eq 'rebel.local'" -ErrorAction SilentlyContinue
     if ($t) { Write-Output "EXISTS" } else { Write-Output "MISSING" }
   register: finance_trust_check
   changed_when: false
 
-- name: Create external trust corp.local <-> finance.local
+- name: Create external trust empire.local <-> rebel.local
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $cred = New-Object System.Management.Automation.PSCredential(
@@ -56,8 +56,8 @@
       (ConvertTo-SecureString "{{ finance_admin_password }}" -AsPlainText -Force)
     )
     $params = @{
-      Name            = "finance.local"
-      Target          = "finance.local"
+      Name            = "rebel.local"
+      Target          = "rebel.local"
       SourceDC        = "{{ corp_dc }}"
       Credential      = $cred
       Direction       = "{{ trust_direction }}"
@@ -66,7 +66,7 @@
       Force           = $true
     }
     New-ADTrust @params
-    Write-Output "TRUST_CREATED: corp.local <-> finance.local"
+    Write-Output "TRUST_CREATED: empire.local <-> rebel.local"
   register: finance_trust_create
   changed_when: "'TRUST_CREATED' in finance_trust_create.stdout"
   # "already exists" errors are expected on re-run; other errors should surface
@@ -83,38 +83,38 @@
     Import-Module ActiveDirectory
     # SIDFilteringQuarantined controls quarantine (external trust SID filter)
     # SIDFilteringForestAware controls the forest-aware SID filter flag
-    Set-ADObject -Identity (Get-ADTrust -Filter "Target -eq 'finance.local'").DistinguishedName `
+    Set-ADObject -Identity (Get-ADTrust -Filter "Target -eq 'rebel.local'").DistinguishedName `
       -Replace @{ "msDS-TrustForestTrustInfo" = $null } `
       -ErrorAction SilentlyContinue
 
-    netdom trust corp.local /domain:finance.local /quarantine:no /usero:Administrator /passwordo:"{{ corp_admin_password }}"
-    Write-Output "SID_FILTER_DISABLED: finance.local"
+    netdom trust empire.local /domain:rebel.local /quarantine:no /usero:Administrator /passwordo:"{{ corp_admin_password }}"
+    Write-Output "SID_FILTER_DISABLED: rebel.local"
   register: finance_sidfilt
   changed_when: true
   when: not sid_filtering_enabled
 
 # --------------------------------------------------------------------------
-# Trust 2: corp.local <-> root.corp  (Forest / tree-root)
+# Trust 2: empire.local <-> trade.corp  (Forest / tree-root)
 # --------------------------------------------------------------------------
 
 - name: Check if corp<->root trust already exists
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $t = Get-ADTrust -Filter "Target -eq 'root.corp'" -ErrorAction SilentlyContinue
+    $t = Get-ADTrust -Filter "Target -eq 'trade.corp'" -ErrorAction SilentlyContinue
     if ($t) { Write-Output "EXISTS" } else { Write-Output "MISSING" }
   register: root_trust_check
   changed_when: false
 
-- name: Create forest trust corp.local <-> root.corp
+- name: Create forest trust empire.local <-> trade.corp
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $cred = New-Object System.Management.Automation.PSCredential(
-      "{{ root_admin_user }}",
-      (ConvertTo-SecureString "{{ root_admin_password }}" -AsPlainText -Force)
+      "{{ jedi_admin_user }}",
+      (ConvertTo-SecureString "{{ jedi_admin_password }}" -AsPlainText -Force)
     )
     $params = @{
-      Name            = "root.corp"
-      Target          = "root.corp"
+      Name            = "trade.corp"
+      Target          = "trade.corp"
       SourceDC        = "{{ corp_dc }}"
       Credential      = $cred
       Direction       = "{{ trust_direction }}"
@@ -124,7 +124,7 @@
       Force           = $true
     }
     New-ADTrust @params
-    Write-Output "TRUST_CREATED: corp.local <-> root.corp"
+    Write-Output "TRUST_CREATED: empire.local <-> trade.corp"
   register: root_trust_create
   changed_when: "'TRUST_CREATED' in root_trust_create.stdout"
   failed_when:
@@ -136,9 +136,9 @@
 - name: Disable SID filtering on corp<->root trust (DF-008 intentional)
   ansible.windows.win_shell: |
     # netdom is the reliable way to toggle quarantine/SIDfilter on forest trusts
-    netdom trust corp.local /domain:root.corp /quarantine:no /usero:Administrator /passwordo:"{{ corp_admin_password }}"
-    netdom trust corp.local /domain:root.corp /enablesidhistory:yes /usero:Administrator /passwordo:"{{ corp_admin_password }}"
-    Write-Output "SID_FILTER_DISABLED: root.corp"
+    netdom trust empire.local /domain:trade.corp /quarantine:no /usero:Administrator /passwordo:"{{ corp_admin_password }}"
+    netdom trust empire.local /domain:trade.corp /enablesidhistory:yes /usero:Administrator /passwordo:"{{ corp_admin_password }}"
+    Write-Output "SID_FILTER_DISABLED: trade.corp"
   register: root_sidfilt
   changed_when: true
   when: not sid_filtering_enabled

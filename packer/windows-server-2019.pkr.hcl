@@ -52,7 +52,7 @@ variable "cpus" {
 
 locals {
   winrm_user     = "Administrator"
-  winrm_password = "DVADlab2024!"
+  winrm_password = "SithLord123!"
   vm_name        = "windows-server-2019-base"
 }
 

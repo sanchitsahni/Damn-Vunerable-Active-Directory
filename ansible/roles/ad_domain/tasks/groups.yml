@@ -1,20 +1,20 @@
 ---
 # ==============================================================================
 # ad_domain/tasks/groups.yml
-# Creates security groups and populates memberships for corp.local.
-# Only imported when ad_domain == "corp.local".
+# Creates security groups and populates memberships for empire.local.
+# Only imported when ad_domain == "empire.local".
 #
 # Intentional misconfigurations preserved:
 #   - HelpDesk has GenericAll on IT Admins (ACL abuse — DF-004)
-#   - Domain Admins contains svc_darryl (privilege escalation path)
-#   - svc_printer/svc_dwight in IT Admins (lateral movement)
+#   - Domain Admins contains svc_bobafett (privilege escalation path)
+#   - svc_trooper/svc_maul in IT Admins (lateral movement)
 # ==============================================================================
 
-- name: Create corp.local security groups
+- name: Create empire.local security groups
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $PSDefaultParameterValues = @{ '*-AD*:Server' = 'localhost' }
-    $base = "DC=corp,DC=local"
+    $base = "DC=empire,DC=local"
 
     function Group-Exists($name) {
       return [bool](Get-ADGroup -Filter "Name -eq '$name'" -ErrorAction SilentlyContinue)
@@ -22,7 +22,7 @@
 
     $groups = @(
       @{ Name = "IT Admins";        Scope = "Global";   Path = "OU=Groups,OU=Corp,$base" },
-      # Privileged group targeted by LAT-034 (finance.local Administrator added as
+      # Privileged group targeted by LAT-034 (rebel.local Administrator added as
       # a Foreign Security Principal for cross-forest escalation). Referenced by
       # vuln_lateral but was never created.
       @{ Name = "Corporate Admins"; Scope = "Global";   Path = "OU=Groups,OU=Corp,$base" },
@@ -70,14 +70,14 @@
 
     # IT Admins
     Add-Member-Safe "IT Admins" "andy.bernard"
-    Add-Member-Safe "IT Admins" "dwight.schrute"
-    Add-Member-Safe "IT Admins" "svc_printer"
-    Add-Member-Safe "IT Admins" "svc_dwight"
+    Add-Member-Safe "IT Admins" "darth.maul"
+    Add-Member-Safe "IT Admins" "svc_trooper"
+    Add-Member-Safe "IT Admins" "svc_maul"
 
     # HelpDesk
-    Add-Member-Safe "HelpDesk" "pam.beesly"
+    Add-Member-Safe "HelpDesk" "leia.organa"
     Add-Member-Safe "HelpDesk" "kelly.kapoor"
-    Add-Member-Safe "HelpDesk" "jim.halpert"
+    Add-Member-Safe "HelpDesk" "luke.skywalker"
 
     # Accounting
     Add-Member-Safe "Accounting" "oscar.martinez"
@@ -86,24 +86,24 @@
 
     # Human Resources
     Add-Member-Safe "Human Resources" "creed.bratton"
-    Add-Member-Safe "Human Resources" "phyllis.vance"
+    Add-Member-Safe "Human Resources" "jabba.hutt"
     Add-Member-Safe "Human Resources" "angela.martin"
 
     # Sales
     Add-Member-Safe "Sales" "ryan.howard"
-    Add-Member-Safe "Sales" "michael.scott"
+    Add-Member-Safe "Sales" "sheev.palpatine"
     Add-Member-Safe "Sales" "stanley.hudson"
 
-    # Warehouse — svc_darryl is intentionally privileged (DF-006)
-    Add-Member-Safe "Warehouse" "svc_darryl"
+    # Warehouse — svc_bobafett is intentionally privileged (DF-006)
+    Add-Member-Safe "Warehouse" "svc_bobafett"
 
     # SQL Admins
-    Add-Member-Safe "SQL Admins" "svc_kevin"
+    Add-Member-Safe "SQL Admins" "svc_greedo"
     Add-Member-Safe "SQL Admins" "andy.bernard"
 
-    # Domain Admins — svc_darryl membership is an intentional vuln (DF-006)
-    Add-Member-Safe "Domain Admins" "svc_darryl"
-    Add-Member-Safe "Domain Admins" "dwight.schrute"
+    # Domain Admins — svc_bobafett membership is an intentional vuln (DF-006)
+    Add-Member-Safe "Domain Admins" "svc_bobafett"
+    Add-Member-Safe "Domain Admins" "darth.maul"
 
     Write-Output "DONE"
   register: members_result

@@ -4,14 +4,14 @@
 # 2025-2026 CVE surface configuration
 # ==============================================================================
 
-ad_domain:    "corp.local"
-ad_domain_dn: "DC=corp,DC=local"
+ad_domain:    "empire.local"
+ad_domain_dn: "DC=empire,DC=local"
 attacker_ip:  "10.10.0.1"
 
 # CVE-2025-24054: NTLM hash leak via .library-ms (attacker listener IP)
 cve_2025_24054_attacker: "{{ attacker_ip }}"
 
-# CVE-2025-26633: MSC file execution (LOLbin path on ws01)
+# CVE-2025-26633: MSC file execution (LOLbin path on tatooine)
 cve_2025_26633_msc_drop: 'C:\Tools\dvad_msc_exec.msc'
 
 # CVE-2025-29824: CLFS driver LPE indicator

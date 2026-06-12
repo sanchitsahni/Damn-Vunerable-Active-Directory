@@ -1,12 +1,12 @@
 ---
 # ==============================================================================
 # vuln_exchange/tasks/db_setup.yml — DunderMifflin database creation
-# Target: sql01.corp.local
+# Target: kamino.empire.local
 #
 # Must run AFTER sql.yml (which enables sa + sqlcmd).
 # Creates DunderMifflin database with:
 #   - users / employees / credentials / products / orders tables
-#   - dunder_web SQL login (low-priv, for web app)
+#   - empire_web SQL login (low-priv, for web app)
 #   - Vulnerable stored procedures (SQLi, exec, impersonation)
 #   - Fake PII data for realism
 # ==============================================================================
@@ -51,11 +51,11 @@
       -- Truncate and reload for idempotency
       DELETE FROM dbo.users;
       INSERT INTO dbo.users (username, password, email, role) VALUES
-        ('admin',       'DVADlab2024!',   'admin@corp.local',      'admin'),
-        ('jim.halpert',        'Password123!',   'jim.halpert@corp.local',       'user'),
-        ('svc_web',     'WebService2024!','svc_web@corp.local',    'service'),
-        ('finance_mgr', 'Finance2024!',   'fin@finance.local',     'manager'),
-        ('sa_backup',   'Darryl2024!',    'backup@corp.local',     'user');
+        ('admin',       'SithLord123!',   'admin@empire.local',      'admin'),
+        ('luke.skywalker',        'SithLord123!',   'luke.skywalker@empire.local',       'user'),
+        ('svc_c3po',     'WebService2024!','svc_c3po@empire.local',    'service'),
+        ('finance_mgr', 'Finance2024!',   'fin@rebel.local',     'manager'),
+        ('sa_backup',   'Darryl2024!',    'backup@empire.local',     'user');
 
       -- ================================================================
       -- employees table
@@ -72,7 +72,7 @@
 
       DELETE FROM dbo.employees;
       INSERT INTO dbo.employees (name, dept, salary, ssn, manager) VALUES
-        ('Jim Halpert',        'IT',       85000.00, '123-45-6789', 'Kelly Kapoor'),
+        ('Luke Skywalker',        'IT',       85000.00, '123-45-6789', 'Kelly Kapoor'),
         ('Jane Smith',      'Finance',  92000.00, '987-65-4321', 'Bob Jones'),
         ('Mike Johnson',    'HR',       78000.00, '456-78-9012', 'Kelly Kapoor'),
         ('Sarah Connor',    'IT',      110000.00, '321-54-9876', NULL),
@@ -93,9 +93,9 @@
 
       DELETE FROM dbo.credentials;
       INSERT INTO dbo.credentials (service, username, password, notes) VALUES
-        ('Active Directory',  'Administrator',   'DVADlab2024!',   'Domain Admin -- do not change'),
-        ('MSSQL',             'sa',              'SqlServer2025!', 'SQL SA account'),
-        ('WinRM',             'svc_darryl',      'Darryl2024!',    'Backup service account'),
+        ('Active Directory',  'Administrator',   'SithLord123!',   'Domain Admin -- do not change'),
+        ('MSSQL',             'sa',              'DeathStar2025!', 'SQL SA account'),
+        ('WinRM',             'svc_bobafett',      'Darryl2024!',    'Backup service account'),
         ('IIS AppPool',       'svc_iis',         'IIS2024!',       'Web app pool'),
         ('Monitoring',        'svc_monitoring',  'Monitor2024!',   'Grafana/monitoring');
 
@@ -123,24 +123,24 @@
   failed_when: db_tables.rc != 0
   when: "'available' in db_sqlcmd_check.stdout"
 
-- name: DB-SETUP - Create dunder_web SQL login and user
+- name: DB-SETUP - Create empire_web SQL login and user
   ansible.windows.win_shell: |
     sqlcmd -S localhost -U sa -P "{{ sql_sa_password }}" -d DunderMifflin -Q "
       -- Create low-priv web app login
-      IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = 'dunder_web')
-        CREATE LOGIN dunder_web WITH PASSWORD = 'WebUser2024!', CHECK_POLICY = OFF;
+      IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = 'empire_web')
+        CREATE LOGIN empire_web WITH PASSWORD = 'WebUser2024!', CHECK_POLICY = OFF;
 
-      IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = 'dunder_web')
-        CREATE USER dunder_web FOR LOGIN dunder_web;
+      IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = 'empire_web')
+        CREATE USER empire_web FOR LOGIN empire_web;
 
       -- Grant minimal permissions (read all + exec stored procs)
-      GRANT SELECT ON dbo.users      TO dunder_web;
-      GRANT SELECT ON dbo.employees  TO dunder_web;
-      GRANT SELECT ON dbo.products   TO dunder_web;
-      GRANT SELECT ON dbo.credentials TO dunder_web;
-      GRANT EXECUTE TO dunder_web;
+      GRANT SELECT ON dbo.users      TO empire_web;
+      GRANT SELECT ON dbo.employees  TO empire_web;
+      GRANT SELECT ON dbo.products   TO empire_web;
+      GRANT SELECT ON dbo.credentials TO empire_web;
+      GRANT EXECUTE TO empire_web;
     " 2>&1
-    Write-Output "changed: dunder_web login created"
+    Write-Output "changed: empire_web login created"
   register: db_login
   changed_when: "'changed:' in db_login.stdout"
   failed_when: db_login.rc != 0
@@ -191,7 +191,7 @@
         -- Runs as dbo (db_owner) — privilege escalation via TRUSTWORTHY DB
         EXEC master..xp_cmdshell 'whoami';
       END;
-      GRANT EXECUTE ON dbo.sp_escalate TO dunder_web;
+      GRANT EXECUTE ON dbo.sp_escalate TO empire_web;
     " 2>&1
     Write-Output "changed: escalation proc created"
   register: db_escalate
@@ -240,9 +240,9 @@
     content: |
       DunderMifflin Database — Attack Surfaces
       ======================================
-      Database:     DunderMifflin on sql01.corp.local:1433
-      Web app user: dunder_web / WebUser2024!    (SELECT + EXEC only)
-      Admin:        sa / SqlServer2025!        (full sysadmin)
+      Database:     DunderMifflin on kamino.empire.local:1433
+      Web app user: empire_web / WebUser2024!    (SELECT + EXEC only)
+      Admin:        sa / DeathStar2025!        (full sysadmin)
 
       Tables:
         dbo.users        — login credentials in PLAINTEXT (union/blind SQLi target)

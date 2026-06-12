@@ -31,7 +31,7 @@
 
       <UserAccounts>
         <AdministratorPassword>
-          <Value>DVADlab2024!</Value>
+          <Value>SithLord123!</Value>
           <PlainText>true</PlainText>
         </AdministratorPassword>
       </UserAccounts>
@@ -52,7 +52,7 @@
         <LogonCount>1</LogonCount>
         <Username>Administrator</Username>
         <Password>
-          <Value>DVADlab2024!</Value>
+          <Value>SithLord123!</Value>
           <PlainText>true</PlainText>
         </Password>
       </AutoLogon>

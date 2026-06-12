@@ -1,14 +1,14 @@
 ---
 # ==============================================================================
 # vuln_recon/tasks/main.yml
-# Target: all DCs + file01 (via host_vars delegation in site.yml)
+# Target: all DCs + scarif (via host_vars delegation in site.yml)
 #
 # Configures the enumeration / initial-access surface:
 #   REC-002 / IA-002   RestrictAnonymous=0, RestrictAnonymousSAM=0,
 #                      EveryoneIncludesAnonymous=1 on DCs
 #   REC-010 / IA-008   LLMNR enabled (remove GPO disable key); NBT-NS enabled
 #   IA-042             NullSessionPipes — lsarpc,samr,netlogon,srvsvc,browser
-#   IA-007             Guest account enabled on file01
+#   IA-007             Guest account enabled on scarif
 #   LAT-028            SMB signing disabled on non-DC members
 # ==============================================================================
 
@@ -122,9 +122,9 @@
   failed_when: result_nbtns_set.rc != 0
 
 # ------------------------------------------------------------------------------
-# IA-007: Guest account enabled on file01
-# This task should only run when the host is file01 — controlled by a
-# when: condition in site.yml or by targeting file01 host group.
+# IA-007: Guest account enabled on scarif
+# This task should only run when the host is scarif — controlled by a
+# when: condition in site.yml or by targeting scarif host group.
 # The role itself checks the account state before enabling.
 # ------------------------------------------------------------------------------
 - name: IA-007 - Check Guest account status
@@ -138,7 +138,7 @@
   failed_when: result_guest_check.rc != 0
   when: inventory_hostname in groups['file_servers'] | default([])
 
-- name: IA-007 - Enable Guest account on file01
+- name: IA-007 - Enable Guest account on scarif
   ansible.windows.win_shell: |
     Enable-LocalUser -Name "Guest" -ErrorAction Stop
     Set-LocalUser -Name "Guest" -PasswordNeverExpires $true -ErrorAction SilentlyContinue
@@ -149,7 +149,7 @@
   failed_when: result_guest_enable.rc != 0
 
 # ------------------------------------------------------------------------------
-# LAT-028: SMB signing disabled on non-DC member servers (file01, ws01, sql01)
+# LAT-028: SMB signing disabled on non-DC member servers (scarif, tatooine, kamino)
 # SMB signing enforced = NTLM relay blocked. We disable the requirement.
 # EnableSecuritySignature=0 + RequireSecuritySignature=0
 # Target-scoped: only applies when inventory_hostname is in member_servers group.
@@ -185,7 +185,7 @@
 # Idempotent — Set-DnsServerPrimaryZone is safe to re-run.
 # Only runs on DCs (dns server role present).
 # ------------------------------------------------------------------------------
-- name: REC-007 - Allow unrestricted DNS zone transfers on corp.local
+- name: REC-007 - Allow unrestricted DNS zone transfers on empire.local
   ansible.windows.win_shell: |
     Import-Module DnsServer
     # TransferAnyServer = unrestricted AXFR; no restriction on secondary IPs
@@ -232,6 +232,6 @@
   ansible.builtin.import_tasks: recon_ext.yml
   when: inventory_hostname in groups['all_dcs'] | default([])
 
-- name: Import enumeration guidance surfaces (dc01)
+- name: Import enumeration guidance surfaces (coruscant)
   ansible.builtin.import_tasks: enum.yml
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'

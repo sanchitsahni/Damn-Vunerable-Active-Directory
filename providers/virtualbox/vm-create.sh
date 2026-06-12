@@ -6,10 +6,10 @@ set -euo pipefail
 IFS=$'\n\t'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DUNDER_HOME="${DUNDER_HOME:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+EMPIRE_HOME="${EMPIRE_HOME:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 
 # Default packer output dir (can be overridden via --packer-output)
-PACKER_OUTPUT="${DUNDER_HOME}/packer-output"
+PACKER_OUTPUT="${EMPIRE_HOME}/packer-output"
 
 # ==============================================================================
 # Logging helpers
@@ -40,47 +40,47 @@ fi
 declare -A VM_DEFS
 
 VM_DEFS=(
-    # corp.local / eu.corp.local segment — vboxnet0
-    ["dc01"]="52:54:00:01:01:01|2048|40|2|vboxnet0|server2022"
-    ["dc01eu"]="52:54:00:01:01:02|1536|25|2|vboxnet0|server2022"
-    ["ca01"]="52:54:00:01:01:03|1536|25|2|vboxnet0|server2022"
-    ["file01"]="52:54:00:01:01:04|1536|20|2|vboxnet0|server2019"
-    ["sql01"]="52:54:00:01:01:05|2048|25|2|vboxnet0|server2022"
-    ["ws01"]="52:54:00:01:01:06|2048|30|2|vboxnet0|win10"
-    # finance.local segment — vboxnet0 (10.10.20.x)
-    ["dc01fin"]="52:54:00:02:01:01|1536|25|2|vboxnet0|server2022"
-    # root.corp segment — vboxnet0 (10.10.30.x)
-    ["dc01root"]="52:54:00:03:01:01|1536|25|2|vboxnet0|server2022"
+    # empire.local / eu.empire.local segment — vboxnet0
+    ["coruscant"]="52:54:00:01:01:01|2048|40|2|vboxnet0|server2022"
+    ["deathstar"]="52:54:00:01:01:02|1536|25|2|vboxnet0|server2022"
+    ["endor"]="52:54:00:01:01:03|1536|25|2|vboxnet0|server2022"
+    ["scarif"]="52:54:00:01:01:04|1536|20|2|vboxnet0|server2019"
+    ["kamino"]="52:54:00:01:01:05|2048|25|2|vboxnet0|server2022"
+    ["tatooine"]="52:54:00:01:01:06|2048|30|2|vboxnet0|win10"
+    # rebel.local segment — vboxnet0 (10.10.20.x)
+    ["yavin4"]="52:54:00:02:01:01|1536|25|2|vboxnet0|server2022"
+    # trade.corp segment — vboxnet0 (10.10.30.x)
+    ["neimoidia"]="52:54:00:03:01:01|1536|25|2|vboxnet0|server2022"
 )
 
 # VM name → FQDN
 declare -A VM_FQDN=(
-    ["dc01"]="dc01.corp.local"
-    ["dc01eu"]="dc01.eu.corp.local"
-    ["ca01"]="ca01.corp.local"
-    ["file01"]="file01.corp.local"
-    ["sql01"]="sql01.corp.local"
-    ["ws01"]="ws01.corp.local"
-    ["dc01fin"]="dc01.finance.local"
-    ["dc01root"]="dc01.root.corp"
+    ["coruscant"]="coruscant.empire.local"
+    ["deathstar"]="deathstar.eu.empire.local"
+    ["endor"]="endor.empire.local"
+    ["scarif"]="scarif.empire.local"
+    ["kamino"]="kamino.empire.local"
+    ["tatooine"]="tatooine.empire.local"
+    ["yavin4"]="yavin4.rebel.local"
+    ["neimoidia"]="neimoidia.trade.corp"
 )
 
 # VM name → static IP
 declare -A VM_IP=(
-    ["dc01"]="10.10.0.10"
-    ["dc01eu"]="10.10.0.11"
-    ["ca01"]="10.10.0.12"
-    ["file01"]="10.10.0.13"
-    ["sql01"]="10.10.0.14"
-    ["ws01"]="10.10.0.100"
-    ["dc01fin"]="10.10.20.10"
-    ["dc01root"]="10.10.30.10"
+    ["coruscant"]="10.10.0.10"
+    ["deathstar"]="10.10.0.11"
+    ["endor"]="10.10.0.12"
+    ["scarif"]="10.10.0.13"
+    ["kamino"]="10.10.0.14"
+    ["tatooine"]="10.10.0.100"
+    ["yavin4"]="10.10.20.10"
+    ["neimoidia"]="10.10.30.10"
 )
 
 # Profile → VM list (ordered)
-PROFILE_FULL=("dc01" "dc01eu" "ca01" "file01" "sql01" "ws01" "dc01fin" "dc01root")
-PROFILE_MINIMAL=("dc01" "dc01eu" "ca01" "file01" "sql01" "ws01")
-PROFILE_SINGLE_DC=("dc01")
+PROFILE_FULL=("coruscant" "deathstar" "endor" "scarif" "kamino" "tatooine" "yavin4" "neimoidia")
+PROFILE_MINIMAL=("coruscant" "deathstar" "endor" "scarif" "kamino" "tatooine")
+PROFILE_SINGLE_DC=("coruscant")
 
 # ==============================================================================
 # Helpers
@@ -455,7 +455,7 @@ Usage: $(basename "$0") [OPTIONS] COMMAND [ARGS]
 
 Options:
   --packer-output <dir>   Directory containing packer-output/ subdirs
-                          (default: ${DUNDER_HOME}/packer-output)
+                          (default: ${EMPIRE_HOME}/packer-output)
   --profile <profile>     VM profile: full | minimal | single-dc (default: full)
 
 Commands:
@@ -472,8 +472,8 @@ Commands:
 VM names: ${PROFILE_FULL[*]}
 Profiles:
   full       — all 8 VMs
-  minimal    — corp.local only (dc01 dc01eu ca01 file01 sql01 ws01)
-  single-dc  — dc01 only
+  minimal    — empire.local only (coruscant deathstar endor scarif kamino tatooine)
+  single-dc  — coruscant only
 EOF
     exit 1
 }

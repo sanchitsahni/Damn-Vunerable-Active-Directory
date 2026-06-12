@@ -1,6 +1,6 @@
 ---
 # ==============================================================================
-# vuln_privesc/tasks/ad_pe.yml  —  dc01.corp.local (import already gated)
+# vuln_privesc/tasks/ad_pe.yml  —  coruscant.empire.local (import already gated)
 # BATCHED: one templated run instead of ~4 WinRM round-trips.
 # Logic in templates/ad_pe.ps1.j2 (PE-123, PE-126, PE-128).
 # ==============================================================================

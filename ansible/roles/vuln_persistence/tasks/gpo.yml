@@ -1,9 +1,9 @@
 ---
 # ==============================================================================
 # vuln_persistence/tasks/gpo.yml
-# Target: dc01.corp.local
+# Target: coruscant.empire.local
 #
-# PER-034  Attacker-writable GPO (DVADBackdoorGPO) linked to corp.local OU
+# PER-034  Attacker-writable GPO (DVADBackdoorGPO) linked to empire.local OU
 #          with Domain Users holding GpoEdit rights — anyone can inject logon
 #          scripts or Computer\Preferences payloads.
 # ==============================================================================
@@ -26,13 +26,13 @@
   changed_when: "'changed:' in result_gpo_create.stdout"
   failed_when: result_gpo_create.rc != 0
 
-- name: PER-034 - Link DVADBackdoorGPO to corp.local domain root OU
+- name: PER-034 - Link DVADBackdoorGPO to empire.local domain root OU
   ansible.windows.win_shell: |
     Import-Module GroupPolicy
     $domain = (Get-ADDomain).DNSRoot
     # New-GPLink errors if link already exists; treat that as idempotent success
     try {
-      New-GPLink -Name "DVADBackdoorGPO" -Target "DC=corp,DC=local" -ErrorAction Stop | Out-Null
+      New-GPLink -Name "DVADBackdoorGPO" -Target "DC=empire,DC=local" -ErrorAction Stop | Out-Null
       Write-Output "changed: GPO linked"
     } catch {
       if ($_.Exception.Message -match "already") {

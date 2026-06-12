@@ -1,4 +1,4 @@
-# Product Requirements Document — DVAD (Damn Vulnerable Active Directory)
+# Product Requirements Document — EMPIRE (empire Mifflin Active Directory)
 
 **Version:** 3.0  
 **Status:** Build-ready / Active development  
@@ -10,7 +10,7 @@
 
 ## 1. Executive Summary
 
-DVAD is a **self-deploying, multi-forest Windows Active Directory CTF lab** that provisions 1–8 intentionally misconfigured VMs on QEMU/KVM via a single `python3 deploy.py` command. It is the enterprise-security equivalent of DVWA: every "bug" (disabled Defender, weak service accounts, ESC-vulnerable certificate templates, unconstrained delegation, SMB1, ZeroLogon preconditions, etc.) is a deliberate training feature.
+EMPIRE is a **self-deploying, multi-forest Windows Active Directory CTF lab** that provisions 1–8 intentionally misconfigured VMs on QEMU/KVM via a single `python3 deploy.py` command. It is the enterprise-security equivalent of DVWA: every "bug" (disabled Defender, weak service accounts, ESC-vulnerable certificate templates, unconstrained delegation, SMB1, ZeroLogon preconditions, etc.) is a deliberate training feature.
 
 **Target users:** Red-team operators, blue-team defenders, penetration-testers, CTF organizers, and cybersecurity students who need a reproducible, full-spectrum Active Directory attack surface.
 
@@ -35,7 +35,7 @@ DVAD is a **self-deploying, multi-forest Windows Active Directory CTF lab** that
 
 ## 3. Target Audience & Personas
 
-| Persona | Role | Needs met by DVAD |
+| Persona | Role | Needs met by EMPIRE |
 |---|---|---|
 | **Ava — Aspiring Penetration Tester** | Self-taught, studying for OSCP/eCPPT/CRTP | Needs a safe, full-AD environment to practice Kerberoasting, DCSync, ADCS ESC chains without breaking a production domain |
 | **Ben — Blue Team Analyst** | SOC analyst transitioning to threat hunting | Needs to understand how attacks manifest in Windows event logs; wants to build detection rules against known-bad behavior |
@@ -51,7 +51,7 @@ DVAD is a **self-deploying, multi-forest Windows Active Directory CTF lab** that
 
 - **Infrastructure automation** — Bash scripts for QEMU/KVM VM lifecycle, Linux bridge networking, dnsmasq DHCP, nftables NAT
 - **Windows Server 2022 Core** automated install via `autounattend.xml` + `post-install.ps1`
-- **Multi-forest AD topology** — `corp.local` (parent + child `eu.corp.local`), `finance.local` (external trust), `root.corp` (tree-root trust)
+- **Multi-forest AD topology** — `empire.local` (parent + child `eu.empire.local`), `rebel.local` (external trust), `trade.corp` (tree-root trust)
 - **Vulnerability injection** — 382 flag IDs across 8 MITRE ATT&CK-like phases (Initial Access → Recon → Enumeration → Credential Access → Lateral Movement → Privilege Escalation → Persistence → Domain/Forest Compromise)
 - **ADCS enterprise CA** with ESC1–ESC16 vulnerable certificate templates
 - **Ansible-driven post-deployment** — domain promotion, trust creation, user/group provisioning, ACL abuse, delegation misconfigurations, GPO backdoors, flag placement
@@ -90,12 +90,12 @@ DVAD is a **self-deploying, multi-forest Windows Active Directory CTF lab** that
 │  python3 deploy.py  ──►  7 phases end-to-end                          │
 │                                                                 │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │ dvad-ctf     │  │dvad-finance  │  │ dvad-root    │          │
+│  │ empire-ctf     │  │empire-rebel  │  │ empire-tradefed    │          │
 │  │ 10.10.0.1/24 │  │10.20.0.1/24 │  │10.30.0.1/24 │          │
 │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘          │
 │         │                 │                 │                  │
 │    ┌────┴────┐       ┌────┴────┐       ┌────┴────┐             │
-│    │ CORP    │       │FINANCE  │       │ ROOT    │             │
+│    │ EMPIRE    │       │REBEL  │       │ TRADE    │             │
 │    │ forest  │       │ forest  │       │ forest  │             │
 │    │ 6 VMs   │       │ 1 VM    │       │ 1 VM    │             │
 │    └─────────┘       └─────────┘       └─────────┘             │
@@ -109,41 +109,41 @@ DVAD is a **self-deploying, multi-forest Windows Active Directory CTF lab** that
 
 ```
                               +---------------------------+
-                              │   ENTERPRISE ROOT         │
-                              │   Forest: ROOT.CORP       │
-                              │   dc01.root.corp          │
+                              │   ENTERPRISE TRADE         │
+                              │   Forest: trade.corp       │
+                              │   neimoidia.trade.corp          │
                               +-------------+-------------+
                                             |
               +-----------------------------+-----------------------------+
               |                                                           |
 +-------------v-------------+                               +-------------v-------------+
-│  Forest: CORP.LOCAL       │                               │  Forest: FINANCE.LOCAL    │
-│  corp.local (parent)      │                               │  dc01.finance.local       │
-│  eu.corp.local (child)    │                               +-------------+-------------+
-│  + ca01, file01, sql01    │                                             |
-│  + ws01 (victim WS)       │                               External Trust (bi-dir)
+│  Forest: empire.local       │                               │  Forest: rebel.local    │
+│  empire.local (parent)      │                               │  yavin4.rebel.local       │
+│  eu.empire.local (child)    │                               +-------------+-------------+
+│  + endor, scarif, kamino    │                                             |
+│  + tatooine (victim WS)       │                               External Trust (bi-dir)
 +-------------+-------------+                                             v
                                               contractor.corp (stub / operator-extended)
 
 Trusts:
-  ROOT.CORP  <~> CORP.LOCAL   (Tree-Root,  bi-dir, SID filtering OFF)
-  ROOT.CORP  <~> FINANCE.LOCAL (External,   bi-dir, SID filtering OFF)
-  CORP.LOCAL parent <~> eu.corp.local child
-  FINANCE.LOCAL <~> contractor.corp (One-way incoming)
+  trade.corp  <~> empire.local   (Tree-Root,  bi-dir, SID filtering OFF)
+  trade.corp  <~> rebel.local (External,   bi-dir, SID filtering OFF)
+  empire.local parent <~> eu.empire.local child
+  rebel.local <~> contractor.corp (One-way incoming)
 ```
 
 ### 5.3 VM Manifest
 
 | Host | IP | Bridge | RAM | vCPU | VNC | Role |
 |---|---|---|---|---|---|---|
-| `dc01.corp.local` | `10.10.0.10` | `dvad-ctf` | 3 GB | 2 | :5901 | Primary DC, DNS, ADCS schema |
-| `dc01.eu.corp.local` | `10.10.0.11` | `dvad-ctf` | 2 GB | 1 | :5902 | Child DC (ExtraSID target) |
-| `ca01.corp.local` | `10.10.0.12` | `dvad-ctf` | 2 GB | 1 | :5903 | Enterprise CA (ESC1–16) |
-| `file01.corp.local` | `10.10.0.13` | `dvad-ctf` | 1.5 GB | 1 | :5904 | File server, SMB1, NFS, FTP, Telnet |
-| `sql01.corp.local` | `10.10.0.14` | `dvad-ctf` | 2 GB | 1 | :5905 | MSSQL (mixed-mode, xp_cmdshell) |
-| `ws01.corp.local` | `10.10.0.100` | `dvad-ctf` | 3 GB | 2 | :5906 | Victim workstation (phishing landing) |
-| `dc01.finance.local` | `10.20.0.10` | `dvad-finance` | 2 GB | 1 | :5907 | External trust DC |
-| `dc01.root.corp` | `10.30.0.10` | `dvad-root` | 2 GB | 1 | :5908 | Tree-root trust DC |
+| `coruscant.empire.local` | `10.10.0.10` | `empire-ctf` | 3 GB | 2 | :5901 | Primary DC, DNS, ADCS schema |
+| `deathstar.eu.empire.local` | `10.10.0.11` | `empire-ctf` | 2 GB | 1 | :5902 | Child DC (ExtraSID target) |
+| `endor.empire.local` | `10.10.0.12` | `empire-ctf` | 2 GB | 1 | :5903 | Enterprise CA (ESC1–16) |
+| `scarif.empire.local` | `10.10.0.13` | `empire-ctf` | 1.5 GB | 1 | :5904 | File server, SMB1, NFS, FTP, Telnet |
+| `kamino.empire.local` | `10.10.0.14` | `empire-ctf` | 2 GB | 1 | :5905 | MSSQL (mixed-mode, xp_cmdshell) |
+| `tatooine.empire.local` | `10.10.0.100` | `empire-ctf` | 3 GB | 2 | :5906 | Victim workstation (phishing landing) |
+| `yavin4.rebel.local` | `10.20.0.10` | `empire-rebel` | 2 GB | 1 | :5907 | External trust DC |
+| `neimoidia.trade.corp` | `10.30.0.10` | `empire-tradefed` | 2 GB | 1 | :5908 | Tree-root trust DC |
 
 > Invariant: Hostname/IP/MAC/bridge are hardcoded in four places that must stay in sync.
 
@@ -155,8 +155,8 @@ Trusts:
 
 | Phase | Script | Responsibility |
 |---|---|---|
-| P0 — Dependency Detect | `deploy.sh` | Auto-detect OS (apt/dnf/pacman/zypper), install qemu/libvirt/swtpm/ovmf/ansible/dnsmasq/nftables |
-| P1 — Network Setup | `qemu/network/setup-network.sh` | Create dvad-ctf/finance/root bridges + dvad-nat; start dnsmasq; write nftables NAT rules |
+| P0 — Dependency Detect | `deploy.py` | Auto-detect OS (apt/dnf/pacman/zypper), install qemu/libvirt/swtpm/ovmf/ansible/dnsmasq/nftables |
+| P1 — Network Setup | `qemu/network/setup-network.sh` | Create empire-ctf/finance/root bridges + empire-nat; start dnsmasq; write nftables NAT rules |
 | P2 — Media Download | `scripts/download-windows.sh` | Fetch Windows Server 2022 Eval ISO + virtio-win ISO into media/ (~5 GB, idempotent) |
 | P3 — VM Create & Boot | `qemu/vm-create.sh` | Generate per-VM autounattend.xml + post-install.ps1, pack into ISO, launch QEMU VMs |
 | P4 — Wait Loop | `scripts/wait-vms.sh` | Poll .installed markers; block until all VMs finish Windows setup |
@@ -226,15 +226,15 @@ All profiles support `--memory`, `--cpus`, `--disk-path`, `--vnc-bind` overrides
 
 ### 7.4 Security & Isolation
 
-- Lab VMs must have no outbound internet after install phase (NAT bridge dvad-nat is torn down)
+- Lab VMs must have no outbound internet after install phase (NAT bridge empire-nat is torn down)
 - VNC defaults to 127.0.0.1 only; `--vnc-bind 0.0.0.0` requires explicit user opt-in with firewall warning
 - WireGuard gateway (`scripts/vps-wg-gateway.sh`) is the only safe ingress for VPS deployments
-- All lab passwords and keys are public (DVADlab2024!, KrbtgtDVAD2024!, TrustKey2024!) and must never be reused
+- All lab passwords and keys are public (EmpireLab2024!, KrbtgtEmpire2024!, TrustKey2024!) and must never be reused
 
 ### 7.5 Observability
 
 - Per-VM logs in `vms/<name>.log`
-- Ansible verbose mode (`-v`) enabled by default in `deploy.sh`
+- Ansible verbose mode (`-v`) enabled by default in `deploy.py`
 - `scripts/wait-vms.sh` prints live status of `.installed` markers
 - `verify-lab.yml` smoke-checks reachability of key services (88/389/445/5985)
 
@@ -249,7 +249,7 @@ All profiles support `--memory`, `--cpus`, `--disk-path`, `--vnc-bind` overrides
 3. Wait 45–90 min; log out/in if prompted for kvm group
 4. Read the printed summary (VNC ports, connection hints)
 5. Open `WALKTHROUGH.md` and execute the "Canonical 5-minute solve"
-6. Validate success = NT AUTHORITY\SYSTEM on dc01.corp.local
+6. Validate success = NT AUTHORITY\SYSTEM on coruscant.empire.local
 
 ### 8.2 Operator Iteration Loop
 
@@ -311,36 +311,36 @@ all:
   children:
     corp_servers:
       hosts:
-        dc01.corp.local:     { ansible_host: 10.10.0.10 }
-        dc01.eu.corp.local:  { ansible_host: 10.10.0.11 }
-        ca01.corp.local:     { ansible_host: 10.10.0.12 }
-        file01.corp.local:   { ansible_host: 10.10.0.13 }
-        sql01.corp.local:    { ansible_host: 10.10.0.14 }
+        coruscant.empire.local:     { ansible_host: 10.10.0.10 }
+        deathstar.eu.empire.local:  { ansible_host: 10.10.0.11 }
+        endor.empire.local:     { ansible_host: 10.10.0.12 }
+        scarif.empire.local:   { ansible_host: 10.10.0.13 }
+        kamino.empire.local:    { ansible_host: 10.10.0.14 }
     corp_workstation:
       hosts:
-        ws01.corp.local:     { ansible_host: 10.10.0.100 }
+        tatooine.empire.local:     { ansible_host: 10.10.0.100 }
     finance_dcs:
       hosts:
-        dc01.finance.local:  { ansible_host: 10.20.0.10 }
+        yavin4.rebel.local:  { ansible_host: 10.20.0.10 }
     root_dcs:
       hosts:
-        dc01.root.corp:      { ansible_host: 10.30.0.10 }
+        neimoidia.trade.corp:      { ansible_host: 10.30.0.10 }
 ```
 
 ### 10.2 Key Variables (ansible/group_vars/all.yml)
 
 | Variable | Value | Purpose |
 |---|---|---|
-| dvad_password | DVADlab2024! | Lab-wide admin / service account password |
-| krbtgt_password | KrbtgtDVAD2024! | Deterministic krbtgt for Golden Ticket exercises |
+| empire_password | EmpireLab2024! | Lab-wide admin / service account password |
+| krbtgt_password | KrbtgtEmpire2024! | Deterministic krbtgt for Golden Ticket exercises |
 | trust_password | TrustKey2024! | Cross-forest trust key for trust-ticket forgery |
 | machine_account_quota | 10 | Enables noPac / Certifried preconditions |
 
 ### 10.3 File Layout (Repository)
 
 ```
-DVAD/
-|-- deploy.sh                    # Entry point
+EMPIRE/
+|-- deploy.py                    # Entry point
 |-- PLAN.md                      # 382-ID attack-matrix spec
 |-- WALKTHROUGH.md               # Copy-paste operator guide
 |-- PRD.md                       # This document
@@ -371,7 +371,7 @@ DVAD/
 |---|---|---|---|---|
 | R1 | Microsoft changes eval ISO URL / checksum | Medium | High | Mirror fallback; script allows manual media/ pre-placement |
 | R2 | Massgrave.dev blocked or taken down | Medium | Medium | Best-effort; lab works unactivated for 180 days |
-| R3 | KVM group changes require re-login | High | Low | deploy.sh warns; documented in README/Troubleshooting |
+| R3 | KVM group changes require re-login | High | Low | deploy.py warns; documented in README/Troubleshooting |
 | R4 | PLAN.md and code drift over time | Medium | High | PR rule: any new flag ID must update PLAN.md first |
 | R5 | Host OOM during full deploy | Medium | High | Pre-flight memory check + --memory / --minimal escapes |
 | R6 | Ansible WinRM timeouts on slow hosts | Medium | Low | wait-vms.sh blocks; ansible.timeout increased |
@@ -389,7 +389,7 @@ A release is considered **ready** when:
 4. [ ] `ansible-playbook -i inventory.yml playbooks/site.yml --syntax-check` passes
 5. [ ] The canonical 5-minute solve (password spray -> Kerberoast -> ESC1 -> DCSync -> Golden Ticket) succeeds
 6. [ ] At least one cross-forest pattern (Pattern Q or R from WALKTHROUGH.md) succeeds
-7. [ ] `nxc smb 10.10.0.0/24 -u alice -p 'DVADlab2024!'` returns all 6 corp hosts
+7. [ ] `nxc smb 10.10.0.0/24 -u alice -p 'EmpireLab2024!'` returns all 6 corp hosts
 8. [ ] docs/09-vps-deploy.md WireGuard tunnel recipe works on a fresh VPS
 9. [ ] All 382 flag IDs in PLAN.md have corresponding placement logic
 10. [ ] STUDY/ chapters 01-14 have no broken internal links
@@ -417,7 +417,7 @@ A release is considered **ready** when:
 
 ## 14. Appendix B: MITRE ATT&CK Mapping (Summary)
 
-| DVAD Phase | ATT&CK Tactic | Representative Techniques |
+| EMPIRE Phase | ATT&CK Tactic | Representative Techniques |
 |---|---|---|
 | IA (Initial Access) | TA0001 | T1078, T1133, T1566, T1190 |
 | REC (Recon) | TA0043 | T1083, T1087, T1018 |
@@ -431,3 +431,85 @@ A release is considered **ready** when:
 ---
 
 *End of PRD*
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

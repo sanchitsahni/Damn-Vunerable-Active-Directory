@@ -22,7 +22,7 @@
 # After 'up', copy the printed conf (or the file at $OUT_CLIENT_CONF) to your
 # Kali / BlackArch laptop, then:
 #   sudo wg-quick up ./dvad-attacker.conf
-#   nxc smb 10.10.0.10 -u alice -p 'DVADlab2024!'
+#   nxc smb 10.10.0.10 -u alice -p 'SithLord123!'
 #
 # Security note:
 #   Every VM in DVAD is intentionally vulnerable. DO NOT publish the lab
@@ -256,8 +256,8 @@ do_up() {
     log "Next steps on your Kali / BlackArch laptop:"
     echo "   scp root@${endpoint}:${OUT_CLIENT_CONF} ./dvad-attacker.conf"
     echo "   sudo wg-quick up ./dvad-attacker.conf"
-    echo "   ping 10.10.0.10        # dc01.corp.local"
-    echo "   nxc smb 10.10.0.10 -u alice -p 'DVADlab2024!'"
+    echo "   ping 10.10.0.10        # coruscant.empire.local"
+    echo "   nxc smb 10.10.0.10 -u alice -p 'SithLord123!'"
     echo
     warn "DO NOT expose the lab subnets directly. Confirm with: iptables -t nat -L POSTROUTING -n"
 }

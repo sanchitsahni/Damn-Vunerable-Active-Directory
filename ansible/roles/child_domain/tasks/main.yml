@@ -1,8 +1,8 @@
 ---
 # ==============================================================================
 # child_domain/tasks/main.yml
-# Promotes dc01.eu.corp.local as a child domain DC under corp.local.
-# Must run AFTER ad_domain has completed on dc01.corp.local.
+# Promotes deathstar.eu.empire.local as a child domain DC under empire.local.
+# Must run AFTER ad_domain has completed on coruscant.empire.local.
 # ==============================================================================
 
 # --------------------------------------------------------------------------
@@ -34,7 +34,7 @@
 
 - name: Set hostname
   ansible.windows.win_hostname:
-    name: "DC01-EU"
+    name: "coruscant-EU"
   register: hostname_result
 
 # --------------------------------------------------------------------------
@@ -103,7 +103,7 @@
 
 # --------------------------------------------------------------------------
 # Machine-SID uniqueness. All lab VMs are CoW clones of one Packer base, so
-# dc01.eu shares the parent DC's machine SID and DCPromo rejects the child join
+# coruscant.eu shares the parent DC's machine SID and DCPromo rejects the child join
 # with "the SID for this computer is already in use in the Forest". Generalizing
 # in Packer severs WinRM mid-build (Packer cannot then capture/shutdown), so we
 # regenerate the SID HERE via sysprep: the box reboots through OOBE (auto-completed
@@ -122,7 +122,7 @@
   ansible.windows.win_shell: |
     ((Get-LocalUser -Name Administrator).SID.Value) -replace '-\d+$',''
   register: parent_machine_sid
-  delegate_to: dc01.corp.local
+  delegate_to: coruscant.empire.local
   changed_when: false
   when: domain_role.stdout | trim not in ['4', '5']
 
@@ -207,8 +207,8 @@
 
 - name: Switch Ansible credentials to forest enterprise admin (rights on child DC)
   # A freshly-promoted child domain's built-in Administrator does NOT reliably
-  # carry DVADlab2024!, so 'Administrator@eu.corp.local' gets rejected. The
-  # parent/forest-root admin (CORP\Administrator = Enterprise Admin) can always
+  # carry SithLord123!, so 'Administrator@eu.empire.local' gets rejected. The
+  # parent/forest-root admin (EMPIRE\Administrator = Enterprise Admin) can always
   # authenticate to the child DC over WinRM.
   ansible.builtin.set_fact:
     ansible_user: "{{ parent_admin_user }}"
@@ -222,7 +222,7 @@
   when: domain_role.stdout | trim not in ['4', '5']
 
 # --------------------------------------------------------------------------
-# DNS self-reference — a freshly-promoted child DC hosts eu.corp.local itself,
+# DNS self-reference — a freshly-promoted child DC hosts eu.empire.local itself,
 # but its NIC DNS still points only at the parent (used during the join). It
 # must resolve its OWN SRV records to advertise; otherwise Netlogon/NTDS never
 # go "advertising" and ADWS refuses (1355). Point DNS at self first, parent

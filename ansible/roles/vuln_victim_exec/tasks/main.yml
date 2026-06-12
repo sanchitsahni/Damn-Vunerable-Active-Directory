@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_victim_exec/tasks/main.yml
-# Target: ws01.corp.local (and file01 where relevant)
+# Target: tatooine.empire.local (and scarif where relevant)
 #
 # Makes CLIENT-SIDE / phishing techniques solvable HEADLESSLY.
 #
@@ -93,7 +93,7 @@
   community.windows.win_scheduled_task:
     name: "{{ item.task_name }}"
     description: >
-      Dunder Mifflin — {{ item.username }} simulated victim executor.
+      empire Mifflin — {{ item.username }} simulated victim executor.
       Opens and runs dropped phishing artifacts and browses coercion files
       every {{ victim_exec_interval }}s for headless client-side exploitation.
     actions:

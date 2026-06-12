@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_cloud_entra/tasks/sync_accounts.yml — CLO-001..020
-# Target: dc01.corp.local
+# Target: coruscant.empire.local
 #
 # CLO-001  Entra Connect MSOL sync account (over-privileged)
 # CLO-002  PHS hash sync account (DCSync-capable service account)

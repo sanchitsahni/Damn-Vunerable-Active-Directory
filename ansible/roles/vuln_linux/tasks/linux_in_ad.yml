@@ -11,7 +11,7 @@
     dest: /etc/krb5.keytab
     # placeholder bytes — a real join overwrites this with the true host keytab;
     # either way it ends up world-readable below.
-    content: "DUNDER-lab placeholder host keytab — replaced by realm join.\n"
+    content: "EMPIRE-lab placeholder host keytab — replaced by realm join.\n"
     force: false
     mode: "0644"
 
@@ -21,15 +21,15 @@
     mode: "0644"
   failed_when: false
 
-# ── B2. AD group → passwordless sudo (CORP\Domain Users → root) ───────────────
-- name: B2 — Grant "CORP\Domain Users" passwordless sudo (AD group → root)
+# ── B2. AD group → passwordless sudo (EMPIRE\Domain Users → root) ───────────────
+- name: B2 — Grant "EMPIRE\Domain Users" passwordless sudo (AD group → root)
   ansible.builtin.copy:
-    dest: /etc/sudoers.d/dunder-ad
+    dest: /etc/sudoers.d/empire-ad
     mode: "0440"
     validate: "visudo -cf %s"
     content: |
-      # DUNDER lab — vulnerable: an entire AD group gets passwordless root.
-      # Any corp.local domain user → root via `sudo -i`.
+      # EMPIRE lab — vulnerable: an entire AD group gets passwordless root.
+      # Any empire.local domain user → root via `sudo -i`.
       %domain\ users@{{ vuln_linux_domain }} ALL=(ALL) NOPASSWD:ALL
       %{{ vuln_linux_netbios | lower }}\x5cdomain\ users ALL=(ALL) NOPASSWD:ALL
 
@@ -48,28 +48,28 @@
 # ── B4. Cron job (root) runs a world-writable script (cron → root LPE) ────────
 - name: B4 — Drop a world-writable script run by root cron
   ansible.builtin.copy:
-    dest: /opt/dunder/backup.sh
+    dest: /opt/empire/backup.sh
     mode: "0777"
     content: |
       #!/bin/bash
-      # DUNDER lab — "nightly backup". World-writable + run by root from cron.
+      # EMPIRE lab — "nightly backup". World-writable + run by root from cron.
       # Overwrite this file to get a root shell on the next tick.
-      echo "backup ran at $(date)" >> /var/log/dunder-backup.log
+      echo "backup ran at $(date)" >> /var/log/empire-backup.log
   vars:
     _ignore: ""
 
-- name: B4 — Ensure /opt/dunder exists and is writable
+- name: B4 — Ensure /opt/empire exists and is writable
   ansible.builtin.file:
-    path: /opt/dunder
+    path: /opt/empire
     state: directory
     mode: "0777"
 
 - name: B4 — Root cron job executing the world-writable script every minute
   ansible.builtin.cron:
-    name: "dunder-backup"
+    name: "empire-backup"
     user: root
     minute: "*"
-    job: "/opt/dunder/backup.sh"
+    job: "/opt/empire/backup.sh"
 
 # ── B5. SUID-root GTFOBins binary (find → root) ───────────────────────────────
 - name: B5 — Provide a SUID-root copy of find (GTFOBins LPE)
@@ -90,7 +90,7 @@
     group: labadmin
     mode: "0644"
     content: |
-      # DUNDER lab — leftover deployment creds (use against the DC).
+      # EMPIRE lab — leftover deployment creds (use against the DC).
       domain={{ vuln_linux_netbios }}
       user={{ vuln_linux_leaked_ad_user }}
       password={{ vuln_linux_leaked_ad_pass }}
@@ -113,17 +113,17 @@
 # ── B7. NFS export with no_root_squash ────────────────────────────────────────
 - name: B7 — Ensure NFS export dir exists
   ansible.builtin.file:
-    path: /srv/nfs/dunder
+    path: /srv/nfs/empire
     state: directory
     mode: "0777"
 
-- name: B7 — Export /srv/nfs/dunder with no_root_squash (NFS → root)
+- name: B7 — Export /srv/nfs/empire with no_root_squash (NFS → root)
   ansible.builtin.lineinfile:
     path: /etc/exports
     create: true
     mode: "0644"
-    regexp: "^/srv/nfs/dunder"
-    line: "/srv/nfs/dunder *(rw,sync,no_root_squash,no_subtree_check,insecure)"
+    regexp: "^/srv/nfs/empire"
+    line: "/srv/nfs/empire *(rw,sync,no_root_squash,no_subtree_check,insecure)"
   notify: restart nfs
 
 # ── B8. Weak SSH — password auth, weak user, poisonable authorized_keys ───────
@@ -137,10 +137,10 @@
 
 - name: B8 — Force SSH password auth on (weak-credential brute target)
   ansible.builtin.copy:
-    dest: /etc/ssh/sshd_config.d/00-dunder.conf
+    dest: /etc/ssh/sshd_config.d/00-empire.conf
     mode: "0644"
     content: |
-      # DUNDER lab — intentionally weak SSH
+      # EMPIRE lab — intentionally weak SSH
       PasswordAuthentication yes
       PermitRootLogin yes
       PubkeyAuthentication yes

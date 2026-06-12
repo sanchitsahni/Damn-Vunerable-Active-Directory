@@ -4,10 +4,10 @@
 # Override per-host in inventory group_vars or host_vars
 # ==============================================================================
 
-ad_domain: "corp.local"
-ad_netbios: "CORP"
-ad_password: "DVADlab2024!"
-ad_safe_mode_password: "DVADlab2024!"
+ad_domain: "empire.local"
+ad_netbios: "EMPIRE"
+ad_password: "SithLord123!"
+ad_safe_mode_password: "SithLord123!"
 
 # DC IP used for LDAP readiness checks by downstream roles
 ad_dc_ip: "10.10.0.10"

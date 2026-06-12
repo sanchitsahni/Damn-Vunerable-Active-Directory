@@ -1,21 +1,21 @@
 ---
 # ==============================================================================
 # vuln_web_apps/tasks/main.yml — WEB-001..080
-# Web application attack surfaces on IIS (file01.corp.local)
+# Web application attack surfaces on IIS (scarif.empire.local)
 #
-# iis_config.yml  — file01: WEB-001..020 IIS misconfiguration surfaces
-# web_vulns.yml   — file01: WEB-021..060 web app vulnerability surfaces
-# web_notes.yml   — dc01:   WEB-061..080 notes and AD web integration surfaces
+# iis_config.yml  — scarif: WEB-001..020 IIS misconfiguration surfaces
+# web_vulns.yml   — scarif: WEB-021..060 web app vulnerability surfaces
+# web_notes.yml   — coruscant:   WEB-061..080 notes and AD web integration surfaces
 # ==============================================================================
 
-- name: Import IIS misconfiguration tasks (file01)
+- name: Import IIS misconfiguration tasks (scarif)
   ansible.builtin.import_tasks: iis_config.yml
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
-- name: Import web vulnerability tasks (file01)
+- name: Import web vulnerability tasks (scarif)
   ansible.builtin.import_tasks: web_vulns.yml
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: Import web attack notes (DC side)
   ansible.builtin.import_tasks: web_notes.yml
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'

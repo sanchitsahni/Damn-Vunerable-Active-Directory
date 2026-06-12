@@ -5,7 +5,7 @@
 # ==============================================================================
 set -euo pipefail
 
-MEDIA_DIR="${DUNDER_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/media"
+MEDIA_DIR="${EMPIRE_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/media"
 VHD_FILE="${MEDIA_DIR}/windows-server-2022-eval.vhd"
 VIRTIO_ISO="${MEDIA_DIR}/virtio-win.iso"
 WINDOWS_VHD_URL=""

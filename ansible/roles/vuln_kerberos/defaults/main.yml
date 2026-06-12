@@ -6,26 +6,26 @@
 # ==============================================================================
 
 kerberoast_accounts:
-  svc_printer: "Summer2024"
-  svc_dwight:  "BeetFarm1!"
-  svc_creed:   "Creed123"
+  svc_trooper: "Summer2024"
+  svc_maul:  "BeetFarm1!"
+  svc_sidious:   "Creed123"
 
-asrep_account: "svc_michael"
+asrep_account: "svc_palpatine"
 
 # SPNs to register (CRED-001)
-spn_printer: "HTTP/print.corp.local"
-spn_dwight:  "MSSQLSvc/sql01.corp.local:1433"
+spn_printer: "HTTP/print.empire.local"
+spn_dwight:  "MSSQLSvc/kamino.empire.local:1433"
 
 # Constrained delegation target (CRED-016)
-delegation_target: "HTTP/ws01.corp.local"
+delegation_target: "HTTP/tatooine.empire.local"
 
 # Computer accounts for unconstrained delegation (CRED-018)
 unconstrained_computers:
-  - FILE01
-  - WS01
+  - scarif
+  - tatooine
 
 # RC4-only encryption type bitmask: 0x1 = RC4_HMAC_MD5 only
 rc4_only_enctype: 1
 
-ad_domain: "corp.local"
-ad_basedn:  "DC=corp,DC=local"
+ad_domain: "empire.local"
+ad_basedn:  "DC=empire,DC=local"

@@ -6,13 +6,13 @@ set -euo pipefail
 IFS=$'\n\t'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DUNDER_HOME="${DUNDER_HOME:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+EMPIRE_HOME="${EMPIRE_HOME:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 
 # Default packer output dir (can be overridden via --packer-output)
-PACKER_OUTPUT="${DUNDER_HOME}/packer-output"
+PACKER_OUTPUT="${EMPIRE_HOME}/packer-output"
 
 # Per-VM runtime state lives here
-VM_STATE_DIR="${DUNDER_HOME}/vms"
+VM_STATE_DIR="${EMPIRE_HOME}/vms"
 
 VNC_BIND="127.0.0.1"
 
@@ -47,57 +47,57 @@ declare -A VM_DEFS
 
 # RAM right-sized BY LOAD to keep the full 9-VM lab under ~16 GB real usage.
 # Sum = 12.25 GB alloc -> ~15 GB real with qemu overhead. The workhorses get
-# more; the near-idle lone trust DCs (dc01fin/dc01root) and the child DC get
+# more; the near-idle lone trust DCs (yavin4/neimoidia) and the child DC get
 # the floor. All guests have Windows pagefile on, so transient spikes swap
 # rather than OOM. If a low-RAM DC's promotion still struggles, bump it +256.
-#   dc01    1792  forest root: AD+DNS+both trusts + bulk of vuln injection
-#   sql01   1792  MSSQL engine (memory-hungry)
-#   ca01    1536  ADCS / CA role
-#   dc01eu  1280  child DC (light)
-#   file01  1280  2019 file/IIS/SMB/services
-#   dc01fin 1280  lone DC — only holds the finance trust (near-idle)
+#   coruscant    1792  forest root: AD+DNS+both trusts + bulk of vuln injection
+#   kamino   1792  MSSQL engine (memory-hungry)
+#   endor    1536  ADCS / CA role
+#   deathstar  1280  child DC (light)
+#   scarif  1280  2019 file/IIS/SMB/services
+#   yavin4 1280  lone DC — only holds the finance trust (near-idle)
 #   dc01root1280  lone DC — only holds the root trust (near-idle)
-#   linux01 1280  Ubuntu + lightweight services
-#   ws01    1024  Server Core victim member (no roles, just sim tasks)
+#   mandalore 1280  Ubuntu + lightweight services
+#   tatooine    1024  Server Core victim member (no roles, just sim tasks)
 VM_DEFS=(
-    # corp.local / eu.corp.local segment — bridge dvad-ctf
-    ["dc01"]="52:54:00:01:01:01|1792|40|2|5901|dvad-ctf|server2022"
-    ["dc01eu"]="52:54:00:01:01:02|1280|25|2|5902|dvad-ctf|server2022"
-    ["ca01"]="52:54:00:01:01:03|1536|25|2|5903|dvad-ctf|server2022"
-    ["file01"]="52:54:00:01:01:04|1280|20|2|5904|dvad-ctf|server2019"
-    ["sql01"]="52:54:00:01:01:05|1792|25|2|5905|dvad-ctf|server2022"
-    # ws01 — Server Core member acting as the victim "workstation" (headless,
+    # empire.local / eu.empire.local segment — bridge dvad-ctf
+    ["coruscant"]="52:54:00:01:01:01|1792|40|2|5901|dvad-ctf|server2022"
+    ["deathstar"]="52:54:00:01:01:02|1280|25|2|5902|dvad-ctf|server2022"
+    ["endor"]="52:54:00:01:01:03|1536|25|2|5903|dvad-ctf|server2022"
+    ["scarif"]="52:54:00:01:01:04|1280|20|2|5904|dvad-ctf|server2019"
+    ["kamino"]="52:54:00:01:01:05|1792|25|2|5905|dvad-ctf|server2022"
+    # tatooine — Server Core member acting as the victim "workstation" (headless,
     # no GUI). Was Win10 Desktop; converted to reuse the server2022 base so the
     # whole lab is GUI-less and lower-RAM. All AD/network/coercion attacks still
     # apply via vuln_victim_exec + vuln_traffic_sim. GUI-only CVEs were removed.
-    ["ws01"]="52:54:00:01:01:06|1024|30|2|5906|dvad-ctf|server2022"
-    # finance.local segment — single bridge dvad-ctf (10.10.20.x)
-    ["dc01fin"]="52:54:00:02:01:01|1280|25|2|5907|dvad-ctf|server2022"
-    # root.corp segment — single bridge dvad-ctf (10.10.30.x)
-    ["dc01root"]="52:54:00:03:01:01|1280|25|2|5908|dvad-ctf|server2022"
-    # linux01 — Ubuntu 22.04 cloud member (Linux-in-AD). NOT a packer build:
+    ["tatooine"]="52:54:00:01:01:06|1024|30|2|5906|dvad-ctf|server2022"
+    # rebel.local segment — single bridge dvad-ctf (10.10.20.x)
+    ["yavin4"]="52:54:00:02:01:01|1280|25|2|5907|dvad-ctf|server2022"
+    # trade.corp segment — single bridge dvad-ctf (10.10.30.x)
+    ["neimoidia"]="52:54:00:03:01:01|1280|25|2|5908|dvad-ctf|server2022"
+    # mandalore — Ubuntu 22.04 cloud member (Linux-in-AD). NOT a packer build:
     # base_image "ubuntu" resolves to media/ubuntu-22.04-cloud.img and the
     # launch branch boots it COW + a cloud-init NoCloud seed ISO (no install).
-    ["linux01"]="52:54:00:01:01:07|1280|20|2|5909|dvad-ctf|ubuntu"
+    ["mandalore"]="52:54:00:01:01:07|1280|20|2|5909|dvad-ctf|ubuntu"
 )
 
 # Ordered name → FQDN mapping (associative arrays are unordered in Bash)
 declare -A VM_FQDN=(
-    ["dc01"]="dc01.corp.local"
-    ["dc01eu"]="dc01.eu.corp.local"
-    ["ca01"]="ca01.corp.local"
-    ["file01"]="file01.corp.local"
-    ["sql01"]="sql01.corp.local"
-    ["ws01"]="ws01.corp.local"
-    ["dc01fin"]="dc01.finance.local"
-    ["dc01root"]="dc01.root.corp"
-    ["linux01"]="linux01.corp.local"
+    ["coruscant"]="coruscant.empire.local"
+    ["deathstar"]="deathstar.eu.empire.local"
+    ["endor"]="endor.empire.local"
+    ["scarif"]="scarif.empire.local"
+    ["kamino"]="kamino.empire.local"
+    ["tatooine"]="tatooine.empire.local"
+    ["yavin4"]="yavin4.rebel.local"
+    ["neimoidia"]="neimoidia.trade.corp"
+    ["mandalore"]="mandalore.empire.local"
 )
 
 # Profile → VM list (ordered)
-PROFILE_FULL=("dc01" "dc01eu" "ca01" "file01" "sql01" "ws01" "dc01fin" "dc01root" "linux01")
-PROFILE_MINIMAL=("dc01" "dc01eu" "ca01" "file01" "sql01" "ws01" "linux01")
-PROFILE_SINGLE_DC=("dc01")
+PROFILE_FULL=("coruscant" "deathstar" "endor" "scarif" "kamino" "tatooine" "yavin4" "neimoidia" "mandalore")
+PROFILE_MINIMAL=("coruscant" "deathstar" "endor" "scarif" "kamino" "tatooine" "mandalore")
+PROFILE_SINGLE_DC=("coruscant")
 
 # ==============================================================================
 # Helpers
@@ -112,7 +112,7 @@ resolve_base_image() {
         server2019) path="${PACKER_OUTPUT}/server2019-qemu/windows-server-2019-base.qcow2" ;;
         win10)      path="${PACKER_OUTPUT}/win10-qemu/windows-10-base.qcow2" ;;
         # ubuntu — prebuilt cloud image fetched by deploy.py phase 0 (no packer).
-        ubuntu)     path="${DUNDER_HOME}/media/ubuntu-22.04-cloud.img" ;;
+        ubuntu)     path="${EMPIRE_HOME}/media/ubuntu-22.04-cloud.img" ;;
         *)
             err "Unknown base image key: ${key}"
             return 1
@@ -185,9 +185,9 @@ destroy_tap() {
 # resolve_win_iso <base_image_key> -> path to the Windows install ISO
 resolve_win_iso() {
     case "$1" in
-        server2022) echo "${DUNDER_HOME}/media/windows-server-2022.iso" ;;
-        server2019) echo "${DUNDER_HOME}/media/windows-server-2019.iso" ;;
-        win10)      echo "${DUNDER_HOME}/media/windows-10.iso" ;;
+        server2022) echo "${EMPIRE_HOME}/media/windows-server-2022.iso" ;;
+        server2019) echo "${EMPIRE_HOME}/media/windows-server-2019.iso" ;;
+        win10)      echo "${EMPIRE_HOME}/media/windows-10.iso" ;;
         *) err "No Windows ISO mapping for base image: $1"; return 1 ;;
     esac
 }
@@ -199,7 +199,7 @@ resolve_win_iso() {
 build_unattend_iso() {
     local vm_name="$1" os="$2"
     local ua_src="${SCRIPT_DIR}/unattend/autounattend-${os}.xml"
-    local winrm_src="${DUNDER_HOME}/packer/scripts/setup-winrm.ps1"
+    local winrm_src="${EMPIRE_HOME}/packer/scripts/setup-winrm.ps1"
     [[ -f "${ua_src}" ]]    || { err "No autounattend for ${os}: ${ua_src}"; return 1; }
     [[ -f "${winrm_src}" ]] || { err "setup-winrm.ps1 missing: ${winrm_src}"; return 1; }
 
@@ -364,7 +364,7 @@ create_vm() {
 # ==============================================================================
 
 # Path to the lab SSH private key ansible uses to reach Linux members.
-LINUX_SSH_KEY="${DUNDER_HOME}/vms/linux01_id"
+LINUX_SSH_KEY="${EMPIRE_HOME}/vms/linux01_id"
 
 # ensure_linux_ssh_key — generate vms/linux01_id{,.pub} if absent (idempotent).
 ensure_linux_ssh_key() {
@@ -373,7 +373,7 @@ ensure_linux_ssh_key() {
         return 0
     fi
     log "Generating lab SSH keypair for Linux members → ${LINUX_SSH_KEY}"
-    ssh-keygen -t ed25519 -N "" -C "labadmin@dunder" -f "${LINUX_SSH_KEY}" >/dev/null
+    ssh-keygen -t ed25519 -N "" -C "labadmin@empire" -f "${LINUX_SSH_KEY}" >/dev/null
 }
 
 # detect_iso_tool — echo the first available ISO-builder, or empty if none.
@@ -418,11 +418,11 @@ ssh_pwauth: true
 disable_root: false
 users:
   - name: labadmin
-    gecos: DUNDER Lab Admin
+    gecos: EMPIRE Lab Admin
     groups: [sudo]
     shell: /bin/bash
     lock_passwd: false
-    # password: DVADlab2024!  (intentionally weak — vulnerable lab)
+    # password: SithLord123!  (intentionally weak — vulnerable lab)
     passwd: \$6\$dunderlab\$Hl0gnUuJ4Yx0a8pYxN0aQ7rGq0i1m3oVrTn9wQ2bFv6sJxN0kS8eR5wT3uY1iO6pA9dG7hL4jK2mN0bV8cX1z.
     sudo: ALL=(ALL) NOPASSWD:ALL
     ssh_authorized_keys:
@@ -756,15 +756,15 @@ wait_for_winrm() {
 get_vm_ip() {
     local vm_name="$1"
     case "${vm_name}" in
-        dc01)     echo "10.10.0.10"  ;;
-        dc01eu)   echo "10.10.0.11"  ;;
-        ca01)     echo "10.10.0.12"  ;;
-        file01)   echo "10.10.0.13"  ;;
-        sql01)    echo "10.10.0.14"  ;;
-        ws01)     echo "10.10.0.100" ;;
-        dc01fin)  echo "10.10.20.10" ;;
-        dc01root) echo "10.10.30.10" ;;
-        linux01)  echo "10.10.0.15"  ;;
+        coruscant)     echo "10.10.0.10"  ;;
+        deathstar)   echo "10.10.0.11"  ;;
+        endor)     echo "10.10.0.12"  ;;
+        scarif)   echo "10.10.0.13"  ;;
+        kamino)    echo "10.10.0.14"  ;;
+        tatooine)     echo "10.10.0.100" ;;
+        yavin4)  echo "10.10.20.10" ;;
+        neimoidia) echo "10.10.30.10" ;;
+        mandalore)  echo "10.10.0.15"  ;;
         *)
             err "No IP mapping for VM: ${vm_name}"
             return 1
@@ -876,7 +876,7 @@ stop_all() {
 # Run AFTER a successful provision. VMs are stopped first (qemu-img can't safely
 # snapshot a running image). Internal snapshots are instant + space-efficient.
 # ==============================================================================
-SNAP_NAME_DEFAULT="dunder-provisioned"
+SNAP_NAME_DEFAULT="empire-provisioned"
 snapshot_all() {
     local profile="${1:-full}"
     local snap="${2:-${SNAP_NAME_DEFAULT}}"
@@ -940,7 +940,7 @@ Usage: $(basename "$0") [OPTIONS] COMMAND [ARGS]
 
 Options:
   --packer-output <dir>   Directory containing packer-output/ subdirs
-                          (default: ${DUNDER_HOME}/packer-output)
+                          (default: ${EMPIRE_HOME}/packer-output)
   --profile <profile>     VM profile: full | minimal | single-dc (default: full)
 
 Commands:
@@ -955,8 +955,8 @@ Commands:
 VM names: ${PROFILE_FULL[*]}
 Profiles:
   full       — all 8 VMs
-  minimal    — corp.local only (dc01 dc01eu ca01 file01 sql01 ws01)
-  single-dc  — dc01 only
+  minimal    — empire.local only (coruscant deathstar endor scarif kamino tatooine)
+  single-dc  — coruscant only
 EOF
     exit 1
 }

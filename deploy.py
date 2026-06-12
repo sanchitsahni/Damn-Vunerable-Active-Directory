@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DUNDER — Dunder Mifflin Vulnerable AD Lab — interactive menu."""
+"""EMPIRE — empire Mifflin Vulnerable AD Lab — interactive menu."""
 import sys
 assert sys.version_info >= (3, 8), "Python 3.8+ required"
 
@@ -19,8 +19,8 @@ from pathlib import Path
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-DUNDER_HOME = Path(__file__).parent.resolve()
-LOCK_FILE   = Path("/tmp/dunder-deploy.lock")
+EMPIRE_HOME = Path(__file__).parent.resolve()
+LOCK_FILE   = Path("/tmp/empire-deploy.lock")
 
 IS_TTY = sys.stdin.isatty() and sys.stdout.isatty()
 
@@ -42,7 +42,7 @@ VIRTIO_WIN_URL = (
 )
 
 # Ubuntu 22.04 LTS (jammy) cloud image — prebuilt, NOT a packer build.
-# The Linux member (linux01) boots this directly via a qcow2 backing clone +
+# The Linux member (mandalore) boots this directly via a qcow2 backing clone +
 # a cloud-init NoCloud seed ISO. See providers/qemu/vm-create.sh launch branch.
 UBUNTU_CLOUD_IMG = {
     "filename": "ubuntu-22.04-cloud.img",
@@ -64,19 +64,19 @@ WINDOWS_ISOS = [
         "url": "https://software-static.download.prss.microsoft.com/dbazure/988969d5-f34g-4e03-ac9d-1f9786c66749/17763.3650.221105-1748.rs5_release_svc_refresh_SERVER_EVAL_x64FRE_en-us.iso",
         "size_hint": "~5.3 GB",
     },
-    # windows-10.iso dropped — ws01 is now Server Core (server2022 base).
+    # windows-10.iso dropped — tatooine is now Server Core (server2022 base).
 ]
 
 PROFILES = {
-    "full":      {"vms": 9, "forests": 3, "ram_gb": 12.25, "label": "9 VMs (incl. linux01) · 3 forests · ~12.25 GB alloc (~15 GB real)"},
-    "minimal":   {"vms": 7, "forests": 1, "ram_gb": 9.75,  "label": "7 VMs · corp.local + linux01 · ~9.75 GB alloc (rock-solid)"},
+    "full":      {"vms": 9, "forests": 3, "ram_gb": 12.25, "label": "9 VMs (incl. mandalore) · 3 forests · ~12.25 GB alloc (~15 GB real)"},
+    "minimal":   {"vms": 7, "forests": 1, "ram_gb": 9.75,  "label": "7 VMs · empire.local + mandalore · ~9.75 GB alloc (rock-solid)"},
     "single-dc": {"vms": 1, "forests": 1, "ram_gb": 1.5,  "label": "1 VM · smoke test · ~1.5 GB RAM"},
 }
 
 PACKER_TEMPLATES = [
     "windows-server-2022.pkr.hcl",
     "windows-server-2019.pkr.hcl",
-    # windows-10.pkr.hcl dropped — ws01 now uses the Server Core (server2022)
+    # windows-10.pkr.hcl dropped — tatooine now uses the Server Core (server2022)
     # base so the whole lab is headless. No Win10 image/ISO needed.
 ]
 
@@ -147,7 +147,7 @@ def cmd_in_path(name: str) -> bool:
 # Subprocess helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_cmd(label: str, cmd: list, cwd: Path = DUNDER_HOME, env: dict = None) -> bool:
+def run_cmd(label: str, cmd: list, cwd: Path = EMPIRE_HOME, env: dict = None) -> bool:
     info(f"Running: {' '.join(str(c) for c in cmd)}")
     merged_env = {**os.environ}
     if env:
@@ -174,7 +174,7 @@ def run_cmd(label: str, cmd: list, cwd: Path = DUNDER_HOME, env: dict = None) ->
     return False
 
 
-def run_streaming(label: str, cmd: list, cwd: Path = DUNDER_HOME, env: dict = None) -> bool:
+def run_streaming(label: str, cmd: list, cwd: Path = EMPIRE_HOME, env: dict = None) -> bool:
     """Run cmd with live stdout/stderr — for long downloads or Ansible."""
     info(f"Running: {' '.join(str(c) for c in cmd)}")
     merged_env = {**os.environ}
@@ -239,7 +239,7 @@ def _box_line(text: str) -> str:
 def print_banner():
     print(f"\n{C}{BLD}")
     print("╔" + "═" * _BANNER_W + "╗")
-    print(_box_line("   DUNDER  ·  Dunder Mifflin Vulnerable Active Directory"))
+    print(_box_line("   EMPIRE  ·  empire Mifflin Vulnerable Active Directory"))
     print(_box_line("   CTF / Red-Team Lab  ·  deploy.py"))
     print("╚" + "═" * _BANNER_W + "╝")
     print(NC, end="")
@@ -326,7 +326,7 @@ def _download_file(label: str, url: str, dest: Path, min_mb: int = _MIN_ISO_MB) 
 
 def phase_download_media(cfg: dict) -> bool:
     step("Phase 0: Download required media")
-    media_dir = DUNDER_HOME / "media"
+    media_dir = EMPIRE_HOME / "media"
     media_dir.mkdir(parents=True, exist_ok=True)
 
     ok = True
@@ -340,7 +340,7 @@ def phase_download_media(cfg: dict) -> bool:
         ok = _download_file(iso["filename"], iso["url"],
                             media_dir / iso["filename"]) and ok
 
-    # Ubuntu cloud image for the Linux member (linux01). Prebuilt — no packer.
+    # Ubuntu cloud image for the Linux member (mandalore). Prebuilt — no packer.
     # ~700 MB; resumable; skipped if already present and ≥ min_mb.
     ok = _download_file(
         UBUNTU_CLOUD_IMG["filename"], UBUNTU_CLOUD_IMG["url"],
@@ -371,7 +371,7 @@ def _packer_output_dir(tpl: str, provider: str):
     subdir = PACKER_OUTPUT_DIRS.get((tpl, provider))
     if not subdir:
         return None
-    return DUNDER_HOME / "packer-output" / subdir
+    return EMPIRE_HOME / "packer-output" / subdir
 
 
 def _packer_output_built(tpl: str, provider: str) -> bool:
@@ -516,9 +516,9 @@ def phase_packer_build(cfg: dict) -> bool:
     if cfg["provider"] == "qemu":
         log("Skipped — all-fresh: Windows VMs install from ISO in phase 3 (unique SID, no base image).")
         return True
-    packer_dir = DUNDER_HOME / "packer"
+    packer_dir = EMPIRE_HOME / "packer"
     only_flag  = "*.qemu.*" if cfg["provider"] == "qemu" else "*.virtualbox-iso.*"
-    log_dir    = DUNDER_HOME / "packer-output" / "logs"
+    log_dir    = EMPIRE_HOME / "packer-output" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     results    = {}
 
@@ -621,7 +621,7 @@ def phase_network_setup(cfg: dict) -> bool:
     if cfg["provider"] != "qemu":
         info("Skipping network setup (not QEMU provider).")
         return True
-    net_script = DUNDER_HOME / "providers" / "qemu" / "network-setup.sh"
+    net_script = EMPIRE_HOME / "providers" / "qemu" / "network-setup.sh"
     if not net_script.exists():
         err(f"Network setup script not found: {net_script}")
         return False
@@ -630,7 +630,7 @@ def phase_network_setup(cfg: dict) -> bool:
 
 def phase_vm_create(cfg: dict) -> bool:
     step("Phase 3: VM creation")
-    vm_script = DUNDER_HOME / "providers" / cfg["provider"] / "vm-create.sh"
+    vm_script = EMPIRE_HOME / "providers" / cfg["provider"] / "vm-create.sh"
     if not vm_script.exists():
         err(f"VM create script not found: {vm_script}")
         return False
@@ -645,20 +645,20 @@ def phase_vm_create(cfg: dict) -> bool:
 # vm name (matches vms/<name>.qcow2) -> (static IP, readiness port, VNC port).
 # Windows VMs come up on WinRM 5985; the Linux member on SSH 22.
 _VM_READY = {
-    "dc01":     ("10.10.0.10",  5985, 5901),
-    "dc01eu":   ("10.10.0.11",  5985, 5902),
-    "ca01":     ("10.10.0.12",  5985, 5903),
-    "file01":   ("10.10.0.13",  5985, 5904),
-    "sql01":    ("10.10.0.14",  5985, 5905),
-    "ws01":     ("10.10.0.100", 5985, 5906),
-    "dc01fin":  ("10.10.20.10", 5985, 5907),
-    "dc01root": ("10.10.30.10", 5985, 5908),
-    "linux01":  ("10.10.0.15",  22,   5909),
+    "coruscant":     ("10.10.0.10",  5985, 5901),
+    "deathstar":   ("10.10.0.11",  5985, 5902),
+    "endor":     ("10.10.0.12",  5985, 5903),
+    "scarif":   ("10.10.0.13",  5985, 5904),
+    "kamino":    ("10.10.0.14",  5985, 5905),
+    "tatooine":     ("10.10.0.100", 5985, 5906),
+    "yavin4":  ("10.10.20.10", 5985, 5907),
+    "neimoidia": ("10.10.30.10", 5985, 5908),
+    "mandalore":  ("10.10.0.15",  22,   5909),
 }
 _PROFILE_VMS = {
-    "full":      ["dc01", "dc01eu", "ca01", "file01", "sql01", "ws01", "dc01fin", "dc01root", "linux01"],
-    "minimal":   ["dc01", "dc01eu", "ca01", "file01", "sql01", "ws01", "linux01"],
-    "single-dc": ["dc01"],
+    "full":      ["coruscant", "deathstar", "endor", "scarif", "kamino", "tatooine", "yavin4", "neimoidia", "mandalore"],
+    "minimal":   ["coruscant", "deathstar", "endor", "scarif", "kamino", "tatooine", "mandalore"],
+    "single-dc": ["coruscant"],
 }
 
 
@@ -674,14 +674,14 @@ def phase_wait_winrm(cfg: dict) -> bool:
     step("Phase 4: Installing VMs — live progress until WinRM/SSH answers")
     profile  = cfg["profile"]
     vms      = _PROFILE_VMS.get(profile, _PROFILE_VMS["full"])
-    disk_dir = Path(cfg.get("disk_path") or (DUNDER_HOME / "vms"))
+    disk_dir = Path(cfg.get("disk_path") or (EMPIRE_HOME / "vms"))
     max_min  = int(os.environ.get("MAX_WAIT_MINUTES", "60"))
     deadline = time.time() + max_min * 60
     start    = time.time()
     poll     = 15
 
     info(f"All-fresh: each Windows VM installs from ISO (~15-20 min, parallel); "
-         f"linux01 boots cloud-init. Max wait {max_min} min.")
+         f"mandalore boots cloud-init. Max wait {max_min} min.")
 
     ready: set = set()
     last_size: dict = {}
@@ -747,7 +747,7 @@ def phase_wait_winrm(cfg: dict) -> bool:
 
 def phase_ansible(cfg: dict) -> bool:
     step("Phase 5: Ansible provisioning")
-    ansible_dir = DUNDER_HOME / "ansible"
+    ansible_dir = EMPIRE_HOME / "ansible"
     inventory   = ansible_dir / "inventory.yml"
     playbook    = ansible_dir / "playbooks" / "site.yml"
 
@@ -770,7 +770,7 @@ def phase_ansible(cfg: dict) -> bool:
 
 def phase_verify(cfg: dict) -> bool:
     step("Phase 6: Vulnerability verification")
-    verify_script = DUNDER_HOME / "scripts" / "verify_vulns.py"
+    verify_script = EMPIRE_HOME / "scripts" / "verify_vulns.py"
     if not verify_script.exists():
         warn(f"Verify script not found at {verify_script} — skipping.")
         return True
@@ -829,8 +829,8 @@ def print_pipeline_report(cfg: dict, phase_results: dict):
         print()
         print("  Next steps:")
         print("    1. Check AGENTS.md for topology and attack paths.")
-        print(f"    2. python3 {DUNDER_HOME}/chains/validator.py \\")
-        print(f"         --dc-ip 10.10.0.10 --domain corp.local \\")
+        print(f"    2. python3 {EMPIRE_HOME}/chains/validator.py \\")
+        print(f"         --dc-ip 10.10.0.10 --domain empire.local \\")
         print(f"         --attacker-ip {cfg['attacker_ip']}")
         if cfg["flag_mode"] == "ctf":
             print("    3. Flags require exploitation — see PLAN.md.")
@@ -964,7 +964,7 @@ def action_provision(cfg: dict):
 def action_start(cfg: dict):
     """Start existing VMs."""
     step("Start VMs")
-    vm_script = DUNDER_HOME / "providers" / cfg["provider"] / "vm-create.sh"
+    vm_script = EMPIRE_HOME / "providers" / cfg["provider"] / "vm-create.sh"
     if not vm_script.exists():
         err(f"VM script not found: {vm_script}")
         return
@@ -975,7 +975,7 @@ def action_start(cfg: dict):
 def action_stop(cfg: dict):
     """Stop all running VMs."""
     step("Stop VMs")
-    vm_script = DUNDER_HOME / "providers" / cfg["provider"] / "vm-create.sh"
+    vm_script = EMPIRE_HOME / "providers" / cfg["provider"] / "vm-create.sh"
     if not vm_script.exists():
         err(f"VM script not found: {vm_script}")
         return
@@ -989,7 +989,7 @@ def action_stop(cfg: dict):
 def action_destroy(cfg: dict):
     """Destroy VMs + networks."""
     step("Destroy")
-    vm_script = DUNDER_HOME / "providers" / cfg["provider"] / "vm-create.sh"
+    vm_script = EMPIRE_HOME / "providers" / cfg["provider"] / "vm-create.sh"
     if not vm_script.exists():
         err(f"VM script not found: {vm_script}")
         return
@@ -999,7 +999,7 @@ def action_destroy(cfg: dict):
         return
     vm_ok = run_cmd("VM destroy", ["bash", str(vm_script), "destroy"])
     if cfg["provider"] == "qemu":
-        net_script = DUNDER_HOME / "providers" / "qemu" / "network-setup.sh"
+        net_script = EMPIRE_HOME / "providers" / "qemu" / "network-setup.sh"
         if net_script.exists():
             run_cmd("Network destroy", ["bash", str(net_script), "destroy"])
     if vm_ok:
@@ -1015,7 +1015,7 @@ def action_status(cfg: dict):
     print(f"    {cfg_summary_line(cfg)}")
 
     print(f"\n  {BLD}Media:{NC}")
-    virtio = DUNDER_HOME / "media" / "virtio-win.iso"
+    virtio = EMPIRE_HOME / "media" / "virtio-win.iso"
     if virtio.exists():
         sz = virtio.stat().st_size // (1024 ** 2)
         log(f"virtio-win.iso present ({sz} MB)")
@@ -1067,7 +1067,7 @@ def action_status(cfg: dict):
             warn("  No dvad-* bridges found — network not set up.")
 
     print(f"\n  {BLD}Packer outputs:{NC}")
-    packer_out = DUNDER_HOME / "packer-output"
+    packer_out = EMPIRE_HOME / "packer-output"
     if packer_out.exists():
         outputs = [d for d in packer_out.iterdir() if d.is_dir() and d.name != "logs"]
         if outputs:
@@ -1169,7 +1169,7 @@ def action_ansible_tags(cfg: dict, preset: str = None):
             info("Aborted.")
             return
 
-    ansible_dir = DUNDER_HOME / "ansible"
+    ansible_dir = EMPIRE_HOME / "ansible"
     inventory   = ansible_dir / "inventory.yml"
     playbook    = ansible_dir / "playbooks" / "site.yml"
 
@@ -1229,7 +1229,7 @@ def print_logo():
     print(r"  | |  | | |  | | . ` | |  | |  __| |  _  / ")
     print(r"  | |__| | |__| | |\  | |__| | |____| | \ \ ")
     print(r"  |_____/ \____/|_| \_|_____/|______|_|  \_\\")
-    print(f"     {NC}{BLD}Dunder Mifflin Vulnerable Active Directory{NC}")
+    print(f"     {NC}{BLD}empire Mifflin Vulnerable Active Directory{NC}")
     print(f"{C}{BLD}       {Y}pwning is the best policy{NC}")
     print(f"\n{DIM}  management console — type {NC}{BLD}help{NC}{DIM} or {NC}{BLD}?{NC}{DIM} to list commands{NC}")
 
@@ -1295,7 +1295,7 @@ class DunderShell(_cmd.Cmd):
     def _refresh_prompt(self):
         c = self.cfg
         self.prompt = (
-            f"\n{C}dunder{NC} "
+            f"\n{C}empire{NC} "
             f"[{BLD}{c['profile']}{NC}·{BLD}{c['provider']}{NC}·{BLD}{c['flag_mode']}{NC}] "
             f"{DIM}{vm_status_quick(c)}{NC} > "
         )
@@ -1373,7 +1373,7 @@ class DunderShell(_cmd.Cmd):
 
     def do_snapshot(self, arg):
         "Snapshot all VM disks (run after a good provision — stops VMs first)."
-        vm_script = DUNDER_HOME / "providers" / self.cfg["provider"] / "vm-create.sh"
+        vm_script = EMPIRE_HOME / "providers" / self.cfg["provider"] / "vm-create.sh"
         if vm_script.exists():
             run_cmd("Snapshot VMs",
                     ["bash", str(vm_script), "snapshot", self.cfg["profile"]],
@@ -1382,7 +1382,7 @@ class DunderShell(_cmd.Cmd):
 
     def do_reset(self, arg):
         "Restore all VMs to the last snapshot in seconds, then start them."
-        vm_script = DUNDER_HOME / "providers" / self.cfg["provider"] / "vm-create.sh"
+        vm_script = EMPIRE_HOME / "providers" / self.cfg["provider"] / "vm-create.sh"
         if vm_script.exists():
             run_cmd("Reset VMs",
                     ["bash", str(vm_script), "reset", self.cfg["profile"]],
@@ -1391,7 +1391,7 @@ class DunderShell(_cmd.Cmd):
 
     def do_vnc(self, arg):
         "Show the VNC endpoint for each running VM."
-        vm_script = DUNDER_HOME / "providers" / self.cfg["provider"] / "vm-create.sh"
+        vm_script = EMPIRE_HOME / "providers" / self.cfg["provider"] / "vm-create.sh"
         if vm_script.exists():
             run_cmd("VNC endpoints", ["bash", str(vm_script), "status"],
                     env={"CFG_DISK_PATH": self.cfg["disk_path"]})
@@ -1480,7 +1480,7 @@ def main_menu(cfg: dict, start_phase: int = 0):
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="deploy.py",
-        description="DUNDER — Dunder Mifflin Vulnerable AD Lab",
+        description="EMPIRE — empire Mifflin Vulnerable AD Lab",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Interactive mode (default):
@@ -1491,7 +1491,7 @@ Non-interactive / CI / cron (--yes):
   python3 deploy.py --profile full --flag-mode ctf --attacker-ip 10.10.0.1 --yes
   python3 deploy.py --phase 5 --yes                   # restart from Ansible
   python3 deploy.py --destroy --yes                   # tear down everything
-  python3 deploy.py --log-file /var/log/dunder.log --yes
+  python3 deploy.py --log-file /var/log/empire.log --yes
 
 Cron setup:
   python3 deploy.py --install-cron                    # write crontab entry + sudoers
@@ -1530,7 +1530,7 @@ def build_default_config() -> dict:
         "profile":     "full",
         "provider":    "qemu",
         "ram_budget":  float(host_ram) if host_ram else 32.0,
-        "disk_path":   str(DUNDER_HOME / "vms"),
+        "disk_path":   str(EMPIRE_HOME / "vms"),
         "attacker_ip": "10.10.0.1",
         "base_action": "build",
         "flag_mode":   "ctf",
@@ -1580,18 +1580,18 @@ def install_cron(cfg: dict):
 
     user    = getpass.getuser()
     py_bin  = sys.executable
-    script  = str(DUNDER_HOME / "deploy.py")
-    log_f   = str(DUNDER_HOME / "logs" / "dunder-cron.log")
+    script  = str(EMPIRE_HOME / "deploy.py")
+    log_f   = str(EMPIRE_HOME / "logs" / "empire-cron.log")
     profile = cfg["profile"]
     provider = cfg["provider"]
 
     # ── sudoers drop-in ────────────────────────────────────────────────────
     sudoers_content = f"""\
-# DUNDER lab — NOPASSWD for network/VM operations
+# EMPIRE lab — NOPASSWD for network/VM operations
 # Generated by: python3 deploy.py --install-cron
-# Remove this file to revoke: sudo rm /etc/sudoers.d/dunder-lab
+# Remove this file to revoke: sudo rm /etc/sudoers.d/empire-lab
 
-Cmnd_Alias DUNDER_NET = \\
+Cmnd_Alias EMPIRE_NET = \\
     /usr/sbin/ip, /sbin/ip, /usr/bin/ip, \\
     /usr/sbin/nft, /sbin/nft, \\
     /usr/sbin/iptables, /sbin/iptables, \\
@@ -1602,10 +1602,10 @@ Cmnd_Alias DUNDER_NET = \\
     /usr/sbin/dnsmasq, /usr/bin/dnsmasq, /usr/local/sbin/dnsmasq, \\
     /usr/bin/kill, /bin/kill
 
-{user} ALL=(root) NOPASSWD: DUNDER_NET
+{user} ALL=(root) NOPASSWD: EMPIRE_NET
 """
 
-    sudoers_path = Path("/etc/sudoers.d/dunder-lab")
+    sudoers_path = Path("/etc/sudoers.d/empire-lab")
 
     # Validate with visudo -cf before writing
     import tempfile
@@ -1624,22 +1624,22 @@ Cmnd_Alias DUNDER_NET = \\
         log(f"Sudoers written: {sudoers_path}")
 
     # ── crontab entry ──────────────────────────────────────────────────────
-    (DUNDER_HOME / "logs").mkdir(parents=True, exist_ok=True)
+    (EMPIRE_HOME / "logs").mkdir(parents=True, exist_ok=True)
 
     path_env = ":".join(_EXTRA_PATHS)
     cron_line = (
-        f"# DUNDER lab — nightly re-provision (Ansible only, VMs already up)\n"
+        f"# EMPIRE lab — nightly re-provision (Ansible only, VMs already up)\n"
         f"0 2 * * * {user} "
         f"PATH={path_env} "
-        f"DUNDER_HOME={DUNDER_HOME} "
+        f"EMPIRE_HOME={EMPIRE_HOME} "
         f"{py_bin} {script} "
         f"--phase 5 --profile {profile} --provider {provider} --yes "
         f"--log-file {log_f} "
         f">> {log_f} 2>&1\n"
     )
 
-    cron_path = Path("/etc/cron.d/dunder-lab")
-    cron_tmp  = Path(f"/tmp/dunder-cron-{os.getpid()}")
+    cron_path = Path("/etc/cron.d/empire-lab")
+    cron_tmp  = Path(f"/tmp/empire-cron-{os.getpid()}")
     cron_tmp.write_text(cron_line)
     result2 = subprocess.run(["sudo", "cp", str(cron_tmp), str(cron_path)], capture_output=True, text=True)
     cron_tmp.unlink(missing_ok=True)
@@ -1740,11 +1740,11 @@ def _run(args, cfg, lock):
         info(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}")
         if args.destroy:
             ok = False
-            vm_script = DUNDER_HOME / "providers" / cfg["provider"] / "vm-create.sh"
+            vm_script = EMPIRE_HOME / "providers" / cfg["provider"] / "vm-create.sh"
             if vm_script.exists():
                 ok = run_cmd("VM destroy", ["bash", str(vm_script), "destroy"])
                 if cfg["provider"] == "qemu":
-                    net_script = DUNDER_HOME / "providers" / "qemu" / "network-setup.sh"
+                    net_script = EMPIRE_HOME / "providers" / "qemu" / "network-setup.sh"
                     if net_script.exists():
                         ok = run_cmd("Network destroy", ["bash", str(net_script), "destroy"]) and ok
             sys.exit(0 if ok else 1)

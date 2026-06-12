@@ -1,18 +1,18 @@
 ---
 # ==============================================================================
 # vuln_linux/defaults/main.yml
-# Linux-in-AD member (linux01). Deliberately vulnerable lab — the weaknesses
-# below are the SPEC, not bugs. Lab conventions: corp.local / CORP, admin
-# Administrator / DVADlab2024!, attacker 10.10.0.1, flags DUNDER{<Office quote>}.
+# Linux-in-AD member (mandalore). Deliberately vulnerable lab — the weaknesses
+# below are the SPEC, not bugs. Lab conventions: empire.local / EMPIRE, admin
+# Administrator / SithLord123!, attacker 10.10.0.1, flags EMPIRE{<Office quote>}.
 # ==============================================================================
 
 # ── AD / domain join ─────────────────────────────────────────────────────────
-vuln_linux_domain:        "corp.local"
-vuln_linux_realm:         "CORP.LOCAL"
-vuln_linux_netbios:       "CORP"
+vuln_linux_domain:        "empire.local"
+vuln_linux_realm:         "empire.local"
+vuln_linux_netbios:       "EMPIRE"
 vuln_linux_dc_ip:         "10.10.0.10"
 vuln_linux_join_user:     "Administrator"
-vuln_linux_join_password: "DVADlab2024!"
+vuln_linux_join_password: "SithLord123!"
 
 # Attempt the realmd/adcli join. If the DC is unreachable the join tasks fail
 # soft (the rest of the box — services, LPE, flags — still provisions).
@@ -42,5 +42,5 @@ vuln_linux_weak_user:     "michael"
 vuln_linux_weak_password: "Scranton2024!"
 
 # Plaintext domain creds left lying around (Linux→Windows lateral).
-vuln_linux_leaked_ad_user: "svc_backup"
-vuln_linux_leaked_ad_pass: "Backup2024!"
+vuln_linux_leaked_ad_user: "svc_r2d2"
+vuln_linux_leaked_ad_pass: "Droid2024!"

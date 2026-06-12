@@ -8,8 +8,8 @@
 #   - A conditional forwarder for every OTHER forest's zone
 #   - A general upstream forwarder (8.8.8.8) for internet resolution
 #
-# Run against: all_dcs group (dc01.corp.local, dc01.eu.corp.local,
-#              dc01.finance.local, dc01.root.corp)
+# Run against: all_dcs group (coruscant.empire.local, deathstar.eu.empire.local,
+#              yavin4.rebel.local, neimoidia.trade.corp)
 # ==============================================================================
 
 - name: Assert DNS Server service is running
@@ -22,9 +22,9 @@
 # Conditional forwarders — idempotent via Get-DnsServerConditionalForwarderZone
 # --------------------------------------------------------------------------
 
-- name: Configure conditional forwarder for corp.local
+- name: Configure conditional forwarder for empire.local
   ansible.windows.win_shell: |
-    $zone = "corp.local"
+    $zone = "empire.local"
     $master = "{{ corp_dc_ip }}"
     $existing = Get-DnsServerConditionalForwarderZone -Name $zone -ErrorAction SilentlyContinue
     if ($existing) {
@@ -35,29 +35,29 @@
     }
   register: fwd_corp
   changed_when: "'CREATED' in fwd_corp.stdout"
-  # Skip on dc01.corp.local itself — no need to forward to yourself
-  when: inventory_hostname != "dc01.corp.local"
+  # Skip on coruscant.empire.local itself — no need to forward to yourself
+  when: inventory_hostname != "coruscant.empire.local"
 
-- name: Configure conditional forwarder for eu.corp.local
+- name: Configure conditional forwarder for eu.empire.local
   ansible.windows.win_shell: |
-    $zone = "eu.corp.local"
+    $zone = "eu.empire.local"
     $master = "{{ corp_dc_ip }}"
     $existing = Get-DnsServerConditionalForwarderZone -Name $zone -ErrorAction SilentlyContinue
     if ($existing) {
       Write-Output "EXISTS: $zone"
     } else {
-      # eu.corp.local is served by the child DC (10.10.0.11) but the parent
+      # eu.empire.local is served by the child DC (10.10.0.11) but the parent
       # DC also resolves it via delegation; forwarding to parent is fine here.
       Add-DnsServerConditionalForwarderZone -Name $zone -MasterServers "10.10.0.11" -PassThru
       Write-Output "CREATED: $zone -> 10.10.0.11"
     }
   register: fwd_eu
   changed_when: "'CREATED' in fwd_eu.stdout"
-  when: inventory_hostname not in ["dc01.corp.local", "dc01.eu.corp.local"]
+  when: inventory_hostname not in ["coruscant.empire.local", "deathstar.eu.empire.local"]
 
-- name: Configure conditional forwarder for finance.local
+- name: Configure conditional forwarder for rebel.local
   ansible.windows.win_shell: |
-    $zone = "finance.local"
+    $zone = "rebel.local"
     $master = "{{ finance_dc_ip }}"
     $existing = Get-DnsServerConditionalForwarderZone -Name $zone -ErrorAction SilentlyContinue
     if ($existing) {
@@ -68,11 +68,11 @@
     }
   register: fwd_finance
   changed_when: "'CREATED' in fwd_finance.stdout"
-  when: inventory_hostname != "dc01.finance.local"
+  when: inventory_hostname != "yavin4.rebel.local"
 
-- name: Configure conditional forwarder for root.corp
+- name: Configure conditional forwarder for trade.corp
   ansible.windows.win_shell: |
-    $zone = "root.corp"
+    $zone = "trade.corp"
     $master = "{{ root_dc_ip }}"
     $existing = Get-DnsServerConditionalForwarderZone -Name $zone -ErrorAction SilentlyContinue
     if ($existing) {
@@ -83,7 +83,7 @@
     }
   register: fwd_root
   changed_when: "'CREATED' in fwd_root.stdout"
-  when: inventory_hostname != "dc01.root.corp"
+  when: inventory_hostname != "neimoidia.trade.corp"
 
 # --------------------------------------------------------------------------
 # General upstream forwarder (internet / gateway)
@@ -105,9 +105,9 @@
 # Verify resolution works cross-forest
 # --------------------------------------------------------------------------
 
-- name: Verify corp.local resolves from this DC
+- name: Verify empire.local resolves from this DC
   ansible.windows.win_shell: |
-    Resolve-DnsName -Name "dc01.corp.local" -Server 127.0.0.1 -ErrorAction SilentlyContinue |
+    Resolve-DnsName -Name "coruscant.empire.local" -Server 127.0.0.1 -ErrorAction SilentlyContinue |
       Select-Object -ExpandProperty IPAddress
   register: dns_verify_corp
   changed_when: false

@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_network_protocols/tasks/vnc.yml
-# Target: ws01.corp.local
+# Target: tatooine.empire.local
 #
 # NET-009  VNC (RFB) server on TCP/5900 offering security-type 1 = None, i.e.
 #          UNAUTHENTICATED interactive access in the RFB handshake. Windows
@@ -30,7 +30,7 @@
       $ErrorActionPreference = 'Continue'
       $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, 5900)
       $listener.Start()
-      $title = 'DUNDER-WS01-UNAUTH-VNC'
+      $title = 'EMPIRE-tatooine-UNAUTH-VNC'
       while ($true) {
         try {
           $client = $listener.AcceptTcpClient()
@@ -82,7 +82,7 @@
 
 - name: NET-009 - Open TCP/5900 inbound firewall for VNC/RFB
   community.windows.win_firewall_rule:
-    name: "DUNDER VNC TCP5900"
+    name: "EMPIRE VNC TCP5900"
     localport: 5900
     protocol: tcp
     direction: in
@@ -127,15 +127,15 @@
   ansible.windows.win_copy:
     dest: 'C:\Flags\net-vnc.txt'
     content: |
-      DUNDER{NET-009_VNC_RFB_SECURITYTYPE_NONE_UNAUTH}
+      EMPIRE{NET-009_VNC_RFB_SECURITYTYPE_NONE_UNAUTH}
       I am dead inside. — Stanley Hudson
 
       NET-009 VNC (RFB) unauthenticated:
-        ws01 listens on TCP/5900 and advertises RFB SecurityType 1 = None.
+        tatooine listens on TCP/5900 and advertises RFB SecurityType 1 = None.
         Enumerate:  nmap -p5900 --script vnc-info,vnc-title 10.10.0.100
         Connect:    vncviewer 10.10.0.100:5900   (no password prompt)
-        Desktop name returned in ServerInit: DUNDER-WS01-UNAUTH-VNC
+        Desktop name returned in ServerInit: EMPIRE-tatooine-UNAUTH-VNC
       NOTE: this is a native handshake-only RFB server (no live framebuffer
       streaming) — it proves the unauthenticated VNC access surface, not a full
       screen-share. For a full GUI session, drop a real VNC build (e.g. TightVNC)
-      offline onto ws01.
+      offline onto tatooine.

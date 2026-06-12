@@ -17,7 +17,7 @@
 - name: REC-001 - Verify dsHeuristics anonymous LDAP bind is configured
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $dn = "CN=Directory Service,CN=Windows NT,CN=Services,CN=Configuration,DC=corp,DC=local"
+    $dn = "CN=Directory Service,CN=Windows NT,CN=Services,CN=Configuration,DC=empire,DC=local"
     $obj = Get-ADObject -Identity $dn -Properties dSHeuristics -ErrorAction SilentlyContinue
     if ($obj -and $obj.dSHeuristics) {
       Write-Output "dSHeuristics=$($obj.dSHeuristics)"
@@ -27,7 +27,7 @@
   register: rec001_check
   changed_when: false
   failed_when: rec001_check.rc != 0
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'
 
 # REC-002: WMI namespace — verify root\cimv2 is accessible.
 # The WMI service should already be running; ensure no authentication filter.

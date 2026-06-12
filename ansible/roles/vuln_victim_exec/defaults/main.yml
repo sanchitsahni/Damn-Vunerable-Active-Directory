@@ -13,7 +13,7 @@ victim_exec_install_dir: 'C:\DunderLab'
 victim_exec_script: 'C:\DunderLab\victim-exec.ps1'
 victim_exec_log: 'C:\DunderLab\victim-exec.log'
 
-ad_domain_netbios: "CORP"
+ad_domain_netbios: "EMPIRE"
 
 # World-writable SMB "Drop" share — the attacker payload delivery point.
 # Everyone:FullControl is intentional lab exposure (deliberately vulnerable).
@@ -34,12 +34,12 @@ victim_exec_watch_paths:
 # Each gets its own scheduled task running as that user, so a coerced auth
 # or executed payload carries that user's identity / NTLMv2 hash.
 victim_exec_users:
-  - username: "pam.beesly"
+  - username: "leia.organa"
     password: "Alice1234!"
     task_name: "DunderVictim-Accounting"
-  - username: "jim.halpert"
-    password: "Password123!"
+  - username: "luke.skywalker"
+    password: "SithLord123!"
     task_name: "DunderVictim-Sales"
-  - username: "dwight.schrute"
+  - username: "darth.maul"
     password: "BeetFarm2024!"
     task_name: "DunderVictim-Assistant"

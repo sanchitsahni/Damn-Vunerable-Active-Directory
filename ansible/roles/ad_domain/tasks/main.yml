@@ -2,7 +2,7 @@
 # ==============================================================================
 # ad_domain/tasks/main.yml
 # Promotes a Windows Server to DC for the domain defined in defaults/main.yml.
-# Called three times from site.yml: corp.local, finance.local, root.corp —
+# Called three times from site.yml: empire.local, rebel.local, trade.corp —
 # each with overriding vars.
 # ==============================================================================
 
@@ -177,18 +177,18 @@
 
 - name: Import user creation tasks
   ansible.builtin.import_tasks: users.yml
-  when: ad_domain == "corp.local"
+  when: ad_domain == "empire.local"
 
 - name: Import group creation tasks
   ansible.builtin.import_tasks: groups.yml
-  when: ad_domain == "corp.local"
+  when: ad_domain == "empire.local"
 
 # Finance-specific users/groups (minimal set for cross-forest attack paths)
-- name: Create finance.local OUs and users
+- name: Create rebel.local OUs and users
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $PSDefaultParameterValues = @{ '*-AD*:Server' = 'localhost' }
-    $base = "DC=finance,DC=local"
+    $base = "DC=rebel,DC=local"
     foreach ($ouName in @("Finance","ServiceAccounts","Computers")) {
       if (-not (Get-ADOrganizationalUnit -Filter "Name -eq '$ouName'" -SearchBase $base -SearchScope OneLevel -ErrorAction SilentlyContinue)) {
         New-ADOrganizationalUnit -Name $ouName -Path $base -ProtectedFromAccidentalDeletion $false
@@ -201,15 +201,15 @@
         -Path "OU=Finance,$base"
     }
     $users = @(
-      @{Name="scott.lang";  Password="Fin1234!";    SPN=$null},
-      @{Name="hope.vandyne"; Password="Fin1234!";   SPN=$null},
-      @{Name="fin_svc";     Password="FinSvc2025!"; SPN="HTTP/finance.local"}
+      @{Name="han.solo";  Password="Rebel1234!";    SPN=$null},
+      @{Name="padme.amidala"; Password="Rebel1234!";   SPN=$null},
+      @{Name="rebel_svc";     Password="RebelSvc2025!"; SPN="HTTP/rebel.local"}
     )
     foreach ($u in $users) {
       $secPwd = ConvertTo-SecureString $u.Password -AsPlainText -Force
       if (-not (Get-ADUser -Filter "SamAccountName -eq '$($u.Name)'" -ErrorAction SilentlyContinue)) {
         New-ADUser -Name $u.Name -SamAccountName $u.Name `
-          -UserPrincipalName "$($u.Name)@finance.local" `
+          -UserPrincipalName "$($u.Name)@rebel.local" `
           -AccountPassword $secPwd -Enabled $true -PasswordNeverExpires $true `
           -Path "CN=Users,$base"
         Write-Output "Created user: $($u.Name)"
@@ -221,14 +221,14 @@
     }
   register: finance_users
   changed_when: "'Created' in finance_users.stdout"
-  when: ad_domain == "finance.local"
+  when: ad_domain == "rebel.local"
 
-# root.corp users/groups (used for forest trust escalation paths)
-- name: Create root.corp OUs and users
+# trade.corp users/groups (used for forest trust escalation paths)
+- name: Create trade.corp OUs and users
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $PSDefaultParameterValues = @{ '*-AD*:Server' = 'localhost' }
-    $base = "DC=root,DC=corp"
+    $base = "DC=trade,DC=corp"
     foreach ($ouName in @("Root","ServiceAccounts")) {
       if (-not (Get-ADOrganizationalUnit -Filter "Name -eq '$ouName'" -SearchBase $base -SearchScope OneLevel -ErrorAction SilentlyContinue)) {
         New-ADOrganizationalUnit -Name $ouName -Path $base -ProtectedFromAccidentalDeletion $false
@@ -240,14 +240,14 @@
         -Path "OU=Root,$base"
     }
     $users = @(
-      @{Name="odin";     Password="Root1234!";   Groups=@("Domain Users")},
-      @{Name="root_adm"; Password="RootAdm2025!"; Groups=@("Domain Users","Root Admins","Schema Admins","Enterprise Admins")}
+      @{Name="yoda";     Password="Jedi1234!";   Groups=@("Domain Users")},
+      @{Name="jedi_adm"; Password="JediAdm2025!"; Groups=@("Domain Users","Root Admins","Schema Admins","Enterprise Admins")}
     )
     foreach ($u in $users) {
       $secPwd = ConvertTo-SecureString $u.Password -AsPlainText -Force
       if (-not (Get-ADUser -Filter "SamAccountName -eq '$($u.Name)'" -ErrorAction SilentlyContinue)) {
         New-ADUser -Name $u.Name -SamAccountName $u.Name `
-          -UserPrincipalName "$($u.Name)@root.corp" `
+          -UserPrincipalName "$($u.Name)@trade.corp" `
           -AccountPassword $secPwd -Enabled $true -PasswordNeverExpires $true `
           -Path "OU=Root,$base"
         Write-Output "Created user: $($u.Name)"
@@ -258,4 +258,4 @@
     }
   register: root_users
   changed_when: "'Created' in root_users.stdout"
-  when: ad_domain == "root.corp"
+  when: ad_domain == "trade.corp"

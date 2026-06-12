@@ -150,7 +150,7 @@ Best mitigation strategies:
 
 ```kql
 SecurityEvent
-| where EventID == 4769
+| where EventID == 469
 | where TicketEncryptionType == "0x17"
 | where ServiceName != "krbtgt"
 | where ServiceName !endswith "$"
@@ -213,7 +213,7 @@ Defender for Identity flags this natively as "Suspected DCSync."
 
 ### Why machine-account exclusion can backfire
 
-If an attacker DCSyncs from a *legitimate-looking* computer account (e.g., they compromised `dc01$` itself, or a server they've made a computer trust on), the `!endswith '$'` exclusion swallows it. Tighten by enumerating the *actual* DC machine accounts (members of the `Domain Controllers` group) and whitelisting only those:
+If an attacker DCSyncs from a *legitimate-looking* computer account (e.g., they compromised `coruscant$` itself, or a server they've made a computer trust on), the `!endswith '$'` exclusion swallows it. Tighten by enumerating the *actual* DC machine accounts (members of the `Domain Controllers` group) and whitelisting only those:
 
 ```kql
 let DCMachines = SecurityEvent
@@ -231,7 +231,7 @@ SecurityEvent
 Remove unneeded ACEs. Only the `Domain Controllers` group should have DS-Replication-Get-Changes/-All. Audit `nTSecurityDescriptor` of the domain root for any extra principals:
 
 ```powershell
-PS> $sd = (Get-ADObject 'DC=corp,DC=local' -Properties nTSecurityDescriptor).nTSecurityDescriptor
+PS> $sd = (Get-ADObject 'DC=empire,DC=local' -Properties nTSecurityDescriptor).nTSecurityDescriptor
 PS> $sd.Access | ? { $_.ObjectType -in @('1131f6aa-...','1131f6ad-...') }
 ```
 
@@ -263,7 +263,7 @@ detection:
     DestinationPort: 445
   filter:
     DestinationIp: '10.10.0.0/24'  # exclude corp subnet
-    DestinationIp: '10.30.0.0/24'  # exclude root.corp DCs
+    DestinationIp: '10.30.0.0/24'  # exclude trade.corp DCs
   condition: selection and not filter
 ```
 
@@ -325,7 +325,7 @@ EventID 4886: Certificate Services received certificate request
 EventID 4887: Certificate Services approved request and issued certificate
   RequestId
   RequesterName: corp\peter.parker
-  SubjectAltName: Administrator@corp.local   <-- ESC1 signal!
+  SubjectAltName: Administrator@empire.local   <-- ESC1 signal!
   Template: VulnerableTemplate
 ```
 
@@ -364,7 +364,7 @@ ADCSEvent
 
 ```powershell
 # Force manager approval on a template:
-$t = Get-ADObject "CN=VulnerableTemplate,CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local"
+$t = Get-ADObject "CN=VulnerableTemplate,CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=empire,DC=local"
 Set-ADObject $t -Replace @{
     'msPKI-Enrollment-Flag' = 0x02   # CT_FLAG_PEND_ALL_REQUESTS
     'msPKI-Certificate-Name-Flag' = 0x0   # remove ENROLLEE_SUPPLIES_SUBJECT
@@ -414,8 +414,8 @@ Defender for Identity → "Suspected Golden Ticket usage."
 Create a disabled user that nobody should ever request a TGS for. Any 4769 with this account in ClientName = Golden Ticket usage.
 
 ```
-PS> New-ADUser -Name 'svc_backup_legacy' -Enabled $false
-PS> # Forge a Golden citing svc_backup_legacy → 4769 with that name → high-fidelity alert
+PS> New-ADUser -Name 'svc_r2d2_legacy' -Enabled $false
+PS> # Forge a Golden citing svc_r2d2_legacy → 4769 with that name → high-fidelity alert
 ```
 
 ### Silver
@@ -628,7 +628,7 @@ Defender for Identity flags "Suspected DCShadow" by correlating the SPN registra
 Detect at AD level by enumerating Configuration NC's `CN=Servers` periodically and alerting on any new server object that doesn't have a matching nTDSDSA + computer account in `Domain Controllers` group.
 
 ```powershell
-PS> Get-ADObject -SearchBase 'CN=Sites,CN=Configuration,DC=corp,DC=local' -Filter 'objectClass -eq "server"' \
+PS> Get-ADObject -SearchBase 'CN=Sites,CN=Configuration,DC=empire,DC=local' -Filter 'objectClass -eq "server"' \
     | ForEach-Object {
         $dsa = Get-ADObject -Filter "name -eq 'NTDS Settings'" -SearchBase $_.DistinguishedName
         if (-not $dsa) { Write-Warning "Phantom server: $($_.Name)" }
@@ -645,7 +645,7 @@ DCShadow self-cleans — after the push, mimikatz removes the fake nTDSDSA + SPN
 
 ```
 EventID 5136 (directory service object modified)
-  ObjectDN: CN=AdminSDHolder,CN=System,DC=corp,DC=local
+  ObjectDN: CN=AdminSDHolder,CN=System,DC=empire,DC=local
   AttributeLDAPDisplayName: nTSecurityDescriptor
   OperationType: Value Added
 ```
@@ -666,7 +666,7 @@ Also alert on 4780 (Account Operators-protected DACL reset) which is the SDProp 
 Capture a known-good AdminSDHolder ACL once:
 
 ```powershell
-PS> (Get-Acl 'AD:CN=AdminSDHolder,CN=System,DC=corp,DC=local').Access | \
+PS> (Get-Acl 'AD:CN=AdminSDHolder,CN=System,DC=empire,DC=local').Access | \
         Export-Csv adminsdholder-baseline.csv
 ```
 
@@ -678,13 +678,13 @@ Run a daily compare-Object task; alert on any drift.
 
 ```
 EventID 4742 (computer account changed)
-  Target: DC$ (e.g., DC01$)
+  Target: DC$ (e.g., coruscant$)
   PasswordLastSet: just now (anomalous — DC machine passwords rotate ~monthly)
   AuthenticationPackage: NETLOGON
   SourceWorkstation: <attacker> or blank
 ```
 
-Microsoft patched in August 2020 (KB4565351), enforced in February 2021 — the patch enforces NRPC signing/sealing. The DVAD lab sets `FullSecureChannelProtection=0` to leave it exploitable.
+Microsoft patched in August 2020 (KB4565351), enforced in February 2021 — the patch enforces NRPC signing/sealing. The EMPIRE lab sets `FullSecureChannelProtection=0` to leave it exploitable.
 
 ### Detection logic
 
@@ -745,7 +745,7 @@ Plant signal:
 
 ```
 EventID 5136
-  ObjectDN: CN=<target>,CN=Users,DC=corp,DC=local
+  ObjectDN: CN=<target>,CN=Users,DC=empire,DC=local
   AttributeLDAPDisplayName: msDS-KeyCredentialLink
   OperationType: Value Added
 ```
@@ -759,7 +759,7 @@ SecurityEvent
 | where EventID == 5136
 | where AttributeLDAPDisplayName == "msDS-KeyCredentialLink"
 | where ObjectDN contains "CN=Users"
-| where SubjectUserName != "DC01$"   // legit Windows Hello provisioning
+| where SubjectUserName != "coruscant$"   // legit Windows Hello provisioning
 ```
 
 ### Mitigation
@@ -774,7 +774,7 @@ Plant signal:
 
 ```
 EventID 5136
-  ObjectDN: CN=DC01,OU=Domain Controllers,DC=corp,DC=local
+  ObjectDN: CN=coruscant,OU=Domain Controllers,DC=empire,DC=local
   AttributeLDAPDisplayName: msDS-AllowedToActOnBehalfOfOtherIdentity
   OperationType: Value Added
 ```
@@ -801,7 +801,7 @@ Plant signal:
 
 ```
 EventID 5136
-  ObjectDN: CN={GPO-GUID},CN=Policies,CN=System,DC=corp,DC=local
+  ObjectDN: CN={GPO-GUID},CN=Policies,CN=System,DC=empire,DC=local
   AttributeLDAPDisplayName: gPCFileSysPath / versionNumber
 ```
 
@@ -809,7 +809,7 @@ SYSVOL file write signal — every GPO edit writes to the GPT path:
 
 ```
 EventID 4663 (object access)
-  ObjectName: \\corp.local\SYSVOL\corp.local\Policies\{...}\...
+  ObjectName: \\empire.local\SYSVOL\empire.local\Policies\{...}\...
   ObjectType: File
   AccessMask: 0x6 / 0x2 (WriteData)
 ```
@@ -899,20 +899,20 @@ The advantage: **no false positives**. The disadvantage: you only catch attacker
 ### Designing a honey SPN
 
 ```powershell
-PS> New-ADUser -Name 'svc_legacy_sql' -UserPrincipalName 'svc_legacy_sql@corp.local' \
-       -AccountPassword (New-Password 32) -ServicePrincipalNames 'MSSQLSvc/legacy.corp.local:1433' \
+PS> New-ADUser -Name 'svc_legacy_sql' -UserPrincipalName 'svc_legacy_sql@empire.local' \
+       -AccountPassword (New-Password 32) -ServicePrincipalNames 'MSSQLSvc/legacy.empire.local:1433' \
        -Enabled $false
 # Force RC4-only so the TGS-REQ comes back RC4 (defenders' detection):
 Set-ADUser svc_legacy_sql -KerberosEncryptionType 4  # RC4 only
 ```
 
-The account is disabled — nothing real authenticates as it. Any 4769 for `MSSQLSvc/legacy.corp.local:1433` is an attacker.
+The account is disabled — nothing real authenticates as it. Any 4769 for `MSSQLSvc/legacy.empire.local:1433` is an attacker.
 
 ---
 
 ## 13.21 The defender's playbook
 
-Order of priority for DVAD-style environments:
+Order of priority for EMPIRE-style environments:
 
 1. **Patch everything.** ZeroLogon, PrintNightmare, noPac, Certifried, ESC15/16 all have patches. The cheapest big wins.
 2. **Disable LLMNR / NBT-NS / mDNS.** GPO.
@@ -989,7 +989,7 @@ Every attack in this book maps to an ATT&CK technique. Knowing the mapping helps
 - Cross-reference defender tooling that advertises ATT&CK coverage.
 - Identify gaps in your detection (techniques with no rule).
 
-| DVAD attack | ATT&CK |
+| EMPIRE attack | ATT&CK |
 |---|---|
 | LLMNR poisoning | T1557.001 |
 | Kerberoasting | T1558.003 |
@@ -1024,10 +1024,10 @@ For each flag you captured in the previous chapters, write the Sigma rule (in ps
 
 ### Exercise 13.B — Plant honeypots
 
-In your DVAD instance:
-1. Create user `svc_honey$kerberoast` with SPN `MSSQLSvc/honey.corp.local:1433` and 32-char random password, AccountDisabled, KerberosEncryptionType=RC4-only.
+In your EMPIRE instance:
+1. Create user `svc_honey$kerberoast` with SPN `MSSQLSvc/honey.empire.local:1433` and 32-char random password, AccountDisabled, KerberosEncryptionType=RC4-only.
 2. From `peter.parker`, run Kerberoast. The DC issues a TGS.
-3. Confirm event 4769 with ServiceName=svc_honey$kerberoast and RC4 etype is logged on dc01.
+3. Confirm event 4769 with ServiceName=svc_honey$kerberoast and RC4 etype is logged on coruscant.
 
 (You'd then build a SIEM alert on exactly that combo.)
 
@@ -1042,7 +1042,7 @@ Suggested set:
 
 ### Exercise 13.D — Build a Sigma → KQL conversion
 
-Pick three Sigma rules from this chapter. Convert each to KQL (or your SIEM's language). Execute against the DVAD log set (you'll need to enable Sysmon and forward to a SIEM — or just run against `wevtutil qe` output).
+Pick three Sigma rules from this chapter. Convert each to KQL (or your SIEM's language). Execute against the EMPIRE log set (you'll need to enable Sysmon and forward to a SIEM — or just run against `wevtutil qe` output).
 
 ### Exercise 13.E — Baseline AdminSDHolder
 
@@ -1092,7 +1092,7 @@ Write a 1-page analyst playbook for "AdminSDHolder ACL changed" alert. Include: 
 
 ## References
 
-- **Microsoft — *Securing Active Directory*** — official hardening guide.
+- **Microsoft — *Securing EMPIRE Mifflin Active Directory*** — official hardening guide.
 - **MITRE ATT&CK** — every technique in this book maps to an ATT&CK ID.
 - **Sigma rule repository** (github.com/SigmaHQ/sigma) — community-maintained detection signatures.
 - **Roberto Rodriguez — Threat Hunter Playbook** — open detection content.
@@ -1105,3 +1105,85 @@ Write a 1-page analyst playbook for "AdminSDHolder ACL changed" alert. Include: 
 - **PingCastle** — free AD assessment tool that scores most of the issues in this chapter.
 
 Next: [14-capstone.md](14-capstone.md).
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

@@ -1,16 +1,16 @@
 ---
 # ==============================================================================
 # vuln_privesc_ext/tasks/cves.yml
-# Targets: ws01, file01, sql01, dc01 (per-task guards)
+# Targets: tatooine, scarif, kamino, coruscant (per-task guards)
 #
-# CVE-2021-36934 (HiveNightmare / SeriousSAM) — SAM ACL weakened on ws01
+# CVE-2021-36934 (HiveNightmare / SeriousSAM) — SAM ACL weakened on tatooine
 # CVE-2022-21999 (PrintNightmare post-patch) — SpoolSS surface indicator
-# CVE-2020-0787  (BITS arbitrary write) — BITS service check on file01
-# CVE-2019-1405  (UPnP LPE) — UPnP service enabled indicator on ws01
-# CVE-2021-1732  (Win32k privilege escalation) — note file on ws01
+# CVE-2020-0787  (BITS arbitrary write) — BITS service check on scarif
+# CVE-2019-1405  (UPnP LPE) — UPnP service enabled indicator on tatooine
+# CVE-2021-1732  (Win32k privilege escalation) — note file on tatooine
 # CVE-2022-34718 (Windows TCP/IP RCE) — note indicator
 # CVE-2023-36874 (Windows Error Reporting LPE) — WER service check
-# CVE-2024-26230 (Telephony Service LPE) — TapiSrv enabled on file01
+# CVE-2024-26230 (Telephony Service LPE) — TapiSrv enabled on scarif
 # CVE-2024-38080 (Hyper-V LPE) — Hyper-V role note
 # CVE-2025-21333 (Windows Hyper-V LPE) — note indicator
 # ==============================================================================
@@ -21,7 +21,7 @@
 # Any authenticated user can read shadow copies and extract the SAM database.
 # Replicate by setting permissive ACL on SAM hive file.
 # ------------------------------------------------------------------------------
-- name: PE-CVE-2021-36934 - Check SAM hive ACL permissiveness on ws01
+- name: PE-CVE-2021-36934 - Check SAM hive ACL permissiveness on tatooine
   ansible.windows.win_shell: |
     $acl = Get-Acl "C:\Windows\System32\config\SAM" -ErrorAction SilentlyContinue
     $loose = $acl.Access | Where-Object {
@@ -32,7 +32,7 @@
   register: hivenigthmare_check
   changed_when: false
   failed_when: hivenigthmare_check.rc != 0
-  when: inventory_hostname == 'ws01.corp.local'
+  when: inventory_hostname == 'tatooine.empire.local'
 
 - name: PE-CVE-2021-36934 - Weaken SAM hive ACL (HiveNightmare surface)
   ansible.windows.win_shell: |
@@ -42,7 +42,7 @@
   changed_when: "'changed:' in hivenightmare_set.stdout"
   failed_when: hivenightmare_set.rc != 0
   when:
-    - inventory_hostname == 'ws01.corp.local'
+    - inventory_hostname == 'tatooine.empire.local'
     - "'not_vulnerable' in hivenigthmare_check.stdout"
 
 # ------------------------------------------------------------------------------
@@ -58,7 +58,7 @@
   register: wer_check
   changed_when: false
   failed_when: wer_check.rc != 0
-  when: inventory_hostname in ['ws01.corp.local', 'file01.corp.local']
+  when: inventory_hostname in ['tatooine.empire.local', 'scarif.empire.local']
 
 - name: PE-CVE-2023-36874 - Enable WER service and configure world-writable dump path
   ansible.windows.win_shell: |
@@ -78,15 +78,15 @@
   changed_when: "'changed:' in wer_set.stdout"
   failed_when: wer_set.rc != 0
   when:
-    - inventory_hostname in ['ws01.corp.local', 'file01.corp.local']
+    - inventory_hostname in ['tatooine.empire.local', 'scarif.empire.local']
     - "'Running' not in (wer_check.stdout | default(''))"
 
 # ------------------------------------------------------------------------------
 # CVE-2024-26230: Telephony Service LPE (TapiSrv).
 # TapiSrv runs as LocalSystem and loads unsigned DLLs from PATH.
-# Enable the service on file01 as an attack surface.
+# Enable the service on scarif as an attack surface.
 # ------------------------------------------------------------------------------
-- name: PE-CVE-2024-26230 - Check TapiSrv state on file01
+- name: PE-CVE-2024-26230 - Check TapiSrv state on scarif
   ansible.windows.win_shell: |
     $s = Get-Service -Name TapiSrv -ErrorAction SilentlyContinue
     if ($s) { Write-Output "status=$($s.Status) start=$($s.StartType)" }
@@ -94,7 +94,7 @@
   register: tapi_check
   changed_when: false
   failed_when: tapi_check.rc != 0
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: PE-CVE-2024-26230 - Enable TapiSrv (telephony LPE surface)
   ansible.windows.win_shell: |
@@ -105,7 +105,7 @@
   changed_when: "'changed:' in tapi_set.stdout"
   failed_when: tapi_set.rc != 0
   when:
-    - inventory_hostname == 'file01.corp.local'
+    - inventory_hostname == 'scarif.empire.local'
     - "'not_found' not in (tapi_check.stdout | default('')) and 'Automatic' not in (tapi_check.stdout | default(''))"
 
 # ------------------------------------------------------------------------------
@@ -123,7 +123,7 @@
         Affects Windows 10 1803-20H2, Server 2019. Win32k IOCTL exposes a use-after-free
         that allows arbitrary kernel write → SYSTEM.
         PoC: https://github.com/KaLendsi/CVE-2021-1732-Exploit
-        Target: ws01 (Win10, Desktop Experience, no post-2021 patches in lab)
+        Target: tatooine (Win10, Desktop Experience, no post-2021 patches in lab)
     - path: 'C:\Flags\FLAG-PE-CVE-2024-38080.txt'
       content: |
         CVE-2024-38080: Hyper-V LPE (July 2024 Patch Tuesday)
@@ -139,5 +139,5 @@
         Hyper-V NT Kernel Integration VSP driver heap overflow.
         Exploit: guest-to-host escape + SYSTEM. Patched January 2025 Patch Tuesday.
         CVSS: 7.8. Target: any Hyper-V host running unpatched Windows Server 2025.
-        Lab surface: dc01 (Server 2022 — check if 2025 edition if upgraded).
-  when: inventory_hostname in ['ws01.corp.local', 'file01.corp.local']
+        Lab surface: coruscant (Server 2022 — check if 2025 edition if upgraded).
+  when: inventory_hostname in ['tatooine.empire.local', 'scarif.empire.local']

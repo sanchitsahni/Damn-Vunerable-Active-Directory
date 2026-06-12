@@ -32,7 +32,7 @@ try {
       Log "OK: IA-011 sa already enabled"
     } else {
       $sql = @"
-ALTER LOGIN [sa] WITH PASSWORD = N'{{ ia_sa_password | default('DVADlab2024!') }}', CHECK_POLICY = OFF, CHECK_EXPIRATION = OFF;
+ALTER LOGIN [sa] WITH PASSWORD = N'{{ ia_sa_password | default('SithLord123!') }}', CHECK_POLICY = OFF, CHECK_EXPIRATION = OFF;
 ALTER LOGIN [sa] ENABLE;
 EXEC xp_instance_regwrite N'HKEY_LOCAL_MACHINE', N'Software\Microsoft\MSSQLServer\MSSQLServer', N'LoginMode', REG_DWORD, 2;
 EXEC sp_configure 'show advanced options', 1; RECONFIGURE WITH OVERRIDE;

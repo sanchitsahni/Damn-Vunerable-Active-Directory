@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_persistence_ext/tasks/files.yml
-# Target: dc01.corp.local (unless noted per task)
+# Target: coruscant.empire.local (unless noted per task)
 #
 # PER-003  Startup folder persistence note
 # PER-013  Office macro autorun stub

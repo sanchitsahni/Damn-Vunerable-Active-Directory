@@ -1,14 +1,14 @@
 ---
 # ==============================================================================
 # vuln_kerberos/tasks/main.yml
-# Target: dc01.corp.local
+# Target: coruscant.empire.local
 #
 # Configures Kerberos attack vectors:
 #   CRED-001  Kerberoastable accounts — weak passwords + SPNs
 #   CRED-002  AS-REP Roasting (DoNotRequirePreAuth)
-#   CRED-016  Constrained delegation (TrustedToAuthForDelegation) on svc_printer
-#   CRED-018  Unconstrained delegation on FILE01 / WS01 computer accounts
-#   RC4-only  msDS-SupportedEncryptionTypes=1 on svc_printer for hash downgrade demo
+#   CRED-016  Constrained delegation (TrustedToAuthForDelegation) on svc_trooper
+#   CRED-018  Unconstrained delegation on scarif / tatooine computer accounts
+#   RC4-only  msDS-SupportedEncryptionTypes=1 on svc_trooper for hash downgrade demo
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
@@ -20,9 +20,9 @@
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $accounts = @{
-      "svc_printer" = "{{ kerberoast_accounts.svc_printer }}"
-      "svc_dwight" = "{{ kerberoast_accounts.svc_dwight }}"
-      "svc_creed" = "{{ kerberoast_accounts.svc_creed }}"
+      "svc_trooper" = "{{ kerberoast_accounts.svc_trooper }}"
+      "svc_maul" = "{{ kerberoast_accounts.svc_maul }}"
+      "svc_sidious" = "{{ kerberoast_accounts.svc_sidious }}"
     }
     $errors = @()
     foreach ($name in $accounts.Keys) {
@@ -47,10 +47,10 @@
 # CRED-001: Register SPNs for Kerberoast targets
 # Check servicePrincipalName attribute before adding.
 # ------------------------------------------------------------------------------
-- name: CRED-001 - Check existing SPN on svc_printer
+- name: CRED-001 - Check existing SPN on svc_trooper
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $u = Get-ADUser -Identity "svc_printer" -Properties ServicePrincipalName
+    $u = Get-ADUser -Identity "svc_trooper" -Properties ServicePrincipalName
     if ($u.ServicePrincipalName -contains "{{ spn_printer }}") {
       Write-Output "present"
     } else {
@@ -60,10 +60,10 @@
   changed_when: false
   failed_when: result_spn_printer.rc != 0
 
-- name: CRED-001 - Add SPN HTTP/print.corp.local on svc_printer
+- name: CRED-001 - Add SPN HTTP/print.empire.local on svc_trooper
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    Set-ADUser -Identity "svc_printer" -ServicePrincipalNames @{Add="{{ spn_printer }}"}
+    Set-ADUser -Identity "svc_trooper" -ServicePrincipalNames @{Add="{{ spn_printer }}"}
   when: "'absent' in result_spn_printer.stdout"
   failed_when: >
     result_spn_printer_add.rc != 0 and
@@ -71,10 +71,10 @@
     "duplicate" not in (result_spn_printer_add.stderr | default("") | lower)
   register: result_spn_printer_add
 
-- name: CRED-001 - Check existing SPN on svc_dwight
+- name: CRED-001 - Check existing SPN on svc_maul
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $u = Get-ADUser -Identity "svc_dwight" -Properties ServicePrincipalName
+    $u = Get-ADUser -Identity "svc_maul" -Properties ServicePrincipalName
     if ($u.ServicePrincipalName -contains "{{ spn_dwight }}") {
       Write-Output "present"
     } else {
@@ -84,10 +84,10 @@
   changed_when: false
   failed_when: result_spn_dwight.rc != 0
 
-- name: CRED-001 - Add SPN MSSQLSvc/sql01.corp.local:1433 on svc_dwight
+- name: CRED-001 - Add SPN MSSQLSvc/kamino.empire.local:1433 on svc_maul
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    Set-ADUser -Identity "svc_dwight" -ServicePrincipalNames @{Add="{{ spn_dwight }}"}
+    Set-ADUser -Identity "svc_maul" -ServicePrincipalNames @{Add="{{ spn_dwight }}"}
   when: "'absent' in result_spn_dwight.stdout"
   failed_when: >
     result_spn_dwight_add.rc != 0 and
@@ -97,10 +97,10 @@
   register: result_spn_dwight_add
 
 # ------------------------------------------------------------------------------
-# CRED-002: DoNotRequirePreAuth on svc_michael (AS-REP Roasting)
+# CRED-002: DoNotRequirePreAuth on svc_palpatine (AS-REP Roasting)
 # Check the attribute via Get-ADUser before setting.
 # ------------------------------------------------------------------------------
-- name: CRED-002 - Check DoesNotRequirePreAuth on svc_michael
+- name: CRED-002 - Check DoesNotRequirePreAuth on svc_palpatine
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $u = Get-ADUser -Identity "{{ asrep_account }}" -Properties DoesNotRequirePreAuth
@@ -109,7 +109,7 @@
   changed_when: false
   failed_when: result_asrep_check.rc != 0
 
-- name: CRED-002 - Enable DoesNotRequirePreAuth on svc_michael
+- name: CRED-002 - Enable DoesNotRequirePreAuth on svc_palpatine
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     Set-ADAccountControl -Identity "{{ asrep_account }}" -DoesNotRequirePreAuth $true
@@ -118,13 +118,13 @@
   register: result_asrep_enable
 
 # ------------------------------------------------------------------------------
-# CRED-016: Constrained delegation (TrustedToAuthForDelegation) on svc_printer
+# CRED-016: Constrained delegation (TrustedToAuthForDelegation) on svc_trooper
 # Also sets msDS-AllowedToDelegateTo for S4U2Proxy target.
 # ------------------------------------------------------------------------------
-- name: CRED-016 - Check TrustedToAuthForDelegation on svc_printer
+- name: CRED-016 - Check TrustedToAuthForDelegation on svc_trooper
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $u = Get-ADUser -Identity "svc_printer" -Properties TrustedToAuthForDelegation, "msDS-AllowedToDelegateTo"
+    $u = Get-ADUser -Identity "svc_trooper" -Properties TrustedToAuthForDelegation, "msDS-AllowedToDelegateTo"
     $delegOk = $u.TrustedToAuthForDelegation
     $targetOk = $u."msDS-AllowedToDelegateTo" -contains "{{ delegation_target }}"
     if ($delegOk -and $targetOk) { Write-Output "ok" } else { Write-Output "needs_set" }
@@ -132,24 +132,24 @@
   changed_when: false
   failed_when: result_constrained_check.rc != 0
 
-- name: CRED-016 - Set TrustedToAuthForDelegation and delegation target on svc_printer
+- name: CRED-016 - Set TrustedToAuthForDelegation and delegation target on svc_trooper
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    Set-ADAccountControl -Identity "svc_printer" -TrustedToAuthForDelegation $true
-    Set-ADUser -Identity "svc_printer" -Add @{"msDS-AllowedToDelegateTo" = "{{ delegation_target }}"}
+    Set-ADAccountControl -Identity "svc_trooper" -TrustedToAuthForDelegation $true
+    Set-ADUser -Identity "svc_trooper" -Add @{"msDS-AllowedToDelegateTo" = "{{ delegation_target }}"}
   when: "'needs_set' in result_constrained_check.stdout"
   failed_when: result_constrained_set.rc != 0
   register: result_constrained_set
 
 # ------------------------------------------------------------------------------
-# CRED-018: Unconstrained delegation on FILE01 and WS01 computer accounts
+# CRED-018: Unconstrained delegation on scarif and tatooine computer accounts
 # TrustedForDelegation=$true; check userAccountControl bit 0x80000 before set.
 # UAC flag 524288 (0x80000) = TRUSTED_FOR_DELEGATION
 # ------------------------------------------------------------------------------
-- name: CRED-018 - Check and set unconstrained delegation on FILE01
+- name: CRED-018 - Check and set unconstrained delegation on scarif
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $comp = Get-ADComputer -Identity "FILE01" -Properties TrustedForDelegation
+    $comp = Get-ADComputer -Identity "scarif" -Properties TrustedForDelegation
     if (-not $comp.TrustedForDelegation) {
       Set-ADAccountControl -Identity $comp -TrustedForDelegation $true
       Write-Output "changed"
@@ -160,10 +160,10 @@
   changed_when: "'changed' in result_unconstrained_file01.stdout"
   failed_when: result_unconstrained_file01.rc != 0
 
-- name: CRED-018 - Check and set unconstrained delegation on WS01
+- name: CRED-018 - Check and set unconstrained delegation on tatooine
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $comp = Get-ADComputer -Identity "WS01" -Properties TrustedForDelegation
+    $comp = Get-ADComputer -Identity "tatooine" -Properties TrustedForDelegation
     if (-not $comp.TrustedForDelegation) {
       Set-ADAccountControl -Identity $comp -TrustedForDelegation $true
       Write-Output "changed"
@@ -175,39 +175,39 @@
   failed_when: result_unconstrained_ws01.rc != 0
 
 # ------------------------------------------------------------------------------
-# RC4 downgrade: force RC4-only encryption on svc_printer
+# RC4 downgrade: force RC4-only encryption on svc_trooper
 # msDS-SupportedEncryptionTypes=1 (RC4_HMAC_MD5 only).
 # Lets attackers request a Kerberoast ticket with a crackable RC4 hash even
 # when the DC prefers AES.
 # ------------------------------------------------------------------------------
-- name: RC4-downgrade - Check msDS-SupportedEncryptionTypes on svc_printer
+- name: RC4-downgrade - Check msDS-SupportedEncryptionTypes on svc_trooper
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $u = Get-ADUser -Identity "svc_printer" -Properties "msDS-SupportedEncryptionTypes"
+    $u = Get-ADUser -Identity "svc_trooper" -Properties "msDS-SupportedEncryptionTypes"
     $val = $u."msDS-SupportedEncryptionTypes"
     Write-Output $val
   register: result_rc4_check
   changed_when: false
   failed_when: result_rc4_check.rc != 0
 
-- name: RC4-downgrade - Set msDS-SupportedEncryptionTypes=1 (RC4-only) on svc_printer
+- name: RC4-downgrade - Set msDS-SupportedEncryptionTypes=1 (RC4-only) on svc_trooper
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     # 0x1 = RC4_HMAC_MD5; forces downgrade during Kerberoast for weaker hash
-    Set-ADUser -Identity "svc_printer" -Replace @{"msDS-SupportedEncryptionTypes" = {{ rc4_only_enctype }}}
+    Set-ADUser -Identity "svc_trooper" -Replace @{"msDS-SupportedEncryptionTypes" = {{ rc4_only_enctype }}}
   when: result_rc4_check.stdout | trim != rc4_only_enctype | string
   failed_when: result_rc4_set.rc != 0
   register: result_rc4_set
 
 # ------------------------------------------------------------------------------
-# RBCD: configure msDS-AllowedToActOnBehalfOfOtherIdentity on SQL01 for svc_printer
-# Enables S4U2Self/S4U2Proxy abuse chain from svc_printer -> SQL01
+# RBCD: configure msDS-AllowedToActOnBehalfOfOtherIdentity on kamino for svc_trooper
+# Enables S4U2Self/S4U2Proxy abuse chain from svc_trooper -> kamino
 # Check attribute before writing to avoid unnecessary changes.
 # ------------------------------------------------------------------------------
-- name: RBCD - Check msDS-AllowedToActOnBehalfOfOtherIdentity on SQL01
+- name: RBCD - Check msDS-AllowedToActOnBehalfOfOtherIdentity on kamino
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $comp = Get-ADComputer -Identity "SQL01" -Properties "msDS-AllowedToActOnBehalfOfOtherIdentity"
+    $comp = Get-ADComputer -Identity "kamino" -Properties "msDS-AllowedToActOnBehalfOfOtherIdentity"
     if ($comp."msDS-AllowedToActOnBehalfOfOtherIdentity") {
       Write-Output "present"
     } else {
@@ -217,14 +217,14 @@
   changed_when: false
   failed_when: result_rbcd_check.rc != 0
 
-- name: RBCD - Set msDS-AllowedToActOnBehalfOfOtherIdentity on SQL01 for svc_printer
+- name: RBCD - Set msDS-AllowedToActOnBehalfOfOtherIdentity on kamino for svc_trooper
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $comp = Get-ADComputer -Identity "SQL01"
-    $svc  = Get-ADUser   -Identity "svc_printer"
+    $comp = Get-ADComputer -Identity "kamino"
+    $svc  = Get-ADUser   -Identity "svc_trooper"
     # PrincipalsAllowedToDelegateToAccount builds the correct binary SD internally
     Set-ADComputer -Identity $comp -PrincipalsAllowedToDelegateToAccount $svc -ErrorAction Stop
-    Write-Output "changed: RBCD set on SQL01 for svc_printer"
+    Write-Output "changed: RBCD set on kamino for svc_trooper"
   when: "'absent' in result_rbcd_check.stdout"
   register: result_rbcd_set
   failed_when: result_rbcd_set.rc != 0

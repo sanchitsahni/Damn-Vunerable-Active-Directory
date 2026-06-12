@@ -1,6 +1,6 @@
 ---
 galaxy_info:
   role_name: vuln_linux
-  description: "DUNDER — Linux-in-AD member: domain join + Linux LPE/lateral + non-Windows services"
+  description: "EMPIRE — Linux-in-AD member: domain join + Linux LPE/lateral + non-Windows services"
   min_ansible_version: "2.12"
 dependencies: []

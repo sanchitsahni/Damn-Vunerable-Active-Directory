@@ -3,28 +3,28 @@
 # vuln_exchange/tasks/main.yml
 # Exchange/SCCM/WSUS/SQL attack surfaces — SRV-001..080
 #
-# sql.yml     — sql01.corp.local : SRV-001..020 SQL Server attack surfaces
-# sccm.yml    — file01.corp.local: SRV-021..040 SCCM/ConfigMgr surfaces
-# wsus.yml    — file01.corp.local: SRV-041..055 WSUS attack surfaces
-# exchange.yml — dc01.corp.local  : SRV-056..080 Exchange stub + coercion
+# sql.yml     — kamino.empire.local : SRV-001..020 SQL Server attack surfaces
+# sccm.yml    — scarif.empire.local: SRV-021..040 SCCM/ConfigMgr surfaces
+# wsus.yml    — scarif.empire.local: SRV-041..055 WSUS attack surfaces
+# exchange.yml — coruscant.empire.local  : SRV-056..080 Exchange stub + coercion
 # ==============================================================================
 
 - name: Import SQL Server attack surface tasks
   ansible.builtin.import_tasks: sql.yml
-  when: inventory_hostname == 'sql01.corp.local'
+  when: inventory_hostname == 'kamino.empire.local'
 
 - name: Import DunderMifflin database creation (web app target DB)
   ansible.builtin.import_tasks: db_setup.yml
-  when: inventory_hostname == 'sql01.corp.local'
+  when: inventory_hostname == 'kamino.empire.local'
 
 - name: Import SCCM attack surface tasks
   ansible.builtin.import_tasks: sccm.yml
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: Import WSUS attack surface tasks
   ansible.builtin.import_tasks: wsus.yml
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: Import Exchange stub surfaces (DC-side AD config)
   ansible.builtin.import_tasks: exchange.yml
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'

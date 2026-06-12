@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_persistence/tasks/main.yml
-# Target: dc01.corp.local
+# Target: coruscant.empire.local
 # ==============================================================================
 
 - name: Import registry persistence tasks (DSRM, IFEO)
@@ -15,14 +15,14 @@
 
 # Extended persistence surfaces (absorbed from vuln_persistence_ext)
 
-- name: Import extended service persistence surfaces (dc01 + ws01)
+- name: Import extended service persistence surfaces (coruscant + tatooine)
   ansible.builtin.import_tasks: services.yml
-  when: inventory_hostname in ['dc01.corp.local', 'ws01.corp.local']
+  when: inventory_hostname in ['coruscant.empire.local', 'tatooine.empire.local']
 
-- name: Import extended file persistence surfaces (dc01 + ws01)
+- name: Import extended file persistence surfaces (coruscant + tatooine)
   ansible.builtin.import_tasks: files.yml
-  when: inventory_hostname in ['dc01.corp.local', 'ws01.corp.local']
+  when: inventory_hostname in ['coruscant.empire.local', 'tatooine.empire.local']
 
-- name: Import extended registry persistence surfaces (dc01 + ws01)
+- name: Import extended registry persistence surfaces (coruscant + tatooine)
   ansible.builtin.import_tasks: registry_ext.yml
-  when: inventory_hostname in ['dc01.corp.local', 'ws01.corp.local']
+  when: inventory_hostname in ['coruscant.empire.local', 'tatooine.empire.local']

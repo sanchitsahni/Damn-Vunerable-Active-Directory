@@ -3,13 +3,13 @@
 # dns role defaults
 # ==============================================================================
 
-# corp.local DNS server
+# empire.local DNS server
 corp_dc_ip: "10.10.0.10"
 
-# finance.local DNS server
+# rebel.local DNS server
 finance_dc_ip: "10.10.20.10"
 
-# root.corp DNS server
+# trade.corp DNS server
 root_dc_ip: "10.10.30.10"
 
 # Upstream forwarder (e.g. internet-facing resolver or gateway)

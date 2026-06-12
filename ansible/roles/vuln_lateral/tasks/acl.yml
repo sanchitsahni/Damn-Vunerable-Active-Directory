@@ -1,26 +1,26 @@
 ---
 # ==============================================================================
 # vuln_lateral/tasks/acl.yml
-# Target: dc01.corp.local
+# Target: coruscant.empire.local
 #
-# LAT-021  michael.scott → GenericAll on the domain naming context object
-# LAT-022  dwight.schrute      → Validated-SPN write on svc_printer
-# LAT-034  Foreign Security Principal (finance.local Administrator) in
-#          corp.local Corporate Admins (cross-ref ad_trust for trust prereq)
+# LAT-021  sheev.palpatine → GenericAll on the domain naming context object
+# LAT-022  darth.maul      → Validated-SPN write on svc_trooper
+# LAT-034  Foreign Security Principal (rebel.local Administrator) in
+#          empire.local Corporate Admins (cross-ref ad_trust for trust prereq)
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# LAT-021: michael.scott GenericAll on domain object
+# LAT-021: sheev.palpatine GenericAll on domain object
 # GenericAll on the domain NC root enables DCSync-style access and object
 # manipulation without being in Domain Admins.
 # ------------------------------------------------------------------------------
-- name: LAT-021 - Check GenericAll ACE for michael.scott on domain object
+- name: LAT-021 - Check GenericAll ACE for sheev.palpatine on domain object
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $domDn = (Get-ADDomain).DistinguishedName
     $acl = Get-Acl "AD:\$domDn"
     $exists = $acl.Access | Where-Object {
-      $_.IdentityReference -like "*michael.scott*" -and
+      $_.IdentityReference -like "*sheev.palpatine*" -and
       $_.ActiveDirectoryRights -match "GenericAll"
     }
     if ($exists) { Write-Output "present" } else { Write-Output "absent" }
@@ -28,10 +28,10 @@
   changed_when: false
   failed_when: result_lat021_check.rc != 0
 
-- name: LAT-021 - Grant michael.scott GenericAll on domain object
+- name: LAT-021 - Grant sheev.palpatine GenericAll on domain object
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $usr    = Get-ADUser -Identity "michael.scott" -ErrorAction Stop
+    $usr    = Get-ADUser -Identity "sheev.palpatine" -ErrorAction Stop
     $sid    = New-Object System.Security.Principal.SecurityIdentifier ($usr.SID)
     $domDn  = (Get-ADDomain).DistinguishedName
     $acl    = Get-Acl "AD:\$domDn"
@@ -44,18 +44,18 @@
   failed_when: result_lat021_set.rc != 0
 
 # ------------------------------------------------------------------------------
-# LAT-022: dwight.schrute Validated-SPN write on svc_printer
-# Allows dwight.schrute to register arbitrary SPNs on svc_printer, enabling
+# LAT-022: darth.maul Validated-SPN write on svc_trooper
+# Allows darth.maul to register arbitrary SPNs on svc_trooper, enabling
 # Kerberoasting of a newly-registered service principal.
 # Validated-SPN GUID: f3a64788-5306-11d1-a9c5-0000f80367c1
 # ------------------------------------------------------------------------------
-- name: LAT-022 - Check Validated-SPN ACE for dwight.schrute on svc_printer
+- name: LAT-022 - Check Validated-SPN ACE for darth.maul on svc_trooper
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $target = Get-ADUser -Identity "svc_printer"
+    $target = Get-ADUser -Identity "svc_trooper"
     $acl = Get-Acl "AD:\$($target.DistinguishedName)"
     $exists = $acl.Access | Where-Object {
-      $_.IdentityReference -like "*dwight.schrute*" -and
+      $_.IdentityReference -like "*darth.maul*" -and
       $_.ObjectType -eq [guid]"f3a64788-5306-11d1-a9c5-0000f80367c1"
     }
     if ($exists) { Write-Output "present" } else { Write-Output "absent" }
@@ -63,11 +63,11 @@
   changed_when: false
   failed_when: result_lat022_check.rc != 0
 
-- name: LAT-022 - Grant dwight.schrute Validated-SPN write on svc_printer
+- name: LAT-022 - Grant darth.maul Validated-SPN write on svc_trooper
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $src  = Get-ADUser -Identity "dwight.schrute" -ErrorAction Stop
-    $tgt  = Get-ADUser -Identity "svc_printer" -ErrorAction Stop
+    $src  = Get-ADUser -Identity "darth.maul" -ErrorAction Stop
+    $tgt  = Get-ADUser -Identity "svc_trooper" -ErrorAction Stop
     $sid  = New-Object System.Security.Principal.SecurityIdentifier ($src.SID)
     $acl  = Get-Acl "AD:\$($tgt.DistinguishedName)"
     $guid = [guid]"f3a64788-5306-11d1-a9c5-0000f80367c1"
@@ -80,17 +80,17 @@
   failed_when: result_lat022_set.rc != 0
 
 # ------------------------------------------------------------------------------
-# LAT-034: Foreign Security Principal from finance.local in Corporate Admins
+# LAT-034: Foreign Security Principal from rebel.local in Corporate Admins
 # Cross-forest FSP requires the corp <-> finance trust to already exist
 # (ad_trust role handles trust creation).
 # ------------------------------------------------------------------------------
-- name: LAT-034 - Add finance.local Administrator as FSP in corp.local Corporate Admins
+- name: LAT-034 - Add rebel.local Administrator as FSP in empire.local Corporate Admins
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     try {
-      # Resolve SID of finance.local Administrator directly from its ADWS — the
+      # Resolve SID of rebel.local Administrator directly from its ADWS — the
       # NTAccount.Translate (LSA) path fails right after trust creation.
-      $sid = (Get-ADUser -Server finance.local -Identity Administrator -ErrorAction Stop).SID.Value
+      $sid = (Get-ADUser -Server rebel.local -Identity Administrator -ErrorAction Stop).SID.Value
       $domDn = (Get-ADDomain).DistinguishedName
       $fspDn = "CN=$sid,CN=ForeignSecurityPrincipals,$domDn"
 

@@ -1,20 +1,20 @@
-# DUNDER — Dunder Mifflin Vulnerable Active Directory
+# EMPIRE — empire Mifflin Active Directory
 
-A reproducible, multi-forest Windows Active Directory lab that is **intentionally misconfigured** for offensive-security training, CTFs, and red-team practice. DVAD spins up 1–8 Windows Server 2022 VMs on QEMU/KVM with the full attack-matrix surface from `PLAN.md` already wired up: Kerberoasting, AS-REP roasting, ADCS ESC1–ESC16, ACL abuse, delegation chains, ZeroLogon, noPac, Certifried, Golden/Silver/Diamond/Sapphire tickets, SID-history injection, and more.
+A reproducible, multi-forest Windows Active Directory lab that is **intentionally misconfigured** for offensive-security training, CTFs, and red-team practice. EMPIRE spins up 1–9 VMs (8 Windows Server 2022, 1 Ubuntu 22.04) on QEMU/KVM with the full attack-matrix surface from `PLAN.md` already wired up: Kerberoasting, AS-REP roasting, ADCS ESC1–ESC16, ACL abuse, delegation chains, ZeroLogon, noPac, Certifried, Golden/Silver/Diamond/Sapphire tickets, SID-history injection, and more.
 
-> **DVAD is the lab equivalent of [Damn Vulnerable Web App](https://github.com/digininja/DVWA) for the Windows enterprise.** Every "bug" is a feature. Do not deploy on a network you do not own.
+> **EMPIRE is the lab equivalent of [Damn Vulnerable Web App](https://github.com/digininja/DVWA) for the Windows enterprise.** Every "bug" is a feature. Do not deploy on a network you do not own.
 
-**Project:** <https://github.com/sanchitsahni/Damn-Vunerable-Active-Directory>  ·  **Issues:** <https://github.com/sanchitsahni/Damn-Vulnerable-Active-Directory/issues>  ·  **Use:** research / training only — treat every VM as hostile
+**Project:** <https://github.com/sanchitsahni/Damn-Vunerable-Active-Directory>  ·  **Issues:** <https://github.com/sanchitsahni/empire-Mifflin-Active-Directory/issues>  ·  **Use:** research / training only — treat every VM as hostile
 
 ---
 
 ## What it builds
 
-Three forests, eight VMs, three isolated L2 segments, full PLAN.md attack matrix across IA / REC / ENUM / CRED / LAT / PE / PER / DF categories (382 ID slots: IA-001..050, ENUM-001..080, REC-001..015, CRED-001..065, LAT-001..035, PE-001..060, PER-001..037, DF-001..040).
+Three forests, nine VMs, three isolated L2 segments, full PLAN.md attack matrix across IA / REC / ENUM / CRED / LAT / PE / PER / DF categories (382 ID slots: IA-001..050, ENUM-001..080, REC-001..015, CRED-001..065, LAT-001..035, PE-001..060, PER-001..037, DF-001..040).
 
 ### Lab wire diagram
 
-One Linux bridge (`dvad-ctf`) hosts all 8 VMs on a single `10.10.0.0/16` network. All forests share the same L2 segment — routing between forests is done at the AD/DNS layer, not the network layer. An optional `dvad-nat` bridge exists only during Windows install (ISO + activation fetch).
+One Linux bridge (`empire-ctf`) hosts all 8 VMs on a single `10.10.0.0/16` network. All forests share the same L2 segment — routing between forests is done at the AD/DNS layer, not the network layer. An optional `empire-nat` bridge exists only during Windows install (ISO + activation fetch).
 
 **Network (L2 / IP):**
 
@@ -27,23 +27,24 @@ graph TD
 
     Host["Linux Host<br/>runs python3 deploy.py<br/>QEMU/KVM · Ansible · dnsmasq · nftables NAT"]:::host
 
-    CTF{"dvad-ctf<br/>10.10.0.1/16<br/>(ALL forests)"}:::bridge
-    NAT{"dvad-nat<br/>10.0.2.1/24<br/>(install only)"}:::nat
+    CTF{"empire-ctf<br/>10.10.0.1/16<br/>(ALL forests)"}:::bridge
+    NAT{"empire-nat<br/>10.0.2.1/24<br/>(install only)"}:::nat
 
     Host --> CTF
     Host --> NAT
 
-    CTF --- DC01["dc01.corp.local<br/>10.10.0.10"]:::vm
-    CTF --- DC01EU["dc01.eu.corp.local<br/>10.10.0.11"]:::vm
-    CTF --- CA01["ca01.corp.local<br/>10.10.0.12"]:::vm
-    CTF --- FILE01["file01.corp.local<br/>10.10.0.13"]:::vm
-    CTF --- SQL01["sql01.corp.local<br/>10.10.0.14"]:::vm
-    CTF --- WS01["ws01.corp.local<br/>10.10.0.100"]:::vm
-    CTF --- DC01FIN["dc01.finance.local<br/>10.10.20.10"]:::vm
-    CTF --- DC01ROOT["dc01.root.corp<br/>10.10.30.10"]:::vm
+    CTF --- coruscant["coruscant.empire.local<br/>10.10.0.10"]:::vm
+    CTF --- deathstar["deathstar.eu.empire.local<br/>10.10.0.11"]:::vm
+    CTF --- endor["endor.empire.local<br/>10.10.0.12"]:::vm
+    CTF --- scarif["scarif.empire.local<br/>10.10.0.13"]:::vm
+    CTF --- kamino["kamino.empire.local<br/>10.10.0.14"]:::vm
+    CTF --- tatooine["tatooine.empire.local<br/>10.10.0.100"]:::vm
+    CTF --- mandalore["mandalore.empire.local<br/>10.10.0.15"]:::vm
+    CTF --- yavin4["yavin4.rebel.local<br/>10.10.20.10"]:::vm
+    CTF --- neimoidia["neimoidia.trade.corp<br/>10.10.30.10"]:::vm
 ```
 
-All VMs share `dvad-ctf` — the host is the single dnsmasq/NAT gateway. Finance and root.corp VMs sit in different /24 slices of the /16 (`10.10.20.x`, `10.10.30.x`) which keeps IPs unique and cross-forest reachable without extra routing.
+All VMs share `empire-ctf` — the host is the single dnsmasq/NAT gateway. Finance and trade.corp VMs sit in different /24 slices of the /16 (`10.10.20.x`, `10.10.30.x`) which keeps IPs unique and cross-forest reachable without extra routing.
 
 **Active Directory (forests + trusts):**
 
@@ -51,34 +52,34 @@ All VMs share `dvad-ctf` — the host is the single dnsmasq/NAT gateway. Finance
 graph TD
     classDef domain fill:#1d2b38,stroke:#00d2ff,stroke-width:2px,color:#fff;
     
-    subgraph CORP Forest
-        CORP["corp.local<br/>(root domain)"]:::domain
-        EU["eu.corp.local<br/>(child domain)"]:::domain
-        CORP -- "Parent/Child" --> EU
+    subgraph EMPIRE Forest
+        EMPIRE["empire.local<br/>(root domain)"]:::domain
+        EU["eu.empire.local<br/>(child domain)"]:::domain
+        EMPIRE -- "Parent/Child" --> EU
     end
     
-    subgraph FINANCE Forest
-        FIN["finance.local"]:::domain
+    subgraph REBEL Forest
+        FIN["rebel.local"]:::domain
     end
     
-    subgraph ROOT Forest
-        ROOT["root.corp"]:::domain
+    subgraph TRADE Forest
+        TRADE["trade.corp"]:::domain
     end
     
-    CORP <-->|External Trust<br/>BiDirectional<br/>SID Filter: OFF| FIN
-    CORP <-->|Forest Trust<br/>BiDirectional<br/>SID Filter: OFF| ROOT
+    EMPIRE <-->|External Trust<br/>BiDirectional<br/>SID Filter: OFF| FIN
+    EMPIRE <-->|Forest Trust<br/>BiDirectional<br/>SID Filter: OFF| TRADE
 ```
 
-Trusts are created by `ansible/tasks/trust-setup.yml` (`TrustType=External` for CORP↔FINANCE, `TrustType=Forest` for CORP↔ROOT, both `Direction=BiDirectional`). The TDO passwords are then reset to `TrustKey2024!` by `vuln-forest-compromise.yml` (DF-006) so trust-ticket forgery works without first DCSyncing. Cross-forest name resolution is via conditional forwarders on `dc01.corp.local`.
+Trusts are created by `ansible/tasks/trust-setup.yml` (`TrustType=External` for EMPIRE↔REBEL, `TrustType=Forest` for EMPIRE↔TRADE, both `Direction=BiDirectional`). The TDO passwords are then reset to `TrustKey2024!` by `vuln-forest-compromise.yml` (DF-006) so trust-ticket forgery works without first DCSyncing. Cross-forest name resolution is via conditional forwarders on `coruscant.empire.local`.
 
-| Domain | Forest | IP range | DC | Relationship to corp.local |
+| Domain | Forest | IP range | DC | Relationship to empire.local |
 |---|---|---|---|---|
-| `corp.local` | CORP (root) | `10.10.0.x` · `dvad-ctf /16` | `dc01.corp.local` | — |
-| `eu.corp.local` | CORP (child) | `10.10.0.x` · `dvad-ctf /16` | `dc01.eu.corp.local` | Parent/child, same forest |
-| `finance.local` | FINANCE (root) | `10.10.20.x` · `dvad-ctf /16` | `dc01.finance.local` | External, bidirectional |
-| `root.corp` | ROOT (root) | `10.10.30.x` · `dvad-ctf /16` | `dc01.root.corp` | Forest, bidirectional |
+| `empire.local` | EMPIRE (root) | `10.10.0.x` · `empire-ctf /16` | `coruscant.empire.local` | — |
+| `eu.empire.local` | EMPIRE (child) | `10.10.0.x` · `empire-ctf /16` | `deathstar.eu.empire.local` | Parent/child, same forest |
+| `rebel.local` | REBEL (root) | `10.10.20.x` · `empire-ctf /16` | `yavin4.rebel.local` | External, bidirectional |
+| `trade.corp` | TRADE (root) | `10.10.30.x` · `empire-ctf /16` | `neimoidia.trade.corp` | Forest, bidirectional |
 
-**Lab password (everywhere): `DVADlab2024!`** — not a secret, intentionally weak.
+**Lab password (everywhere): `EmpireLab2024!`** — not a secret, intentionally weak.
 
 ### VM manifest
 
@@ -86,34 +87,35 @@ Per-VM sizing, MAC, and VNC port — all hardcoded in `qemu/vm-create.sh` (`VM_D
 
 | Host | IP | Bridge | RAM | vCPU | VNC |
 |---|---|---|---|---|---|
-| `dc01.corp.local` | 10.10.0.10 | `dvad-ctf` | 3 GB | 2 | :5901 |
-| `dc01.eu.corp.local` | 10.10.0.11 | `dvad-ctf` | 2 GB | 1 | :5902 |
-| `ca01.corp.local` | 10.10.0.12 | `dvad-ctf` | 2 GB | 1 | :5903 |
-| `file01.corp.local` | 10.10.0.13 | `dvad-ctf` | 1.5 GB | 1 | :5904 |
-| `sql01.corp.local` | 10.10.0.14 | `dvad-ctf` | 2 GB | 1 | :5905 |
-| `ws01.corp.local` | 10.10.0.100 | `dvad-ctf` | 3 GB | 2 | :5906 |
-| `dc01.finance.local` | 10.10.20.10 | `dvad-ctf` | 2 GB | 1 | :5907 |
-| `dc01.root.corp` | 10.10.30.10 | `dvad-ctf` | 2 GB | 1 | :5908 |
+| `coruscant.empire.local` | 10.10.0.10 | `empire-ctf` | 3 GB | 2 | :5901 |
+| `deathstar.eu.empire.local` | 10.10.0.11 | `empire-ctf` | 2 GB | 1 | :5902 |
+| `endor.empire.local` | 10.10.0.12 | `empire-ctf` | 2 GB | 1 | :5903 |
+| `scarif.empire.local` | 10.10.0.13 | `empire-ctf` | 1.5 GB | 1 | :5904 |
+| `kamino.empire.local` | 10.10.0.14 | `empire-ctf` | 2 GB | 1 | :5905 |
+| `tatooine.empire.local` | 10.10.0.100 | `empire-ctf` | 3 GB | 2 | :5906 |
+| `mandalore.empire.local` | 10.10.0.15 | `empire-ctf` | 1.2 GB | 2 | :5909 |
+| `yavin4.rebel.local` | 10.10.20.10 | `empire-ctf` | 2 GB | 1 | :5907 |
+| `neimoidia.trade.corp` | 10.10.30.10 | `empire-ctf` | 2 GB | 1 | :5908 |
 
-`--minimal` drops the `finance.local` and `root.corp` DCs (5 corp VMs only). `--single-dc` brings up `dc01.corp.local` alone. `--memory` / `--cpus` scale the table proportionally to fit a host budget.
+`--minimal` drops the `rebel.local` and `trade.corp` DCs (5 corp VMs only). `--single-dc` brings up `coruscant.empire.local` alone. `--memory` / `--cpus` scale the table proportionally to fit a host budget.
 
 ### Repository layout
 
 ```
-DUNDER
-├── deploy.sh                   # Master deploy script (entry point)
+EMPIRE
+├── deploy.py                   # Master deploy script (entry point)
 ├── deploy.py                     # Interactive installer wizard
 ├── qemu/
 │   ├── vm-create.sh            # VM definitions, autounattend generation, QCOW2 clone
 │   └── network/
-│       └── setup-network.sh    # Bridge + dnsmasq + NAT (single dvad-ctf /16)
-├── ansible/                    # Canonical Ansible (used by deploy.sh via profiles)
+│       └── setup-network.sh    # Bridge + dnsmasq + NAT (single empire-ctf /16)
+├── ansible/                    # Canonical Ansible (used by deploy.py via profiles)
 │   ├── inventory.yml           # 8 hosts, groups: all_dcs, member_servers, …
 │   └── playbooks/
 │       └── site.yml            # 16-play master playbook (phases 1–16)
 ├── ansible/roles/              # 19 Ansible roles
 │   ├── ad_domain               # Forest promotion
-│   ├── child_domain            # Child domain (eu.corp.local)
+│   ├── child_domain            # Child domain (eu.empire.local)
 │   ├── ad_trust                # Cross-forest trusts + SID-filter disable
 │   ├── dns                     # Conditional forwarders
 │   ├── domain_join             # Member server domain join
@@ -136,8 +138,8 @@ DUNDER
 │   ├── verify_exploits.sh      # Layer-2 attacker-side exploit verification
 │   └── verify_vulns.py         # Layer-1 passive config check
 ├── wordlists/
-│   ├── dvad_passwords.txt      # 34 unique lab passwords
-│   └── dvad_usernames.txt      # 35 usernames
+│   ├── empire_passwords.txt      # 34 unique lab passwords
+│   └── empire_usernames.txt      # 35 usernames
 ├── ATTACK_PATTERNS.md          # 14 named kill chains + attack surface tables
 ├── PLAN.md                     # Attack-vector spec (all IDs)
 └── WALKTHROUGH.md              # Full operator walkthrough
@@ -153,7 +155,7 @@ DUNDER
 - `sudo` access (bridge creation, dnsmasq, nftables rules need root)
 - Internet access on first run for Windows ISO + dependency install
 
-Distributions detected and supported by `deploy.sh`:
+Distributions detected and supported by `deploy.py`:
 - Debian / Ubuntu / Linux Mint / Pop!_OS (`apt`)
 - Fedora / RHEL / CentOS Stream / Rocky / AlmaLinux (`dnf`)
 - Arch / Manjaro / EndeavourOS (`pacman`)
@@ -166,8 +168,8 @@ Distributions detected and supported by `deploy.sh`:
 Before running the deployment script, you **must** supply the master Windows QCOW2 image. We no longer download Windows Evaluation ISOs or VHDs automatically.
 
 ```bash
-git clone git@github.com:sanchitsahni/Damn-Vunerable-Active-Directory.git DVAD
-cd DVAD
+git clone git@github.com:sanchitsahni/Damn-Vunerable-Active-Directory.git EMPIRE
+cd EMPIRE
 
 # 1. Prepare the media directory and base image:
 mkdir -p media
@@ -180,7 +182,7 @@ mkdir -p media
 python3 deploy.py
 
 # Smaller deployments:
-python3 deploy.py --profile minimal      # corp.local only (5 VMs, ~12 GB)
+python3 deploy.py --profile minimal      # empire.local only (5 VMs, ~12 GB)
 python3 deploy.py --profile single-dc    # one DC for a smoke test (1 VM, ~3 GB)
 
 # Resource caps:
@@ -191,13 +193,13 @@ python3 deploy.py --vps --vnc-bind 127.0.0.1
 
 # Lifecycle Management:
 python3 deploy.py suspend     # Stop all VMs
-python3 deploy.py restart ws01  # Restart a specific VM
+python3 deploy.py restart tatooine  # Restart a specific VM
 python3 deploy.py destroy     # Tear down everything
 ```
 
 > The upstream repo URL has a typo (`Vunerable` instead of `Vulnerable`); that's the real name on GitHub. Clone-paste it as-is.
 
-`deploy.sh` runs these phases end-to-end:
+`deploy.py` runs these phases end-to-end:
 
 1. OS detection + dependency install (`qemu`, `libvirt`, `swtpm`, `ovmf`, `ansible`, `dnsmasq`, …)
 2. Bridge + dnsmasq + nftables setup (`qemu/network/setup-network.sh`)
@@ -226,16 +228,16 @@ Connect to a VM:
 
 ```bash
 # VNC console (one port per VM — see the VM manifest table above):
-vncviewer 127.0.0.1:5901          # dc01.corp.local
+vncviewer 127.0.0.1:5901          # coruscant.empire.local
 
 # WinRM (Ansible uses this; ports 5985/5986 are open after post-install):
-evil-winrm -i 10.10.0.10 -u Administrator -p 'DVADlab2024!'
+evil-winrm -i 10.10.0.10 -u Administrator -p 'EmpireLab2024!'
 
 # RDP (some VMs have RDP enabled by post-install.ps1):
-xfreerdp /v:10.10.0.100 /u:Administrator /p:'DVADlab2024!'
+xfreerdp /v:10.10.0.100 /u:Administrator /p:'EmpireLab2024!'
 ```
 
-Victim workstation `ws01.corp.local` (`10.10.0.100`) ships with tool path stubs (`C:\Tools\`) but **no binaries** — you don't run attacks from `ws01`. Attacks run from **your own Kali / BlackArch** on the host bridge (the box that ran `deploy.sh`). Bring your own `impacket`, `BloodHound`, `certipy`, `Rubeus`, `mimikatz`, `netexec`, `Responder`, `mitm6`, `ntlmrelayx`, etc. See [`docs/02a-initial-access.md`](docs/02a-initial-access.md) for Kali prep + zero-cred initial access vectors.
+Victim workstation `tatooine.empire.local` (`10.10.0.100`) ships with tool path stubs (`C:\Tools\`) but **no binaries** — you don't run attacks from `tatooine`. Attacks run from **your own Kali / BlackArch** on the host bridge (the box that ran `deploy.py`). Bring your own `impacket`, `BloodHound`, `certipy`, `Rubeus`, `mimikatz`, `netexec`, `Responder`, `mitm6`, `ntlmrelayx`, etc. See [`docs/02a-initial-access.md`](docs/02a-initial-access.md) for Kali prep + zero-cred initial access vectors.
 
 ---
 
@@ -243,7 +245,7 @@ Victim workstation `ws01.corp.local` (`10.10.0.100`) ships with tool path stubs 
 
 | Flag | Effect |
 |---|---|
-| `--minimal` | Only `corp.local` (5 VMs, ~12 GB RAM) |
+| `--minimal` | Only `empire.local` (5 VMs, ~12 GB RAM) |
 | `--single-dc` | Single DC smoke test (1 VM, ~3 GB RAM) |
 | `--vps` | Headless VPS profile: bigger per-VM RAM, VNC on loopback only, host-capacity pre-flight, no display devices |
 | `--memory GB` | Total RAM budget across all VMs (default: 18 full / 28 vps) |
@@ -252,15 +254,15 @@ Victim workstation `ws01.corp.local` (`10.10.0.100`) ships with tool path stubs 
 | `--vnc-bind ADDR` | Bind VNC to `ADDR` (default `127.0.0.1`; `0.0.0.0` exposes all interfaces — only safe behind a firewall/VPN) |
 | `destroy` | Destroy and clean all VMs and networks, leaving the environment fresh |
 | `suspend` | Stop all running VMs without deleting virtual disks or networks |
-| `restart <id>` | Safely restart specific VMs (e.g. `python3 deploy.py restart dc01-corp file01`) |
+| `restart <id>` | Safely restart specific VMs (e.g. `python3 deploy.py restart coruscant-corp scarif`) |
 
 ---
 
 ## Repository layout
 
 ```
-DVAD/
-├── deploy.sh                    # Entry point (the only script you run)
+EMPIRE/
+├── deploy.py                    # Entry point (the only script you run)
 ├── PLAN.md                      # Authoritative attack-matrix spec (382 IDs)
 ├── WALKTHROUGH.md               # End-to-end deploy → 25 attack paths → DA
 ├── AGENTS.md / CLAUDE.md        # Orientation docs for AI coding agents
@@ -269,21 +271,21 @@ DVAD/
 │   ├── vm-create.sh             # VM_DEFS (RAM/CPU/MAC/VNC/bridge), per-VM
 │   │                            #   autounattend.xml + post-install.ps1
 │   │                            #   generation, libvirt-less lifecycle
-│   └── network/setup-network.sh # Linux bridges (dvad-ctf/finance/root/nat)
+│   └── network/setup-network.sh # Linux bridges (empire-ctf/finance/root/nat)
 │                                #   + project-local dnsmasq + nftables NAT
 │
 ├── ansible/
 │   ├── inventory.yml            # CANONICAL inventory: 8 hosts × 3 forests
-│   ├── inventory/hosts.yml      # ⚠ stale duplicate; ignored by deploy.sh
+│   ├── inventory/hosts.yml      # ⚠ stale duplicate; ignored by deploy.py
 │   ├── group_vars/all.yml       # Lab-wide vars (password, domain SIDs, …)
 │   ├── host_vars/               # Per-host overrides
 │   ├── files/                   # Static payloads pushed to Windows
 │   ├── playbooks/site.yml       # Master playbook — 26 plays (see below)
 │   ├── tasks/                   # Imperative AD setup + vuln injection
-│   │   ├── ad-ds-setup.yml             # corp.local forest root promotion
-│   │   ├── child-domain-setup.yml      # eu.corp.local child domain
-│   │   ├── finance-domain-setup.yml    # finance.local forest root
-│   │   ├── root-domain-setup.yml       # root.corp forest root
+│   │   ├── ad-ds-setup.yml             # empire.local forest root promotion
+│   │   ├── child-domain-setup.yml      # eu.empire.local child domain
+│   │   ├── finance-domain-setup.yml    # rebel.local forest root
+│   │   ├── root-domain-setup.yml       # trade.corp forest root
 │   │   ├── domain-join.yml             # Member server domain join
 │   │   ├── trust-setup.yml             # Cross-forest trusts
 │   │   ├── adcs-setup.yml              # ADCS enterprise CA bootstrap
@@ -292,13 +294,13 @@ DVAD/
 │   │   ├── vuln-recon.yml              # REC-001..015
 │   │   ├── vuln-cred-access.yml        # CRED-001..065
 │   │   ├── vuln-lateral.yml            # LAT-* DC-side
-│   │   ├── vuln-lateral-file01.yml     # LAT-* SSH pivot on file01
-│   │   ├── vuln-lateral-ws01.yml       # LAT-* SMB signing, coercion drops
+│   │   ├── vuln-lateral-scarif.yml     # LAT-* SSH pivot on scarif
+│   │   ├── vuln-lateral-tatooine.yml       # LAT-* SMB signing, coercion drops
 │   │   ├── vuln-acl.yml                # ACL abuse vectors
 │   │   ├── vuln-adcs-esc.yml           # ADCS ESC1..16 template publishing
-│   │   ├── vuln-privesc-file.yml       # PE-* on file01
-│   │   ├── vuln-privesc-sql.yml        # PE-* on sql01
-│   │   ├── vuln-privesc-ws01.yml       # PE-* on ws01
+│   │   ├── vuln-privesc-file.yml       # PE-* on scarif
+│   │   ├── vuln-privesc-sql.yml        # PE-* on kamino
+│   │   ├── vuln-privesc-tatooine.yml       # PE-* on tatooine
 │   │   ├── vuln-privesc-dc.yml         # Operators + GPO startup scripts
 │   │   ├── vuln-persistence.yml        # PER-001..037
 │   │   ├── vuln-forest-compromise.yml  # DF-001..040
@@ -315,7 +317,7 @@ DVAD/
 │       ├── massgrave_activate/  # Windows activation via massgrave.dev
 │       └── flag_factory/        # 382-flag manifest → C:\Flags\*.txt
 │
-├── scripts/                     # Orchestration helpers invoked by deploy.sh
+├── scripts/                     # Orchestration helpers invoked by deploy.py
 │   ├── setup-deps.sh            # Phase 0: package install per distro
 │   ├── download-windows.sh      # Phase 2: WS2022 + virtio-win → media/
 │   ├── wait-for-install.sh      # Per-VM install completion poller
@@ -348,7 +350,7 @@ Short list (the long list is `PLAN.md`):
 
 - Defender disabled, firewall off, UAC weakened on every host
 - `MachineAccountQuota = 10` (noPac/Certifried precondition)
-- `krbtgt` reset to a known value (`KrbtgtDVAD2024!`) for deterministic Golden Tickets
+- `krbtgt` reset to a known value (`KrbtgtEmpire2024!`) for deterministic Golden Tickets
 - ADCS ESC1, ESC2, ESC3, ESC4, ESC6, ESC8, ESC9, ESC10, ESC11, ESC13, ESC14, ESC15, ESC16 templates published
 - Kerberoastable service accounts with weak passwords
 - AS-REP roastable accounts (`DoNotRequirePreAuth`)
@@ -357,7 +359,7 @@ Short list (the long list is `PLAN.md`):
 - `FullSecureChannelProtection = 0` (ZeroLogon precondition)
 - Backup Operators / Server Operators / Print Operators / Schema Admins populated with low-priv users
 - AdminSDHolder GenericAll backdoor on `tony.stark`
-- Unconstrained delegation on `svc_legacy`, gMSA backdoor, RBCD on `FILE01$`
+- Unconstrained delegation on `svc_legacy`, gMSA backdoor, RBCD on `scarif$`
 - SMB signing not required, LDAP signing not required, LLMNR on, IPv6 enabled (mitm6)
 - And ~370 more IDs — see `PLAN.md`
 
@@ -396,7 +398,7 @@ The `vms/` and `media/` directories survive a destroy of bridges; remove them ma
 
 ## Contributing & reporting
 
-The DVAD repo lives at <https://github.com/sanchitsahni/Damn-Vunerable-Active-Directory> (note the `Vunerable` typo in the upstream name).
+The EMPIRE repo lives at <https://github.com/sanchitsahni/Damn-Vunerable-Active-Directory> (note the `Vunerable` typo in the upstream name).
 
 **Open an issue if:**
 - A VM fails to boot, install, or join its forest on a supported distro
@@ -409,7 +411,7 @@ The DVAD repo lives at <https://github.com/sanchitsahni/Damn-Vunerable-Active-Di
 - A specific solve not working — try a different path, this is a CTF
 - "Defender / firewall / signing is off" — yes, that's by design
 
-When filing a bug, include: distro + `deploy.sh --help`-relevant flags used, the failing phase (0–7), and the last ~50 lines from `vms/<name>.log` plus any Ansible failure.
+When filing a bug, include: distro + `deploy.py --help`-relevant flags used, the failing phase (0–7), and the last ~50 lines from `vms/<name>.log` plus any Ansible failure.
 
 If you want to add an attack vector, open an issue first — `PLAN.md` is the spec, and new vectors should land there before the playbooks.
 
@@ -417,7 +419,7 @@ If you want to add an attack vector, open an issue first — `PLAN.md` is the sp
 
 ## Disclaimer
 
-DVAD is a research and training tool. It deliberately produces a Windows AD environment that is trivially exploitable. **Do not deploy it on a network you do not control.** The authors accept no responsibility for misuse. The lab password and intentionally vulnerable configurations are public; treat the VMs as hostile.
+EMPIRE is a research and training tool. It deliberately produces a Windows AD environment that is trivially exploitable. **Do not deploy it on a network you do not control.** The authors accept no responsibility for misuse. The lab password and intentionally vulnerable configurations are public; treat the VMs as hostile.
 
 ---
 
@@ -431,8 +433,8 @@ python3 deploy.py --vps                              # builds the lab, headless
 sudo bash scripts/vps-wg-gateway.sh up         # spins up a WG server, prints client conf
 
 # On your Kali / BlackArch laptop:
-sudo wg-quick up ./dvad-attacker.conf          # paste the printed conf here
-nxc smb 10.10.0.10 -u alice -p 'DVADlab2024!'  # full lab is reachable
+sudo wg-quick up ./empire-attacker.conf          # paste the printed conf here
+nxc smb 10.10.0.10 -u alice -p 'EmpireLab2024!'  # full lab is reachable
 ```
 
 See [`docs/09-vps-deploy.md`](docs/09-vps-deploy.md) for the threat-model caveats (do NOT expose the lab directly to the internet — every VM is intentionally vulnerable; the WG gateway is the only safe ingress) and the firewall rules the script applies.
@@ -481,7 +483,7 @@ The repo ships three parallel layers of documentation. Pick the one that matches
 | 10 – 12 | Credential access, lateral movement, privesc, persistence, forest |
 | 13 – 14 | Defense + detection, capstone exercises |
 
-Each STUDY chapter ends with exercises that map to specific DVAD flag IDs, so you can read theory and immediately practice on the lab.
+Each STUDY chapter ends with exercises that map to specific EMPIRE flag IDs, so you can read theory and immediately practice on the lab.
 
 ## Vulnerability Coverage and Mock Injection
 
@@ -494,3 +496,85 @@ To bridge this gap and provide structural proof of coverage across all deploymen
 - It dynamically generates `tasks/vuln-missing.yml`, which forces the creation of fake registry keys, mock file paths (e.g., `C:\Windows\CCM\CcmExec.exe`), and Active Directory attributes.
 - This allows you to run `verify_vulns.py` against the scaled-down labs and achieve near-100% mathematical validation without needing 32GB of RAM to run the full enterprise software stack.
 - **Tip (100% Validation):** If you edit `verify_vulns.py` and manually replace the IP addresses of the missing VMs (`FIN_DC_IP`, `ROOT_DC_IP`, `DC_EU_IP`, etc.) with the main Domain Controller IP (`10.10.0.10`), the verifier will route all cross-forest and lateral movement network checks to the DC. Combined with the mock injection, this allows you to hit exactly 382/382 `VULNERABLE` in the minimal lab!
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

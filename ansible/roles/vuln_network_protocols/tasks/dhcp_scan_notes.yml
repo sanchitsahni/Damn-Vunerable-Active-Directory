@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_network_protocols/tasks/dhcp_scan_notes.yml
-# Target: dc01.corp.local (documentation drop only - no listener)
+# Target: coruscant.empire.local (documentation drop only - no listener)
 #
 # NET-011  DHCP starvation / rogue DHCP - DOCUMENTED, not injected as a service.
 #          The whole lab shares ONE L2 segment (10.10.0.0/16, bridge dvad-ctf)
@@ -26,9 +26,9 @@
   ansible.windows.win_copy:
     dest: 'C:\Flags\net-dhcp-scan.txt'
     content: |
-      DUNDER{NET-011_DHCP_ROGUE_SINGLE_SEGMENT_CONSTRAINT}
-      DUNDER{NET-012_ICMP_UDP_SCAN_SURFACE_FIREWALL_OFF}
-      Would I rather be feared or loved? Easy. Both. — Michael Scott
+      EMPIRE{NET-011_DHCP_ROGUE_SINGLE_SEGMENT_CONSTRAINT}
+      EMPIRE{NET-012_ICMP_UDP_SCAN_SURFACE_FIREWALL_OFF}
+      Would I rather be feared or loved? Easy. Both. — Sheev Palpatine
 
       NET-011 DHCP starvation / rogue DHCP (DOCUMENTED, single-segment):
         Real DHCP for 10.10.0.0/16 is the host dnsmasq (attacker box 10.10.0.1).

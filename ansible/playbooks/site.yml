@@ -3,7 +3,7 @@
 # DVAD site.yml — Master Playbook
 #
 # Dependency order:
-#   1. corp.local DC must be fully promoted before child/finance/root DCs
+#   1. empire.local DC must be fully promoted before child/finance/root DCs
 #   2. All DCs must be up before trusts are configured
 #   3. All DCs must be up before DNS forwarders are set
 #   4. DCs must be reachable (LDAP) before member servers join
@@ -11,12 +11,12 @@
 # Usage:
 #   ansible-playbook -i inventory.yml playbooks/site.yml
 #   ansible-playbook -i inventory.yml playbooks/site.yml --tags ad_domain
-#   ansible-playbook -i inventory.yml playbooks/site.yml --limit dc01.corp.local
+#   ansible-playbook -i inventory.yml playbooks/site.yml --limit coruscant.empire.local
 # ==============================================================================
 
 # ============================================================================
 # Phase 1: Promote the 3 INDEPENDENT forest-root DCs IN PARALLEL.
-# corp.local, finance.local and root.corp are separate forests with no
+# empire.local, rebel.local and trade.corp are separate forests with no
 # dependency on each other, so they promote simultaneously (strategy: free)
 # instead of one-at-a-time — ~3x faster than separate sequential plays.
 # Per-host vars (ad_domain/netbios/hostname/static_ip/subnet/gateway) come from
@@ -24,9 +24,9 @@
 # ============================================================================
 - name: Phase 1 — Promote forest-root DCs (corp + finance + root, parallel)
   hosts:
-    - dc01.corp.local
-    - dc01.finance.local
-    - dc01.root.corp
+    - coruscant.empire.local
+    - yavin4.rebel.local
+    - neimoidia.trade.corp
   strategy: free
   gather_facts: false
   tags:
@@ -37,11 +37,11 @@
     - role: ad_domain
 
 # ============================================================================
-# Phase 2: Promote dc01.eu.corp.local (child domain).
-# Must run AFTER Phase 1 — corp.local LDAP must be up first.
+# Phase 2: Promote deathstar.eu.empire.local (child domain).
+# Must run AFTER Phase 1 — empire.local LDAP must be up first.
 # ============================================================================
-- name: Phase 2 — Promote eu.corp.local child DC
-  hosts: dc01.eu.corp.local
+- name: Phase 2 — Promote eu.empire.local child DC
+  hosts: deathstar.eu.empire.local
   gather_facts: false
   tags:
     - child_domain
@@ -51,10 +51,10 @@
     - role: child_domain
 
 # ============================================================================
-# Phase 5: Join member servers to corp.local
-# Requires Phase 1 complete (corp.local LDAP must answer).
+# Phase 5: Join member servers to empire.local
+# Requires Phase 1 complete (empire.local LDAP must answer).
 # ============================================================================
-- name: Phase 5 — Join member servers to corp.local
+- name: Phase 5 — Join member servers to empire.local
   hosts: member_servers
   gather_facts: false
   tags:
@@ -64,10 +64,10 @@
   roles:
     - role: domain_join
       vars:
-        domain_to_join: corp.local
+        domain_to_join: empire.local
         domain_user: Administrator
-        domain_password: "DVADlab2024!"
-        domain_netbios: CORP
+        domain_password: "SithLord123!"
+        domain_netbios: EMPIRE
         domain_dns_ip: 10.10.0.10
         member_subnet_mask: 255.255.0.0
         member_gateway: 10.10.0.1
@@ -75,10 +75,10 @@
 # ============================================================================
 # Phase 6: Configure cross-forest trusts
 # Requires Phases 1, 3, 4 complete (all forest DCs up).
-# Run against dc01.corp.local — it initiates both trusts.
+# Run against coruscant.empire.local — it initiates both trusts.
 # ============================================================================
 - name: Phase 6 — Configure cross-forest trusts
-  hosts: dc01.corp.local
+  hosts: coruscant.empire.local
   gather_facts: false
   tags:
     - ad_trust
@@ -113,15 +113,15 @@
     - phase8
   roles:
     - role: vuln_cred_access
-    # Kerberoast/AS-REP/delegation targets (svc_printer/svc_dwight/svc_creed,
-    # FILE01/WS01) exist only in corp.local — the role header says "Target:
-    # dc01.corp.local". Scope it so it does not fail on the finance/root/eu DCs.
+    # Kerberoast/AS-REP/delegation targets (svc_trooper/svc_maul/svc_sidious,
+    # scarif/tatooine) exist only in empire.local — the role header says "Target:
+    # coruscant.empire.local". Scope it so it does not fail on the finance/root/eu DCs.
     - role: vuln_kerberos
-      when: inventory_hostname == 'dc01.corp.local'
+      when: inventory_hostname == 'coruscant.empire.local'
     - role: vuln_forest
 
-- name: Phase 8b — ADCS vulnerability injection (ca01)
-  hosts: ca01.corp.local
+- name: Phase 8b — ADCS vulnerability injection (endor)
+  hosts: endor.empire.local
   gather_facts: false
   tags:
     - vuln_adcs
@@ -163,10 +163,10 @@
 # Phase 11: Modern CVE surfaces (2025/2026)
 # All other extended surfaces are now absorbed into base roles (phases 8-10).
 # ============================================================================
-- name: Phase 11 — Modern CVE surfaces 2025/2026 (all DCs + ws01)
+- name: Phase 11 — Modern CVE surfaces 2025/2026 (all DCs + tatooine)
   hosts:
     - all_dcs
-    - ws01.corp.local
+    - tatooine.empire.local
   gather_facts: false
   tags:
     - vuln_cve
@@ -177,11 +177,11 @@
 # ============================================================================
 # Phase 13: Service expansion — SQL, SCCM, WSUS, Exchange
 # ============================================================================
-- name: Phase 13 — Service attack surfaces (sql01 + file01 + dc01)
+- name: Phase 13 — Service attack surfaces (kamino + scarif + coruscant)
   hosts:
-    - sql01.corp.local
-    - file01.corp.local
-    - dc01.corp.local
+    - kamino.empire.local
+    - scarif.empire.local
+    - coruscant.empire.local
   gather_facts: false
   tags:
     - vuln_exchange
@@ -193,8 +193,8 @@
 # ============================================================================
 # Phase 14: Cloud/Entra hybrid + defense evasion surfaces
 # ============================================================================
-- name: Phase 14a — Entra/AAD hybrid attack surfaces (dc01)
-  hosts: dc01.corp.local
+- name: Phase 14a — Entra/AAD hybrid attack surfaces (coruscant)
+  hosts: coruscant.empire.local
   gather_facts: false
   tags:
     - vuln_cloud_entra
@@ -203,11 +203,11 @@
   roles:
     - role: vuln_cloud_entra
 
-- name: Phase 14b — Defense evasion surfaces (ws01 + file01 + dc01)
+- name: Phase 14b — Defense evasion surfaces (tatooine + scarif + coruscant)
   hosts:
-    - ws01.corp.local
-    - file01.corp.local
-    - dc01.corp.local
+    - tatooine.empire.local
+    - scarif.empire.local
+    - coruscant.empire.local
   gather_facts: false
   tags:
     - vuln_defense_evasion
@@ -217,12 +217,12 @@
     - role: vuln_defense_evasion
 
 # ============================================================================
-# Phase 15: Web application attack surfaces (file01 + dc01)
+# Phase 15: Web application attack surfaces (scarif + coruscant)
 # ============================================================================
-- name: Phase 16 — Web application vulnerabilities (file01 + dc01)
+- name: Phase 16 — Web application vulnerabilities (scarif + coruscant)
   hosts:
-    - file01.corp.local
-    - dc01.corp.local
+    - scarif.empire.local
+    - coruscant.empire.local
   gather_facts: false
   tags:
     - vuln_web_apps
@@ -232,14 +232,14 @@
     - role: vuln_web_apps
 
 # ============================================================================
-# Phase 17: Victim traffic simulation (ws01)
-# Deploys three scheduled tasks (pam.beesly, jim.halpert, dwight.schrute) that
+# Phase 17: Victim traffic simulation (tatooine)
+# Deploys three scheduled tasks (leia.organa, luke.skywalker, darth.maul) that
 # open SMB shares every 30 s — real hosts for ntlmrelayx, fake hostnames for
 # LLMNR/Responder NTLMv2 capture.  Must run AFTER domain_join so user accounts
 # and domain trust are in place.
 # ============================================================================
-- name: Phase 17 — Victim traffic simulation (ws01)
-  hosts: ws01.corp.local
+- name: Phase 17 — Victim traffic simulation (tatooine)
+  hosts: tatooine.empire.local
   gather_facts: false
   tags:
     - vuln_traffic_sim
@@ -254,11 +254,11 @@
 # ============================================================================
 - name: Phase 18 — Network-protocol attack surfaces
   hosts:
-    - dc01.corp.local
-    - ca01.corp.local
-    - file01.corp.local
-    - sql01.corp.local
-    - ws01.corp.local
+    - coruscant.empire.local
+    - endor.empire.local
+    - scarif.empire.local
+    - kamino.empire.local
+    - tatooine.empire.local
   gather_facts: false
   tags:
     - vuln_network_protocols
@@ -267,15 +267,15 @@
     - role: vuln_network_protocols
 
 # ============================================================================
-# Phase 19: Victim-executor simulation (ws01) — scheduled tasks act as gullible
+# Phase 19: Victim-executor simulation (tatooine) — scheduled tasks act as gullible
 # employees every ~30 s: execute artifacts dropped in the world-writable Drop
 # share and touch .library-ms/.search-ms/.url coercion files so outbound NTLM
 # fires for Responder/ntlmrelayx. Makes client-side techniques solvable
 # HEADLESSLY on Server Core. Runs AFTER domain_join + the phishing/coercion
 # drop roles (Phases 9-11) so artifacts exist.
 # ============================================================================
-- name: Phase 19 — Victim-executor simulation (ws01)
-  hosts: ws01.corp.local
+- name: Phase 19 — Victim-executor simulation (tatooine)
+  hosts: tatooine.empire.local
   gather_facts: false
   tags:
     - vuln_victim_exec
@@ -287,13 +287,13 @@
 # (Earlier extended surfaces absorbed into vuln_cred_access, vuln_lateral, vuln_forest in phases 8-10)
 
 # ============================================================================
-# Phase 20: Linux-in-AD member (linux01) — domain join + Linux-local privesc
+# Phase 20: Linux-in-AD member (mandalore) — domain join + Linux-local privesc
 # + Linux→Windows lateral surface + non-Windows network/app services.
-# SSH/become (NOT WinRM). MUST run AFTER Phase 1 (corp.local DC promoted) so
-# realmd/adcli can join corp.local (DC 10.10.0.10). gather_facts: true — Linux
+# SSH/become (NOT WinRM). MUST run AFTER Phase 1 (empire.local DC promoted) so
+# realmd/adcli can join empire.local (DC 10.10.0.10). gather_facts: true — Linux
 # facts are cheap and the role uses ansible_distribution / service facts.
 # ============================================================================
-- name: Phase 20 — Linux member (linux01) — domain join, LPE, services, flags
+- name: Phase 20 — Linux member (mandalore) — domain join, LPE, services, flags
   hosts: linux_hosts
   gather_facts: true
   become: true

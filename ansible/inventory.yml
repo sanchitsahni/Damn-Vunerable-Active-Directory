@@ -7,7 +7,7 @@
 all:
   vars:
     ansible_user: Administrator
-    ansible_password: "DVADlab2024!"
+    ansible_password: "SithLord123!"
     ansible_connection: winrm
     ansible_winrm_transport: ntlm
     ansible_winrm_port: 5985
@@ -26,67 +26,67 @@ all:
     # =========================================================================
     all_dcs:
       hosts:
-        dc01.corp.local:
+        coruscant.empire.local:
           ansible_host: 10.10.0.10
-          # corp.local DC-specific vars (used by ad_domain role)
-          ad_domain: corp.local
-          ad_netbios: CORP
-          ad_hostname: dc01
+          # empire.local DC-specific vars (used by ad_domain role)
+          ad_domain: empire.local
+          ad_netbios: EMPIRE
+          ad_hostname: coruscant
           ad_static_ip: 10.10.0.10
           ad_subnet_mask: 255.255.0.0
           ad_gateway: 10.10.0.1
 
-        dc01.eu.corp.local:
+        deathstar.eu.empire.local:
           ansible_host: 10.10.0.11
           # After child-domain promotion this box has no usable local admin and
           # eu's own Administrator pw is unreliable — authenticate as the forest
-          # Enterprise Admin (CORP\Administrator), which has rights on the child DC
+          # Enterprise Admin (EMPIRE\Administrator), which has rights on the child DC
           # for every play (promotion reconnect, trusts, vuln roles).
-          ansible_user: "CORP\\Administrator"
-          ansible_password: "DVADlab2024!"
+          ansible_user: "EMPIRE\\Administrator"
+          ansible_password: "SithLord123!"
           # child_domain role vars
-          child_domain: eu.corp.local
+          child_domain: eu.empire.local
           child_domain_shortname: eu
-          parent_domain: corp.local
+          parent_domain: empire.local
 
-        dc01.finance.local:
+        yavin4.rebel.local:
           ansible_host: 10.10.20.10
-          # finance.local uses ad_domain role with overridden vars
-          ad_domain: finance.local
-          ad_netbios: FINANCE
-          ad_hostname: DC01-FIN
+          # rebel.local uses ad_domain role with overridden vars
+          ad_domain: rebel.local
+          ad_netbios: REBEL
+          ad_hostname: coruscant-FIN
           ad_static_ip: 10.10.20.10
           ad_subnet_mask: 255.255.0.0
           ad_gateway: 10.10.0.1
 
-        dc01.root.corp:
+        neimoidia.trade.corp:
           ansible_host: 10.10.30.10
-          # root.corp uses ad_domain role with overridden vars
-          ad_domain: root.corp
-          ad_netbios: ROOT
-          ad_hostname: DC01-ROOT
+          # trade.corp uses ad_domain role with overridden vars
+          ad_domain: trade.corp
+          ad_netbios: TRADE
+          ad_hostname: coruscant-TRADE
           ad_static_ip: 10.10.30.10
           ad_subnet_mask: 255.255.0.0
           ad_gateway: 10.10.0.1
 
     # =========================================================================
-    # CORP.LOCAL Member Servers
+    # empire.local Member Servers
     # =========================================================================
     corp_servers:
       hosts:
-        ca01.corp.local:
+        endor.empire.local:
           ansible_host: 10.10.0.12
-        file01.corp.local:
+        scarif.empire.local:
           ansible_host: 10.10.0.13
-        sql01.corp.local:
+        kamino.empire.local:
           ansible_host: 10.10.0.14
 
     # =========================================================================
-    # CORP.LOCAL Workstations
+    # empire.local Workstations
     # =========================================================================
     corp_workstation:
       hosts:
-        ws01.corp.local:
+        tatooine.empire.local:
           ansible_host: 10.10.0.100
 
     # =========================================================================
@@ -111,5 +111,5 @@ all:
         ansible_become_method: sudo
         ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
       hosts:
-        linux01.corp.local:
+        mandalore.empire.local:
           ansible_host: 10.10.0.15

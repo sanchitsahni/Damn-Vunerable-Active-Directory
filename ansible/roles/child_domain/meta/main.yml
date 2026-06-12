@@ -2,7 +2,7 @@
 galaxy_info:
   role_name: child_domain
   author: DVAD
-  description: Promotes a Windows Server to DC for the eu.corp.local child domain
+  description: Promotes a Windows Server to DC for the eu.empire.local child domain
   min_ansible_version: "2.12"
   platforms:
     - name: Windows

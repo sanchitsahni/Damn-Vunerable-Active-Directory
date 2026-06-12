@@ -3,7 +3,7 @@ galaxy_info:
   role_name: vuln_persistence
   author: DVAD
   description: >
-    Injects persistence misconfigurations on dc01.corp.local:
+    Injects persistence misconfigurations on coruscant.empire.local:
     PER-002 IFEO debugger, PER-014 RID hijack surface, PER-015 AdminSDHolder ACL,
     PER-018 golden ticket (known krbtgt), PER-025 DSRM backdoor,
     PER-027 KeyCredentialLink write surface, PER-034 GPO backdoor

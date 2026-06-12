@@ -3,19 +3,19 @@
 # vuln_ia_surface/defaults/main.yml
 # ==============================================================================
 
-# Primary corp.local domain for LDAP/DNS targets
-ia_domain: "corp.local"
+# Primary empire.local domain for LDAP/DNS targets
+ia_domain: "empire.local"
 
 # DC distinguished-name components used by dsHeuristics LDAP path
-ia_domain_dn: "DC=corp,DC=local"
+ia_domain_dn: "DC=empire,DC=local"
 
 # SYSVOL credential script — credentials are intentionally plaintext (REC-015)
-ia_sysvol_script_path: 'C:\Windows\SYSVOL\sysvol\corp.local\scripts\setup.bat'
+ia_sysvol_script_path: 'C:\Windows\SYSVOL\sysvol\empire.local\scripts\setup.bat'
 ia_sysvol_script_content: |
   @echo off
   rem *** DVAD lab bootstrap — credentials intentionally exposed ***
-  net use \\dc01\C$ /user:corp\svc_darryl Darryl2024!
-  net use \\dc01\C$ /user:CORP\Administrator DVADlab2024!
+  net use \\coruscant\C$ /user:corp\svc_bobafett Darryl2024!
+  net use \\coruscant\C$ /user:EMPIRE\Administrator SithLord123!
 
 # Attacker-side IP used in the library-ms coercion file (IA-024)
 ia_attacker_ip: "10.10.0.1"
@@ -24,7 +24,7 @@ ia_attacker_ip: "10.10.0.1"
 phishing_drop_path: 'C:\Users\Public\Desktop'
 
 # NFS share details (IA-037)
-ia_nfs_share_name: "DUNDER_NFS"
+ia_nfs_share_name: "EMPIRE_NFS"
 ia_nfs_share_path: 'C:\Shares\NFS'
 
 # FTP site name (IA-035)

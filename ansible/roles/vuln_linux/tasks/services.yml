@@ -25,7 +25,7 @@
     dest: /etc/redis/redis.conf
     mode: "0644"
     content: |
-      # DUNDER lab — intentionally unauthenticated, all-interfaces.
+      # EMPIRE lab — intentionally unauthenticated, all-interfaces.
       bind 0.0.0.0 ::
       protected-mode no
       port 6379
@@ -91,7 +91,7 @@
     dest: /etc/mongodb.conf
     mode: "0644"
     content: |
-      # DUNDER lab — no auth, exposed.
+      # EMPIRE lab — no auth, exposed.
       bind_ip = 0.0.0.0
       port = 27017
   notify: restart mongod
@@ -126,7 +126,7 @@
   block:
     - name: MySQL — allow remote bind + empty secure_file_priv (UDF / file write)
       ansible.builtin.copy:
-        dest: /etc/mysql/mariadb.conf.d/99-dunder.cnf
+        dest: /etc/mysql/mariadb.conf.d/99-empire.cnf
         mode: "0644"
         content: |
           [mysqld]
@@ -179,28 +179,28 @@
 # ── Vulnerable web app (cmd injection + upload → reverse shell) ───────────────
 - name: WebApp — ensure app dir
   ansible.builtin.file:
-    path: /opt/dunder-app
+    path: /opt/empire-app
     state: directory
     mode: "0755"
   when: vuln_linux_enable_webapp | bool
 
-- name: WebApp — deploy the Dunder Mifflin Flask-style app (stdlib only)
+- name: WebApp — deploy the empire Mifflin Flask-style app (stdlib only)
   ansible.builtin.copy:
-    src: dunder_app.py
-    dest: /opt/dunder-app/dunder_app.py
+    src: empire_app.py
+    dest: /opt/empire-app/empire_app.py
     mode: "0755"
   when: vuln_linux_enable_webapp | bool
 
 - name: WebApp — systemd unit
   ansible.builtin.copy:
-    dest: /etc/systemd/system/dunder-app.service
+    dest: /etc/systemd/system/empire-app.service
     mode: "0644"
     content: |
       [Unit]
-      Description=Dunder Mifflin Schrute Logistics portal (vulnerable)
+      Description=empire Mifflin Schrute Logistics portal (vulnerable)
       After=network.target
       [Service]
-      ExecStart=/usr/bin/python3 /opt/dunder-app/dunder_app.py
+      ExecStart=/usr/bin/python3 /opt/empire-app/empire_app.py
       Restart=always
       User=root
       [Install]
@@ -209,7 +209,7 @@
 
 - name: WebApp — enable + start
   ansible.builtin.systemd:
-    name: dunder-app
+    name: empire-app
     daemon_reload: true
     state: started
     enabled: true

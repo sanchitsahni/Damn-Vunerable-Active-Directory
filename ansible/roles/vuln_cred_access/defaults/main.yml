@@ -3,20 +3,20 @@
 # vuln_cred_access/defaults/main.yml
 # ==============================================================================
 
-ad_domain: "corp.local"
-ad_domain_dn: "DC=corp,DC=local"
+ad_domain: "empire.local"
+ad_domain_dn: "DC=empire,DC=local"
 
 # Attacker-controlled IP used in coercion/UNC bait files (CRED-* surfaces).
 attacker_ip: "10.10.0.1"
 
 # CRED-003: password-spray cohort — 7 low-priv users sharing one weak password.
-spray_password: "Password123!"
+spray_password: "SithLord123!"
 spray_users:
   - oscar.martinez
   - angela.martin
-  - kevin.malone
+  - greedo.tets
   - stanley.hudson
-  - phyllis.vance
+  - jabba.hutt
   - creed.bratton
   - meredith.palmer
 
@@ -27,9 +27,9 @@ gpp_enc_password: "edBSHOwhZLTjt/QS9FeIcJ83mjWA98gw9guKOhJOdcqh+ZGMeXOsQbCpZ3xUj
 # CRED-004: DBeaver credentials-config.json content (sa password stored in clear).
 dbeaver_creds_content: |
   {
-    "sql01:1433": {
+    "kamino:1433": {
       "user": "sa",
-      "password": "SqlServer2025!"
+      "password": "DeathStar2025!"
     }
   }
 

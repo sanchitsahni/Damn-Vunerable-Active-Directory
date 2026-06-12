@@ -30,11 +30,11 @@
 
 - name: Heavy/Docker — flag
   ansible.builtin.copy:
-    dest: /opt/dunder/flags/flag-docker.txt
+    dest: /opt/empire/flags/flag-docker.txt
     mode: "0644"
     content: |
-      DUNDER{NET_DOCKER_API_2375_UNAUTH_ESCAPE_NO_GOD_NO}
-      "NO! God! No God please no!" — Michael Scott
+      EMPIRE{NET_DOCKER_API_2375_UNAUTH_ESCAPE_NO_GOD_NO}
+      "NO! God! No God please no!" — Sheev Palpatine
   when: docker_pkg is not failed
   failed_when: false
 
@@ -59,11 +59,11 @@
 
 - name: Heavy/Elasticsearch — flag
   ansible.builtin.copy:
-    dest: /opt/dunder/flags/flag-elasticsearch.txt
+    dest: /opt/empire/flags/flag-elasticsearch.txt
     mode: "0644"
     content: |
-      DUNDER{NET_ELASTICSEARCH_9200_OPEN_THREAT_LEVEL_MIDNIGHT}
-      "Threat Level Midnight." — Michael Scott
+      EMPIRE{NET_ELASTICSEARCH_9200_OPEN_THREAT_LEVEL_MIDNIGHT}
+      "Threat Level Midnight." — Sheev Palpatine
   when: es_pkg is not failed
   failed_when: false
 
@@ -85,10 +85,10 @@
 
 - name: Heavy/Jenkins — flag
   ansible.builtin.copy:
-    dest: /opt/dunder/flags/flag-jenkins.txt
+    dest: /opt/empire/flags/flag-jenkins.txt
     mode: "0644"
     content: |
-      DUNDER{NET_JENKINS_GROOVY_CONSOLE_RCE_I_AM_DEAD_INSIDE}
+      EMPIRE{NET_JENKINS_GROOVY_CONSOLE_RCE_I_AM_DEAD_INSIDE}
       "I am dead inside." — Stanley Hudson
   when: jenkins_pkg is not failed
   failed_when: false

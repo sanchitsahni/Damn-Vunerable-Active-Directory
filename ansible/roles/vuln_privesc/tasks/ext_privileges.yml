@@ -1,10 +1,10 @@
 ---
 # ==============================================================================
 # vuln_privesc_ext/tasks/privileges.yml
-# Targets: file01.corp.local (secedit user-rights grants), dc01.corp.local
+# Targets: scarif.empire.local (secedit user-rights grants), coruscant.empire.local
 #          (group membership for Asset_Owners, Dev_Team, Print_Ops)
 #
-# PE-002  SeAssignPrimaryTokenPrivilege  -> svc_phyllis
+# PE-002  SeAssignPrimaryTokenPrivilege  -> svc_jabba
 # PE-003  SeTcbPrivilege                -> svc_tcb
 # PE-004  SeLoadDriverPrivilege         -> Dev_Team group + RTCore64 placeholder
 # PE-021  SeIncreaseQuotaPrivilege      -> svc_quota
@@ -17,41 +17,41 @@
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helper: Grant a User Rights Assignment via secedit for a single account/group.
-# Used by PE-002, PE-003, PE-021 (all run on file01 which is the member server
+# Used by PE-002, PE-003, PE-021 (all run on scarif which is the member server
 # where these service accounts must hold privileges locally).
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ------------------------------------------------------------------------------
-# PE-002: SeAssignPrimaryTokenPrivilege — svc_phyllis service account
+# PE-002: SeAssignPrimaryTokenPrivilege — svc_jabba service account
 # Allows the account to replace the default process token, enabling token
 # swapping without SeImpersonate. Interesting for token-manipulation chains.
 # ------------------------------------------------------------------------------
-- name: PE-002 - Ensure svc_phyllis AD account exists
+- name: PE-002 - Ensure svc_jabba AD account exists
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    if (-not (Get-ADUser -Filter "SamAccountName -eq 'svc_phyllis'" -ErrorAction SilentlyContinue)) {
-      New-ADUser -Name "svc_phyllis" -SamAccountName "svc_phyllis" `
-        -AccountPassword (ConvertTo-SecureString "{{ svc_phyllis_password }}" -AsPlainText -Force) `
+    if (-not (Get-ADUser -Filter "SamAccountName -eq 'svc_jabba'" -ErrorAction SilentlyContinue)) {
+      New-ADUser -Name "svc_jabba" -SamAccountName "svc_jabba" `
+        -AccountPassword (ConvertTo-SecureString "{{ svc_jabba_password }}" -AsPlainText -Force) `
         -Enabled $true -PasswordNeverExpires $true `
-        -Path "CN=Users,DC=corp,DC=local" -ErrorAction SilentlyContinue
-      Write-Output "changed: svc_phyllis created"
+        -Path "CN=Users,DC=empire,DC=local" -ErrorAction SilentlyContinue
+      Write-Output "changed: svc_jabba created"
     } else {
-      Write-Output "ok: svc_phyllis exists"
+      Write-Output "ok: svc_jabba exists"
     }
-  delegate_to: dc01.corp.local
+  delegate_to: coruscant.empire.local
   run_once: true
-  register: result_svc_phyllis_create
-  changed_when: "'changed:' in result_svc_phyllis_create.stdout"
-  failed_when: result_svc_phyllis_create.rc != 0
-  when: inventory_hostname == 'file01.corp.local'
+  register: result_svc_jabba_create
+  changed_when: "'changed:' in result_svc_jabba_create.stdout"
+  failed_when: result_svc_jabba_create.rc != 0
+  when: inventory_hostname == 'scarif.empire.local'
 
-- name: PE-002 - Grant SeAssignPrimaryTokenPrivilege to svc_phyllis via secedit
+- name: PE-002 - Grant SeAssignPrimaryTokenPrivilege to svc_jabba via secedit
   ansible.windows.win_shell: |
     $tmp = "$env:TEMP\pe002_priv.inf"
     secedit /export /cfg $tmp /areas USER_RIGHTS | Out-Null
     try {
       $sid = (New-Object System.Security.Principal.NTAccount(
-                "{{ ad_domain_netbios }}", "svc_phyllis"
+                "{{ ad_domain_netbios }}", "svc_jabba"
               )).Translate([System.Security.Principal.SecurityIdentifier]).Value
       $content = Get-Content $tmp
       $line    = "SeAssignPrimaryTokenPrivilege = *$sid"
@@ -62,22 +62,22 @@
       }
       Set-Content -Path $tmp -Value $content
       secedit /configure /db secedit.sdb /cfg $tmp /areas USER_RIGHTS | Out-Null
-      Write-Output "changed: SeAssignPrimaryTokenPrivilege granted to svc_phyllis"
+      Write-Output "changed: SeAssignPrimaryTokenPrivilege granted to svc_jabba"
     } catch {
       Write-Host "PE-002 secedit error: $($_.Exception.Message)"
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe002
   changed_when: "'changed:' in result_pe002.stdout"
   failed_when: result_pe002.rc != 0
 
-- name: PE-002 - Verify SeAssignPrimaryTokenPrivilege assigned to svc_phyllis
+- name: PE-002 - Verify SeAssignPrimaryTokenPrivilege assigned to svc_jabba
   ansible.windows.win_shell: |
     $tmp = "$env:TEMP\pe002_check.inf"
     secedit /export /cfg $tmp /areas USER_RIGHTS | Out-Null
     $content = Get-Content $tmp | Where-Object { $_ -match "SeAssignPrimaryTokenPrivilege" }
     Write-Output $content
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe002_check
   changed_when: false
   failed_when: result_pe002_check.rc != 0
@@ -94,17 +94,17 @@
       New-ADUser -Name "svc_tcb" -SamAccountName "svc_tcb" `
         -AccountPassword (ConvertTo-SecureString "{{ svc_tcb_password }}" -AsPlainText -Force) `
         -Enabled $true -PasswordNeverExpires $true `
-        -Path "CN=Users,DC=corp,DC=local" -ErrorAction SilentlyContinue
+        -Path "CN=Users,DC=empire,DC=local" -ErrorAction SilentlyContinue
       Write-Output "changed: svc_tcb created"
     } else {
       Write-Output "ok: svc_tcb exists"
     }
-  delegate_to: dc01.corp.local
+  delegate_to: coruscant.empire.local
   run_once: true
   register: result_svc_tcb_create
   changed_when: "'changed:' in result_svc_tcb_create.stdout"
   failed_when: result_svc_tcb_create.rc != 0
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: PE-003 - Grant SeTcbPrivilege to svc_tcb via secedit
   ansible.windows.win_shell: |
@@ -127,7 +127,7 @@
     } catch {
       Write-Host "PE-003 secedit error: $($_.Exception.Message)"
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe003
   changed_when: "'changed:' in result_pe003.stdout"
   failed_when: result_pe003.rc != 0
@@ -137,7 +137,7 @@
     $tmp = "$env:TEMP\pe003_check.inf"
     secedit /export /cfg $tmp /areas USER_RIGHTS | Out-Null
     Get-Content $tmp | Where-Object { $_ -match "SeTcbPrivilege" } | Write-Output
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe003_check
   changed_when: false
   failed_when: result_pe003_check.rc != 0
@@ -147,7 +147,7 @@
 # Allows members to install/unload kernel drivers. Combined with RTCore64.sys
 # this gives arbitrary kernel R/W. Group is also used by PE-027.
 # ------------------------------------------------------------------------------
-- name: PE-004 - Ensure Dev_Team local group exists on file01
+- name: PE-004 - Ensure Dev_Team local group exists on scarif
   ansible.windows.win_shell: |
     $g = Get-LocalGroup -Name "Dev_Team" -ErrorAction SilentlyContinue
     if (-not $g) {
@@ -156,7 +156,7 @@
     } else {
       Write-Output "ok: Dev_Team exists"
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_devteam_group
   changed_when: "'changed:' in result_devteam_group.stdout"
   failed_when: result_devteam_group.rc != 0
@@ -183,7 +183,7 @@
     } catch {
       Write-Host "PE-004 secedit error: $($_.Exception.Message)"
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe004
   changed_when: "'changed:' in result_pe004.stdout"
   failed_when: result_pe004.rc != 0
@@ -191,14 +191,14 @@
 - name: PE-004 - Stage RTCore64.sys placeholder at C:\Tools\RTCore64.sys
   ansible.windows.win_copy:
     dest: 'C:\Tools\RTCore64.sys'
-    content: "DUNDER_PLACEHOLDER: place real RTCore64.sys here for BYOVD chain\r\n"
-  when: inventory_hostname == 'file01.corp.local'
+    content: "EMPIRE_PLACEHOLDER: place real RTCore64.sys here for BYOVD chain\r\n"
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: PE-004 - Stage drivers README at C:\Tools\drivers\README.txt
   ansible.windows.win_file:
     path: 'C:\Tools\drivers'
     state: directory
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: PE-004/049 - Drop driver README explaining download requirement
   ansible.windows.win_copy:
@@ -218,7 +218,7 @@
 
       Hash (expected):  SHA256 of legitimate RTCore64.sys varies by version.
       SeLoadDriverPrivilege holders: Dev_Team local group on this host.
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: PE-004 - Verify SeLoadDriverPrivilege and RTCore64 placeholder
   ansible.windows.win_shell: |
@@ -231,7 +231,7 @@
     Write-Output "SeLoadDriverPrivilege line: $privLine"
     Write-Output "RTCore64.sys present: $fileOk"
     if (-not $privOk -or -not $fileOk) { exit 1 }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe004_check
   changed_when: false
   failed_when: result_pe004_check.rc != 0
@@ -248,17 +248,17 @@
       New-ADUser -Name "svc_quota" -SamAccountName "svc_quota" `
         -AccountPassword (ConvertTo-SecureString "{{ svc_quota_password }}" -AsPlainText -Force) `
         -Enabled $true -PasswordNeverExpires $true `
-        -Path "CN=Users,DC=corp,DC=local" -ErrorAction SilentlyContinue
+        -Path "CN=Users,DC=empire,DC=local" -ErrorAction SilentlyContinue
       Write-Output "changed: svc_quota created"
     } else {
       Write-Output "ok: svc_quota exists"
     }
-  delegate_to: dc01.corp.local
+  delegate_to: coruscant.empire.local
   run_once: true
   register: result_svc_quota_create
   changed_when: "'changed:' in result_svc_quota_create.stdout"
   failed_when: result_svc_quota_create.rc != 0
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: PE-021 - Grant SeIncreaseQuotaPrivilege to svc_quota via secedit
   ansible.windows.win_shell: |
@@ -281,7 +281,7 @@
     } catch {
       Write-Host "PE-021 secedit error: $($_.Exception.Message)"
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe021
   changed_when: "'changed:' in result_pe021.stdout"
   failed_when: result_pe021.rc != 0
@@ -291,7 +291,7 @@
     $tmp = "$env:TEMP\pe021_check.inf"
     secedit /export /cfg $tmp /areas USER_RIGHTS | Out-Null
     Get-Content $tmp | Where-Object { $_ -match "SeIncreaseQuotaPrivilege" } | Write-Output
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe021_check
   changed_when: false
   failed_when: result_pe021_check.rc != 0
@@ -308,17 +308,17 @@
     if (-not (Get-ADGroup -Filter "SamAccountName -eq 'Asset_Owners'" -ErrorAction SilentlyContinue)) {
       New-ADGroup -Name "Asset_Owners" -SamAccountName "Asset_Owners" `
         -GroupCategory Security -GroupScope Global `
-        -Path "CN=Users,DC=corp,DC=local" -ErrorAction SilentlyContinue
+        -Path "CN=Users,DC=empire,DC=local" -ErrorAction SilentlyContinue
       Write-Output "changed: Asset_Owners created"
     } else {
       Write-Output "ok: Asset_Owners exists"
     }
-  delegate_to: dc01.corp.local
+  delegate_to: coruscant.empire.local
   run_once: true
   register: result_asset_owners_create
   changed_when: "'changed:' in result_asset_owners_create.stdout"
   failed_when: result_asset_owners_create.rc != 0
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: PE-026 - Grant SeManageVolumePrivilege to Asset_Owners via secedit
   ansible.windows.win_shell: |
@@ -341,7 +341,7 @@
     } catch {
       Write-Host "PE-026 secedit error: $($_.Exception.Message)"
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe026
   changed_when: "'changed:' in result_pe026.stdout"
   failed_when: result_pe026.rc != 0
@@ -351,7 +351,7 @@
     $tmp = "$env:TEMP\pe026_check.inf"
     secedit /export /cfg $tmp /areas USER_RIGHTS | Out-Null
     Get-Content $tmp | Where-Object { $_ -match "SeManageVolumePrivilege" } | Write-Output
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe026_check
   changed_when: false
   failed_when: result_pe026_check.rc != 0
@@ -383,7 +383,7 @@
     } catch {
       Write-Host "PE-027 secedit error: $($_.Exception.Message)"
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe027
   changed_when: "'changed:' in result_pe027.stdout"
   failed_when: result_pe027.rc != 0
@@ -393,7 +393,7 @@
     $tmp = "$env:TEMP\pe027_check.inf"
     secedit /export /cfg $tmp /areas USER_RIGHTS | Out-Null
     Get-Content $tmp | Where-Object { $_ -match "SeCreateSymbolicLinkPrivilege" } | Write-Output
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe027_check
   changed_when: false
   failed_when: result_pe027_check.rc != 0
@@ -419,7 +419,7 @@
       secedit /configure /db secedit.sdb /cfg $tmp /areas USER_RIGHTS | Out-Null
       Write-Output "changed: SeDebugPrivilege explicitly granted to Administrators"
     }
-  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+  when: inventory_hostname in ['scarif.empire.local', 'tatooine.empire.local']
   register: result_pe028_priv
   changed_when: "'changed:' in result_pe028_priv.stdout"
   failed_when: result_pe028_priv.rc != 0
@@ -430,7 +430,7 @@
     name: NoLmHash
     data: 0
     type: dword
-  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+  when: inventory_hostname in ['scarif.empire.local', 'tatooine.empire.local']
 
 - name: PE-028 - Verify NoLmHash registry value
   ansible.windows.win_reg_stat:
@@ -438,7 +438,7 @@
     name: NoLmHash
   register: result_pe028_reg
   changed_when: false
-  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+  when: inventory_hostname in ['scarif.empire.local', 'tatooine.empire.local']
 
 # ------------------------------------------------------------------------------
 # PE-029: SeTakeOwnershipPrivilege — Asset_Owners group
@@ -467,7 +467,7 @@
     } catch {
       Write-Host "PE-029 secedit error: $($_.Exception.Message)"
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe029
   changed_when: "'changed:' in result_pe029.stdout"
   failed_when: result_pe029.rc != 0
@@ -477,7 +477,7 @@
     $tmp = "$env:TEMP\pe029_check.inf"
     secedit /export /cfg $tmp /areas USER_RIGHTS | Out-Null
     Get-Content $tmp | Where-Object { $_ -match "SeTakeOwnershipPrivilege" } | Write-Output
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe029_check
   changed_when: false
   failed_when: result_pe029_check.rc != 0
@@ -485,7 +485,7 @@
 # ------------------------------------------------------------------------------
 # PE-058: Print Operators — Print_Ops local group + print_user member.
 # Print Operators on a DC can load printer drivers, which run as SYSTEM.
-# We create a local group Print_Ops on file01 and add it to the builtin
+# We create a local group Print_Ops on scarif and add it to the builtin
 # Print Operators group, plus create a low-priv print_user to demonstrate.
 # ------------------------------------------------------------------------------
 - name: PE-058 - Ensure print_user AD account exists
@@ -495,19 +495,19 @@
       New-ADUser -Name "print_user" -SamAccountName "print_user" `
         -AccountPassword (ConvertTo-SecureString "PrintUser2024!" -AsPlainText -Force) `
         -Enabled $true -PasswordNeverExpires $true `
-        -Path "CN=Users,DC=corp,DC=local" -ErrorAction SilentlyContinue
+        -Path "CN=Users,DC=empire,DC=local" -ErrorAction SilentlyContinue
       Write-Output "changed: print_user created"
     } else {
       Write-Output "ok: print_user exists"
     }
-  delegate_to: dc01.corp.local
+  delegate_to: coruscant.empire.local
   run_once: true
   register: result_print_user_create
   changed_when: "'changed:' in result_print_user_create.stdout"
   failed_when: result_print_user_create.rc != 0
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
-- name: PE-058 - Ensure Print_Ops local group exists on file01
+- name: PE-058 - Ensure Print_Ops local group exists on scarif
   ansible.windows.win_shell: |
     $g = Get-LocalGroup -Name "Print_Ops" -ErrorAction SilentlyContinue
     if (-not $g) {
@@ -516,12 +516,12 @@
     } else {
       Write-Output "ok: Print_Ops exists"
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_printops_group
   changed_when: "'changed:' in result_printops_group.stdout"
   failed_when: result_printops_group.rc != 0
 
-- name: PE-058 - Add print_user to Print_Ops local group on file01
+- name: PE-058 - Add print_user to Print_Ops local group on scarif
   ansible.windows.win_shell: |
     $members = (Get-LocalGroupMember -Group "Print_Ops" -ErrorAction SilentlyContinue) |
                  Select-Object -ExpandProperty Name
@@ -532,12 +532,12 @@
     } else {
       Write-Output "ok: print_user already in Print_Ops"
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe058_add_member
   changed_when: "'changed:' in result_pe058_add_member.stdout"
   failed_when: result_pe058_add_member.rc != 0
 
-- name: PE-058 - Add Print_Ops to builtin Print Operators group on file01
+- name: PE-058 - Add Print_Ops to builtin Print Operators group on scarif
   ansible.windows.win_shell: |
     $builtinPO = "Print Operators"
     $members   = (Get-LocalGroupMember -Group $builtinPO -ErrorAction SilentlyContinue) |
@@ -549,7 +549,7 @@
     } else {
       Write-Output "ok: Print_Ops already in Print Operators"
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe058_builtin
   changed_when: "'changed:' in result_pe058_builtin.stdout"
   failed_when: result_pe058_builtin.rc != 0
@@ -562,7 +562,7 @@
     if ($members -notlike "*Print_Ops*") {
       Write-Warning "Print_Ops not found in Print Operators — check previous step"
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe058_check
   changed_when: false
   failed_when: result_pe058_check.rc != 0
@@ -578,13 +578,13 @@
   ansible.windows.win_file:
     path: 'C:\ProgramData\DunderHidden'
     state: directory
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: PE-020 - Drop flag inside DunderHidden (direct-path read via SeChangeNotify)
   ansible.windows.win_copy:
     dest: 'C:\ProgramData\DunderHidden\flag.txt'
-    content: "DUNDER{PE-020_SECHANGENOTIFY_TRAVERSE_BYPASS}\r\nI am ready to face any challenges that might be foolish enough to face me. — Dwight Schrute\r\n"
-  when: inventory_hostname == 'file01.corp.local'
+    content: "EMPIRE{PE-020_SECHANGENOTIFY_TRAVERSE_BYPASS}\r\nI am ready to face any challenges that might be foolish enough to face me. — Darth Maul\r\n"
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: PE-020 - Restrict DunderHidden ACL (block list, allow traverse)
   ansible.windows.win_shell: |
@@ -599,7 +599,7 @@
     icacls "$path\flag.txt" /inheritance:r 2>$null | Out-Null
     icacls "$path\flag.txt" /grant "NT AUTHORITY\SYSTEM:F" 2>$null | Out-Null
     icacls "$path\flag.txt" /grant "BUILTIN\Administrators:F" 2>$null | Out-Null
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   changed_when: false
 
 - name: PE-020 - Verify DunderHidden directory exists
@@ -608,4 +608,4 @@
   register: result_pe020_check
   changed_when: false
   failed_when: not result_pe020_check.stat.exists
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'

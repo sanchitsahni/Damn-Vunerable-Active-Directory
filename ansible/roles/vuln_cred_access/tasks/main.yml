@@ -1,14 +1,14 @@
 ---
 # ==============================================================================
 # vuln_cred_access/tasks/main.yml
-# Target: dc01.corp.local (primarily); LmCompatibilityLevel tasks also run on
-#         ws01 + file01 via member_servers group in site.yml.
+# Target: coruscant.empire.local (primarily); LmCompatibilityLevel tasks also run on
+#         tatooine + scarif via member_servers group in site.yml.
 #
 # Configures:
 #   CRED-005   LSA RunAsPPL=0, WDigest UseLogonCredential=1 (LSASS dump targets)
-#   CRED-011   LmCompatibilityLevel=1 on ws01 + file01 (NTLMv1 downgrade)
+#   CRED-011   LmCompatibilityLevel=1 on tatooine + scarif (NTLMv1 downgrade)
 #   CRED-020   EFSRPC reachable — EFS service running (PetitPotam coercion)
-#   CRED-022   Print Spooler running on DCs + file01 (PrinterBug / SpoolSample)
+#   CRED-022   Print Spooler running on DCs + scarif (PrinterBug / SpoolSample)
 #   CRED-048   LDAP signing not enforced (LDAPServerIntegrity=1), channel binding off
 #   CRED-046   NTLMv2 not disabled — verify LmCompatibilityLevel != 5 on DCs
 # ==============================================================================
@@ -113,7 +113,7 @@
     result_efs_info.services[0].start_mode != 'auto'
 
 # ------------------------------------------------------------------------------
-# CRED-022: Print Spooler on DCs and file01 (PrinterBug / SpoolSample coercion)
+# CRED-022: Print Spooler on DCs and scarif (PrinterBug / SpoolSample coercion)
 # The Spooler service must be running for MS-RPRN coercion to work.
 # Check service state; only start/configure if not already running.
 # ------------------------------------------------------------------------------
@@ -132,8 +132,8 @@
     result_spooler_info.services[0].state != 'running' or
     result_spooler_info.services[0].start_mode != 'auto'
 
-# On file01 also install the Print-Server feature if missing
-- name: CRED-022 - Install Print-Server feature on file01 (required for Spooler)
+# On scarif also install the Print-Server feature if missing
+- name: CRED-022 - Install Print-Server feature on scarif (required for Spooler)
   ansible.windows.win_feature:
     name: Print-Server
     state: present
@@ -224,30 +224,30 @@
 # Extended credential surfaces (absorbed from cred_gaps + cred_extended)
 # ==============================================================================
 
-- name: Import user credential gap fills (dc01)
+- name: Import user credential gap fills (coruscant)
   ansible.builtin.import_tasks: users_creds.yml
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'
 
-- name: Import ACL-based credential rights (dc01)
+- name: Import ACL-based credential rights (coruscant)
   ansible.builtin.import_tasks: acl_rights.yml
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'
 
-- name: Import credential service surfaces (all_dcs + file01)
+- name: Import credential service surfaces (all_dcs + scarif)
   ansible.builtin.import_tasks: services.yml
-  when: inventory_hostname in groups['all_dcs'] + ['file01.corp.local']
+  when: inventory_hostname in groups['all_dcs'] + ['scarif.empire.local']
 
-- name: Import file-based credential surfaces (dc01 + file01 + ws01)
+- name: Import file-based credential surfaces (coruscant + scarif + tatooine)
   ansible.builtin.import_tasks: files.yml
-  when: inventory_hostname in ['dc01.corp.local', 'file01.corp.local', 'ws01.corp.local']
+  when: inventory_hostname in ['coruscant.empire.local', 'scarif.empire.local', 'tatooine.empire.local']
 
-- name: Import credential store surfaces (dc01)
+- name: Import credential store surfaces (coruscant)
   ansible.builtin.import_tasks: credential_stores.yml
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'
 
-- name: Import extended Kerberos attack surfaces (dc01)
+- name: Import extended Kerberos attack surfaces (coruscant)
   ansible.builtin.import_tasks: kerberos.yml
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'
 
-- name: Import browser and key material surfaces (ws01)
+- name: Import browser and key material surfaces (tatooine)
   ansible.builtin.import_tasks: browser_keys.yml
-  when: inventory_hostname == 'ws01.corp.local'
+  when: inventory_hostname == 'tatooine.empire.local'

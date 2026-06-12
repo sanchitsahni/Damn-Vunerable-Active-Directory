@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
-# A. DOMAIN JOIN — realmd + sssd + adcli → corp.local
-# Configures sssd so AD users can SSH in and sudo. Runs AFTER the corp.local DC
+# A. DOMAIN JOIN — realmd + sssd + adcli → empire.local
+# Configures sssd so AD users can SSH in and sudo. Runs AFTER the empire.local DC
 # (Phase 1) is up. Join failures are soft (block/rescue) so the rest of the box
 # still provisions in a DC-less smoke test.
 # ==============================================================================
@@ -31,11 +31,11 @@
       offline). Domain join skipped; Linux-local LPE + services still apply.
   when: realmd_pkgs is failed or realmd_pkgs.rc | default(0) != 0
 
-- name: Point resolv.conf DNS at the corp.local DC (for AD SRV records)
+- name: Point resolv.conf DNS at the empire.local DC (for AD SRV records)
   ansible.builtin.copy:
     dest: /etc/resolv.conf
     content: |
-      # DUNDER lab — AD DNS
+      # EMPIRE lab — AD DNS
       nameserver {{ vuln_linux_dc_ip }}
       search {{ vuln_linux_domain }}
     mode: "0644"
@@ -127,4 +127,4 @@
           WARNING: domain join to {{ vuln_linux_domain }} failed (DC
           {{ vuln_linux_dc_ip }} unreachable?). Linux-local LPE + services
           still provisioned. Re-run phase 5/--tags vuln_linux_join once the
-          corp.local DC is up.
+          empire.local DC is up.

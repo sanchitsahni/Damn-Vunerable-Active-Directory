@@ -3,8 +3,8 @@
 # vuln_privesc/defaults/main.yml
 # ==============================================================================
 
-# corp.local NetBIOS name (used for NTAccount -> SID translation in secedit)
-ad_domain_netbios: "CORP"
+# empire.local NetBIOS name (used for NTAccount -> SID translation in secedit)
+ad_domain_netbios: "EMPIRE"
 
 # World-writable tools directory used by several privesc surfaces (PE-061, etc.)
 tools_dir: 'C:\Tools'
@@ -13,6 +13,6 @@ tools_dir: 'C:\Tools'
 autorun_target: 'C:\Tools\dvad_autorun.exe'
 
 # Service-account passwords for privilege-assignment surfaces (intentionally weak)
-svc_phyllis_password: "DVADlab2024!"
-svc_tcb_password: "DVADlab2024!"
-svc_quota_password: "DVADlab2024!"
+svc_jabba_password: "SithLord123!"
+svc_tcb_password: "SithLord123!"
+svc_quota_password: "SithLord123!"

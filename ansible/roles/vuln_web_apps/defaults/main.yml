@@ -3,7 +3,7 @@
 # vuln_web_apps/defaults/main.yml — WEB-001..080
 # ==============================================================================
 
-ad_domain:    "corp.local"
+ad_domain:    "empire.local"
 iis_webroot:  'C:\inetpub\wwwroot'
 iis_port:     80
 
@@ -12,8 +12,8 @@ iis_app_pool_user:     "svc_iis"
 iis_app_pool_password: "IIS2024!"
 
 # SQL connection string exposed in web config
-sql_conn_string: "Server=sql01.corp.local;Database=DunderMifflin;User Id=dunder_web;Password=WebUser2024!;"
-sql_admin_conn:  "Server=sql01.corp.local;Database=DunderMifflin;User Id=sa;Password=SqlServer2025!;"
+sql_conn_string: "Server=kamino.empire.local;Database=DunderMifflin;User Id=empire_web;Password=WebUser2024!;"
+sql_admin_conn:  "Server=kamino.empire.local;Database=DunderMifflin;User Id=sa;Password=DeathStar2025!;"
 
 # Upload directory
 upload_dir: 'C:\inetpub\wwwroot\uploads'

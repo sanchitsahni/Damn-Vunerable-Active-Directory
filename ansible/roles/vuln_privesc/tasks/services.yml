@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_privesc/tasks/services.yml
-# Targets: file01.corp.local (primary), ws01.corp.local (task scheduler vuln)
+# Targets: scarif.empire.local (primary), tatooine.empire.local (task scheduler vuln)
 #
 # PE-007  Unquoted service path — VulnService with path containing spaces
 # PE-008  Weak service DACL — VulnService registry key writable by Authenticated Users
@@ -9,20 +9,20 @@
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# PE-007: Unquoted service path on file01
+# PE-007: Unquoted service path on scarif
 # Path: C:\Program Files\Vuln Service\service.exe  (no quotes -> plant C:\Program.exe)
 # ------------------------------------------------------------------------------
-- name: PE-007 - Create unquoted-path service directory on file01
+- name: PE-007 - Create unquoted-path service directory on scarif
   ansible.windows.win_file:
     path: 'C:\Program Files\Vuln Service'
     state: directory
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: PE-007 - Stage placeholder binary for VulnService
   ansible.windows.win_copy:
     dest: 'C:\Program Files\Vuln Service\service.exe'
     content: ''
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: PE-007 - Create VulnService with unquoted binary path
   ansible.windows.win_shell: |
@@ -37,12 +37,12 @@
   register: result_vulnsvc
   changed_when: "'changed:' in result_vulnsvc.stdout"
   failed_when: result_vulnsvc.rc != 0
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: PE-007 - Grant C:\ write to BUILTIN\Users (plant unquoted-path binary)
   ansible.windows.win_shell: |
     icacls C:\ /grant "BUILTIN\Users:(W)" 2>$null | Out-Null
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   changed_when: false
 
 # ------------------------------------------------------------------------------
@@ -56,7 +56,7 @@
     $sd = 'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)(A;;RPWPDTLO;;;WD)'
     $result = sc.exe sdset VulnService $sd
     if ($LASTEXITCODE -ne 0) { Write-Error "sc.exe sdset failed: $result" }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe008
   failed_when: result_pe008.rc != 0
 
@@ -73,7 +73,7 @@
       $acl.AddAccessRule($rule)
       Set-Acl $keyPath $acl
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe008_reg
   failed_when: result_pe008_reg.rc != 0
 
@@ -98,7 +98,7 @@
     if ($cur -notlike "*C:\Tools*") {
       [Environment]::SetEnvironmentVariable("Path", "C:\Tools;$cur", "Machine")
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_tools
   changed_when: false
   failed_when: result_tools.rc != 0
@@ -116,21 +116,21 @@
       $acl.AddAccessRule($rule)
       Set-Acl $keyPath $acl
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_toolsvc_reg
   failed_when: result_toolsvc_reg.rc != 0
 
 # ------------------------------------------------------------------------------
-# Writable scheduled-task action on ws01 (PE-016)
+# Writable scheduled-task action on tatooine (PE-016)
 # ------------------------------------------------------------------------------
-- name: PE-016 - Create C:\VulnTasks and writable task action on ws01
+- name: PE-016 - Create C:\VulnTasks and writable task action on tatooine
   ansible.windows.win_shell: |
     New-Item -ItemType Directory -Path "C:\VulnTasks" -Force | Out-Null
     Set-Content -Path "C:\VulnTasks\sync.bat" `
       -Value "@echo off`r`nrem placeholder - overwrite to escalate`r`nexit /b 0" -Force
     icacls "C:\VulnTasks" /grant "BUILTIN\Users:(OI)(CI)F" | Out-Null
     schtasks /Create /TN "CorpSync" /TR "C:\VulnTasks\sync.bat" /SC ONSTART /RU SYSTEM /F | Out-Null
-  when: inventory_hostname == 'ws01.corp.local'
+  when: inventory_hostname == 'tatooine.empire.local'
   register: result_vulntask
   changed_when: false
   failed_when: result_vulntask.rc != 0

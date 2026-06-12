@@ -7,12 +7,12 @@
 # target and as the TFTP/relay exfil endpoint in bait records.
 attacker_ip: "10.10.0.1"
 
-# corp.local primary DNS zone (player-reachable AXFR/dynamic-update target).
-np_dns_zone: "corp.local"
+# empire.local primary DNS zone (player-reachable AXFR/dynamic-update target).
+np_dns_zone: "empire.local"
 
-# WPAD hostname injected into the corp.local zone (NET-001). Points at the
+# WPAD hostname injected into the empire.local zone (NET-001). Points at the
 # attacker so a poisoned wpad.dat can be served.
 np_wpad_host: "wpad"
 
-# Local on-disk TFTP root on file01 (NET-004). Anonymous + writable.
+# Local on-disk TFTP root on scarif (NET-004). Anonymous + writable.
 np_tftp_root: 'C:\TFTP-Root'

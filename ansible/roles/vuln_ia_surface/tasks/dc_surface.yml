@@ -3,7 +3,7 @@
 # vuln_ia_surface/tasks/dc_surface.yml  —  all_dcs
 # BATCHED: one templated PowerShell run instead of ~13 WinRM round-trips.
 # The template (dc_surface.ps1.j2) is rendered per-DC; corp-only blocks
-# (IA-003 dsHeuristics, REC-015 SYSVOL creds) are Jinja-gated to dc01.corp.local.
+# (IA-003 dsHeuristics, REC-015 SYSVOL creds) are Jinja-gated to coruscant.empire.local.
 # IA-004/041 AXFR, IA-046 ADWS, IA-014 ZeroLogon, IA-040 WinRM-HTTPS run on all.
 # ==============================================================================
 

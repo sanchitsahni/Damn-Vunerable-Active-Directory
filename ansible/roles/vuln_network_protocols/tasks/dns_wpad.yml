@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_network_protocols/tasks/dns_wpad.yml
-# Target: dc01.corp.local (primary DNS for corp.local)
+# Target: coruscant.empire.local (primary DNS for empire.local)
 #
 # NET-001  WPAD proxy auto-discovery via DNS — remove wpad from the DNS Global
 #          Query Block List and publish a wpad A record at the attacker IP so a
@@ -35,7 +35,7 @@
   when: "'enabled' in net001_gqbl_check.stdout"
 
 # NET-001: publish the wpad A record pointing at the attacker box so a player
-# hosting wpad.dat at http://wpad.corp.local/wpad.dat is trusted by clients.
+# hosting wpad.dat at http://wpad.empire.local/wpad.dat is trusted by clients.
 - name: NET-001 - Check if wpad A record exists in zone
   ansible.windows.win_shell: |
     Import-Module DnsServer -ErrorAction SilentlyContinue
@@ -59,10 +59,10 @@
   failed_when: net001_wpad_set.rc != 0
   when: "'missing' in net001_wpad_check.stdout"
 
-# NET-003: insecure (Nonsecure) dynamic updates on the corp.local zone.
+# NET-003: insecure (Nonsecure) dynamic updates on the empire.local zone.
 # Lets any host on the segment add/overwrite DNS records via nsupdate without
 # authentication (DNS record spoofing — e.g. takeover of wpad or a server name).
-- name: NET-003 - Check corp.local dynamic update mode
+- name: NET-003 - Check empire.local dynamic update mode
   ansible.windows.win_shell: |
     Import-Module DnsServer -ErrorAction SilentlyContinue
     $z = Get-DnsServerZone -Name "{{ np_dns_zone }}" -ErrorAction SilentlyContinue
@@ -72,7 +72,7 @@
   changed_when: false
   failed_when: net003_dyn_check.rc != 0
 
-- name: NET-003 - Set corp.local to Nonsecure dynamic updates (nsupdate spoofing)
+- name: NET-003 - Set empire.local to Nonsecure dynamic updates (nsupdate spoofing)
   ansible.windows.win_shell: |
     Import-Module DnsServer -ErrorAction SilentlyContinue
     Set-DnsServerPrimaryZone -Name "{{ np_dns_zone }}" `
@@ -88,4 +88,4 @@
 - name: NET-001/003 - Drop WPAD + insecure dynamic update flag
   ansible.windows.win_copy:
     dest: 'C:\Flags\net-dns-wpad.txt'
-    content: "DUNDER{NET-001_WPAD_DNS_PROXY_AUTODISCOVERY}\r\nDUNDER{NET-003_INSECURE_DNS_DYNAMIC_UPDATE_NSUPDATE}\r\nDid I stutter? — Stanley Hudson\r\n"
+    content: "EMPIRE{NET-001_WPAD_DNS_PROXY_AUTODISCOVERY}\r\nEMPIRE{NET-003_INSECURE_DNS_DYNAMIC_UPDATE_NSUPDATE}\r\nDid I stutter? — Stanley Hudson\r\n"

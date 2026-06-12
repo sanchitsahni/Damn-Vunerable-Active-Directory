@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_network_protocols/tasks/pop3.yml
-# Target: file01.corp.local
+# Target: scarif.empire.local
 #
 # NET-010  POP3 cleartext credential surface on TCP/110. The catalog
 #          (I-35 #05 IMAP/POP3 Credential Attacks) targets cleartext USER/PASS
@@ -11,7 +11,7 @@
 #            - greets +OK
 #            - accepts USER/PASS in CLEARTEXT (port 110, no TLS) and logs every
 #              attempted credential to a spool file (sniff/brute target)
-#            - on the planted weak credential (mscott / Password1) returns a
+#            - on the planted weak credential (mscott / SithLord1!) returns a
 #              successful TRANSACTION state with one bait message (RETR 1).
 #          This reproduces the cleartext-credential + weak-password attack on a
 #          mail-retrieval protocol. IMAP (143) is NOT injected separately - same
@@ -34,7 +34,7 @@
       $ErrorActionPreference = 'Continue'
       $spool = 'C:\POP3-Spool\creds.log'
       $weakUser = 'mscott'
-      $weakPass = 'Password1'
+      $weakPass = 'SithLord1!'
       $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, 110)
       $listener.Start()
       while ($true) {
@@ -45,7 +45,7 @@
           $sr = New-Object System.IO.StreamReader($ns)
           $sw = New-Object System.IO.StreamWriter($ns)
           $sw.NewLine = "`r`n"; $sw.AutoFlush = $true
-          $sw.WriteLine('+OK DUNDER POP3 ready')
+          $sw.WriteLine('+OK EMPIRE POP3 ready')
           $curUser = ''
           $authed = $false
           while ($true) {
@@ -72,11 +72,11 @@
             } elseif ($u.StartsWith('RETR')) {
               if ($authed) {
                 $sw.WriteLine('+OK 512 octets')
-                $sw.WriteLine('From: it@corp.local')
+                $sw.WriteLine('From: it@empire.local')
                 $sw.WriteLine('Subject: VPN reset')
                 $sw.WriteLine('')
-                $sw.WriteLine('DUNDER{NET-010_POP3_CLEARTEXT_CREDS_WEAK_PASS}')
-                $sw.WriteLine('Identity theft is not a joke Jim. — Dwight Schrute')
+                $sw.WriteLine('EMPIRE{NET-010_POP3_CLEARTEXT_CREDS_WEAK_PASS}')
+                $sw.WriteLine('Identity theft is not a joke Jim. — Darth Maul')
                 $sw.WriteLine('.')
               } else { $sw.WriteLine('-ERR not authenticated') }
             } elseif ($u.StartsWith('CAPA')) {
@@ -94,7 +94,7 @@
 
 - name: NET-010 - Open TCP/110 inbound firewall for POP3
   community.windows.win_firewall_rule:
-    name: "DUNDER POP3 TCP110"
+    name: "EMPIRE POP3 TCP110"
     localport: 110
     protocol: tcp
     direction: in
@@ -139,13 +139,13 @@
   ansible.windows.win_copy:
     dest: 'C:\Flags\net-pop3.txt'
     content: |
-      DUNDER{NET-010_POP3_CLEARTEXT_CREDS_WEAK_PASS}
-      Identity theft is not a joke Jim. — Dwight Schrute
+      EMPIRE{NET-010_POP3_CLEARTEXT_CREDS_WEAK_PASS}
+      Identity theft is not a joke Jim. — Darth Maul
 
-      NET-010 POP3 cleartext credentials (file01 TCP/110, no TLS):
+      NET-010 POP3 cleartext credentials (scarif TCP/110, no TLS):
         Auth is cleartext USER/PASS - sniffable and brute-forceable.
         hydra -l mscott -P rockyou.txt pop3://10.10.0.13
-        Weak planted login: mscott / Password1  -> RETR 1 reveals the flag.
+        Weak planted login: mscott / SithLord1!  -> RETR 1 reveals the flag.
         Every PASS attempt is logged to C:\POP3-Spool\creds.log
       NOTE: native PowerShell POP3 responder. IMAP/143 not injected separately -
       same cleartext-auth technique; stand up a real mail box for full IMAP.

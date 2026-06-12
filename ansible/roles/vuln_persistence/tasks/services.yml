@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_persistence_ext/tasks/services.yml
-# Target: dc01.corp.local (unless noted)
+# Target: coruscant.empire.local (unless noted)
 #
 # PER-004  Malicious scheduled task (SynchTask — calls schtasks.exe payload)
 # PER-005  COM object persistence via registry hijack entry
@@ -49,9 +49,9 @@
 # Targets the {BCDE0395-E52F-467C-8E3D-C4579291692E} CLSID (MMDeviceEnumerator).
 # When any process that loads this COM object runs as the infected user, the
 # DLL path in HKCU wins over HKLM (user-level hijack — no admin required).
-# Implemented as a note + registry entry on ws01.
+# Implemented as a note + registry entry on tatooine.
 # ------------------------------------------------------------------------------
-- name: PER-005 - Check COM hijack registry key on dc01
+- name: PER-005 - Check COM hijack registry key on coruscant
   ansible.windows.win_shell: |
     $path = 'HKLM:\SOFTWARE\Classes\CLSID\{BCDE0395-E52F-467C-8E3D-C4579291692E}\InProcServer32'
     if (Test-Path $path) {
@@ -179,7 +179,7 @@
   ansible.windows.win_file:
     path: 'C:\Program Files\DVAD Service'
     state: directory
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'
 
 - name: PER-017 - Drop service persistence note
   ansible.windows.win_copy:

@@ -6,7 +6,7 @@ galaxy_info:
     Injects privilege-escalation misconfigurations
     (PE-001 SeImpersonate, PE-005/006/057/059 operator groups, PE-007/008 service
     ACL, PE-011 AlwaysInstallElevated, PE-018 SYSVOL writable, PE-024 HiveNightmare,
-    PE-025 DSRM, PE-012 UAC bypass surface) across dc01, file01, sql01, ws01
+    PE-025 DSRM, PE-012 UAC bypass surface) across coruscant, scarif, kamino, tatooine
   min_ansible_version: "2.12"
   platforms:
     - name: Windows

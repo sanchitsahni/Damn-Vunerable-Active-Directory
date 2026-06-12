@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_exchange/tasks/sql.yml — SRV-001..020
-# Target: sql01.corp.local
+# Target: kamino.empire.local
 #
 # SRV-001  SQL Server installed + accessible on 1433
 # SRV-002  sa account enabled with weak password
@@ -140,4 +140,4 @@
 
         PowerUpSQL:
           Get-SQLInstanceLocal | Get-SQLConnectionTestThreaded -Verbose
-          Invoke-SQLAudit -Instance sql01.corp.local -Username sa -Password {{ sql_sa_password }}
+          Invoke-SQLAudit -Instance kamino.empire.local -Username sa -Password {{ sql_sa_password }}

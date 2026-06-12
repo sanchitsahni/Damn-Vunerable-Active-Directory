@@ -4,8 +4,8 @@
 # Entra ID / Azure AD hybrid identity surfaces
 # ==============================================================================
 
-ad_domain:    "corp.local"
-ad_domain_dn: "DC=corp,DC=local"
+ad_domain:    "empire.local"
+ad_domain_dn: "DC=empire,DC=local"
 
 # Entra Connect sync account (simulated)
 entra_connect_account: "MSOL_sync"

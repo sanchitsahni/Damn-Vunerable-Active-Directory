@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_defense_evasion/tasks/c2_exfil.yml — DEF-061..080, C2-001..030, EXF-001..030
-# Target: dc01.corp.local (note drops only — configuration is network-level)
+# Target: coruscant.empire.local (note drops only — configuration is network-level)
 # ==============================================================================
 
 - name: DEF/C2/EXF - Drop C2 framework surface notes

@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_persistence/tasks/registry.yml
-# Target: dc01.corp.local
+# Target: coruscant.empire.local
 #
 # PER-002  IFEO debugger on accessibility tools (sethc/utilman) -> cmd.exe
 # PER-025  DSRM admin network logon (DsrmAdminLogonBehavior=2)

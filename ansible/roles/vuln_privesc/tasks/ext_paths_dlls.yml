@@ -1,12 +1,12 @@
 ---
 # ==============================================================================
 # vuln_privesc_ext/tasks/paths-dlls.yml
-# Targets: file01.corp.local (PE-009/010/041/042), ws01.corp.local (PE-010/023)
+# Targets: scarif.empire.local (PE-009/010/041/042), tatooine.empire.local (PE-010/023)
 #
 # PE-009  DLL hijacking: C:\Tools in system PATH + version.dll placeholder
 #         + DunderApp.exe placeholder that loads version.dll at startup
 # PE-010  PATH hijacking: C:\Tools already in PATH (PE-009); also add
-#         C:\Users\Public\ to user PATH on ws01
+#         C:\Users\Public\ to user PATH on tatooine
 # PE-023  Startup folder writable by Domain Users
 # PE-041  Modifiable service path folder: C:\Program Files\DunderSvc2\ writable
 #         by Authenticated Users + service.exe placeholder
@@ -26,7 +26,7 @@
     }
     icacls "C:\Tools" /grant "Everyone:(OI)(CI)F" 2>$null | Out-Null
     Write-Output "ok"
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_tools_dir
   changed_when: false
   failed_when: result_tools_dir.rc != 0
@@ -34,14 +34,14 @@
 - name: PE-009 - Plant version.dll placeholder in C:\Tools
   ansible.windows.win_copy:
     dest: 'C:\Tools\version.dll'
-    content: "DUNDER_PLACEHOLDER: replace with malicious version.dll for DLL hijack (PE-009)\r\n"
-  when: inventory_hostname == 'file01.corp.local'
+    content: "EMPIRE_PLACEHOLDER: replace with malicious version.dll for DLL hijack (PE-009)\r\n"
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: PE-009 - Plant DunderApp.exe placeholder (loads version.dll on start)
   ansible.windows.win_copy:
     dest: 'C:\Tools\DunderApp.exe'
-    content: "DUNDER_PLACEHOLDER: DunderApp.exe loads version.dll from its own directory.\r\nReplace version.dll to hijack execution context.\r\n"
-  when: inventory_hostname == 'file01.corp.local'
+    content: "EMPIRE_PLACEHOLDER: DunderApp.exe loads version.dll from its own directory.\r\nReplace version.dll to hijack execution context.\r\n"
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: PE-009 - Prepend C:\Tools to system PATH (DLL search-order hijack)
   ansible.windows.win_shell: |
@@ -52,7 +52,7 @@
     } else {
       Write-Output "ok: C:\Tools already in system PATH"
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe009_path
   changed_when: "'changed:' in result_pe009_path.stdout"
   failed_when: result_pe009_path.rc != 0
@@ -64,7 +64,7 @@
     $pathOk = [Environment]::GetEnvironmentVariable("PATH","Machine") -like "*C:\Tools*"
     Write-Output "version.dll: $dllOk | DunderApp.exe: $appOk | PATH: $pathOk"
     if (-not $dllOk -or -not $appOk -or -not $pathOk) { exit 1 }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe009_check
   changed_when: false
   failed_when: result_pe009_check.rc != 0
@@ -72,10 +72,10 @@
 # ------------------------------------------------------------------------------
 # PE-010: PATH hijacking
 # C:\Tools is already world-writable and in system PATH (PE-009/030).
-# On ws01 we also add C:\Users\Public\ to the per-user PATH so that a low-priv
+# On tatooine we also add C:\Users\Public\ to the per-user PATH so that a low-priv
 # user can shadow any binary name that a higher-priv process looks for in PATH.
 # ------------------------------------------------------------------------------
-- name: PE-010 - Add C:\Users\Public to user PATH on ws01
+- name: PE-010 - Add C:\Users\Public to user PATH on tatooine
   ansible.windows.win_shell: |
     $cur = [Environment]::GetEnvironmentVariable("PATH", "User")
     if ($cur -notlike "*C:\Users\Public*") {
@@ -84,12 +84,12 @@
     } else {
       Write-Output "ok: C:\Users\Public already in user PATH"
     }
-  when: inventory_hostname == 'ws01.corp.local'
+  when: inventory_hostname == 'tatooine.empire.local'
   register: result_pe010_ws01
   changed_when: "'changed:' in result_pe010_ws01.stdout"
   failed_when: result_pe010_ws01.rc != 0
 
-- name: PE-010 - Verify C:\Users\Public in user PATH on ws01
+- name: PE-010 - Verify C:\Users\Public in user PATH on tatooine
   ansible.windows.win_shell: |
     $p = [Environment]::GetEnvironmentVariable("PATH","User")
     if ($p -like "*C:\Users\Public*") {
@@ -97,7 +97,7 @@
     } else {
       Write-Error "C:\Users\Public not found in user PATH"; exit 1
     }
-  when: inventory_hostname == 'ws01.corp.local'
+  when: inventory_hostname == 'tatooine.empire.local'
   register: result_pe010_check
   changed_when: false
   failed_when: result_pe010_check.rc != 0
@@ -106,20 +106,20 @@
 # PE-023: Startup folder writable by Domain Users
 # All-Users startup: C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp
 # Any file placed here runs at next interactive logon under that user's context.
-# If a privileged user (e.g., domain admin) logs onto ws01, the startup payload
+# If a privileged user (e.g., domain admin) logs onto tatooine, the startup payload
 # executes in their session.
 # ------------------------------------------------------------------------------
-- name: PE-023 - Loosen All-Users Startup folder DACL on ws01
+- name: PE-023 - Loosen All-Users Startup folder DACL on tatooine
   ansible.windows.win_shell: |
     $p = "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp"
     $existing = (icacls $p 2>$null | Out-String)
     if ($existing -notlike "*Domain Users*") {
-      icacls $p /grant "CORP\Domain Users:(OI)(CI)(W)" 2>$null | Out-Null
+      icacls $p /grant "EMPIRE\Domain Users:(OI)(CI)(W)" 2>$null | Out-Null
       Write-Output "changed: Domain Users write access granted on Startup folder"
     } else {
       Write-Output "ok: Domain Users write access already set"
     }
-  when: inventory_hostname == 'ws01.corp.local'
+  when: inventory_hostname == 'tatooine.empire.local'
   register: result_pe023
   changed_when: "'changed:' in result_pe023.stdout"
   failed_when: result_pe023.rc != 0
@@ -132,7 +132,7 @@
     if ($acl -notlike "*Domain Users*") {
       Write-Warning "Domain Users not found in Startup folder ACL"
     }
-  when: inventory_hostname == 'ws01.corp.local'
+  when: inventory_hostname == 'tatooine.empire.local'
   register: result_pe023_check
   changed_when: false
   failed_when: result_pe023_check.rc != 0
@@ -145,8 +145,8 @@
 - name: PE-025 - Place token_helper.exe placeholder in C:\Tools
   ansible.windows.win_copy:
     dest: 'C:\Tools\token_helper.exe'
-    content: "DUNDER_PLACEHOLDER: token_helper.exe — impersonation/privilege demo tool\r\n"
-  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+    content: "EMPIRE_PLACEHOLDER: token_helper.exe — impersonation/privilege demo tool\r\n"
+  when: inventory_hostname in ['scarif.empire.local', 'tatooine.empire.local']
 
 - name: PE-025 - Place privileges.txt listing available lab privileges
   ansible.windows.win_copy:
@@ -157,11 +157,11 @@
       Host: {{ inventory_hostname }}
 
       Privileges intentionally granted on this lab:
-        SeAssignPrimaryTokenPrivilege  -> svc_phyllis           (PE-002)
+        SeAssignPrimaryTokenPrivilege  -> svc_jabba           (PE-002)
         SeTcbPrivilege                 -> svc_tcb              (PE-003)
         SeLoadDriverPrivilege          -> Dev_Team group       (PE-004)
-        SeBackupPrivilege              -> svc_darryl / Warehouse (PE-005)
-        SeRestorePrivilege             -> svc_darryl / Warehouse (PE-006)
+        SeBackupPrivilege              -> svc_bobafett / Warehouse (PE-005)
+        SeRestorePrivilege             -> svc_bobafett / Warehouse (PE-006)
         SeImpersonatePrivilege         -> LocalService / NetworkService (PE-001/013)
         SeIncreaseQuotaPrivilege       -> svc_quota            (PE-021)
         SeChangeNotifyPrivilege        -> All Users (default)  (PE-020)
@@ -174,7 +174,7 @@
         whoami /priv
         Get-Process | ForEach-Object { [System.Diagnostics.Process]::GetProcessById($_.Id) }
         AccessChk.exe -a * (Sysinternals)
-  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+  when: inventory_hostname in ['scarif.empire.local', 'tatooine.empire.local']
 
 - name: PE-025 - Verify token_helper.exe and privileges.txt exist
   ansible.windows.win_shell: |
@@ -182,7 +182,7 @@
     $privsOk  = Test-Path "C:\Tools\privileges.txt"
     Write-Output "token_helper.exe: $helperOk | privileges.txt: $privsOk"
     if (-not $helperOk -or -not $privsOk) { exit 1 }
-  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+  when: inventory_hostname in ['scarif.empire.local', 'tatooine.empire.local']
   register: result_pe025_check
   changed_when: false
   failed_when: result_pe025_check.rc != 0
@@ -197,13 +197,13 @@
   ansible.windows.win_file:
     path: 'C:\Program Files\DunderSvc2'
     state: directory
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: PE-041 - Stage DunderSvc2 placeholder service binary
   ansible.windows.win_copy:
     dest: 'C:\Program Files\DunderSvc2\service.exe'
-    content: "DUNDER_PLACEHOLDER: DunderSvc2 service binary — overwrite to escalate (PE-041)\r\n"
-  when: inventory_hostname == 'file01.corp.local'
+    content: "EMPIRE_PLACEHOLDER: DunderSvc2 service binary — overwrite to escalate (PE-041)\r\n"
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: PE-041 - Create DunderSvc2 service
   ansible.windows.win_shell: |
@@ -216,7 +216,7 @@
     } else {
       Write-Output "ok: DunderSvc2 already exists"
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_dvadsvc2_create
   changed_when: "'changed:' in result_dvadsvc2_create.stdout"
   failed_when: result_dvadsvc2_create.rc != 0
@@ -225,7 +225,7 @@
   ansible.windows.win_shell: |
     icacls "C:\Program Files\DunderSvc2" `
       /grant "NT AUTHORITY\Authenticated Users:(OI)(CI)F" 2>$null | Out-Null
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   changed_when: false
 
 - name: PE-041 - Verify DunderSvc2 folder + service + ACL
@@ -236,7 +236,7 @@
     $aclOk    = $acl -like "*Authenticated Users*"
     Write-Output "folder: $folderOk | service: $svcOk | ACL: $aclOk"
     if (-not $folderOk -or -not $svcOk -or -not $aclOk) { exit 1 }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe041_check
   changed_when: false
   failed_when: result_pe041_check.rc != 0
@@ -252,7 +252,7 @@
     # Placeholder binary (reuse toolsvc.exe location for simplicity)
     $binPath = "C:\Tools\dvadregsvc.exe"
     if (-not (Test-Path $binPath)) {
-      Set-Content -Path $binPath -Value "DUNDER_PLACEHOLDER" -Force
+      Set-Content -Path $binPath -Value "EMPIRE_PLACEHOLDER" -Force
     }
     $svc = Get-Service -Name "DVADRegSvc" -ErrorAction SilentlyContinue
     if (-not $svc) {
@@ -261,7 +261,7 @@
     } else {
       Write-Output "ok: DVADRegSvc already exists"
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_dvadregsvc_create
   changed_when: "'changed:' in result_dvadregsvc_create.stdout"
   failed_when: result_dvadregsvc_create.rc != 0
@@ -278,7 +278,7 @@
     } else {
       Write-Error "DVADRegSvc registry key not found — service may not have been created"; exit 1
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe042_acl
   failed_when: result_pe042_acl.rc != 0
 
@@ -297,7 +297,7 @@
     } else {
       Write-Error "DVADRegSvc key not found"; exit 1
     }
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   register: result_pe042_check
   changed_when: false
   failed_when: result_pe042_check.rc != 0

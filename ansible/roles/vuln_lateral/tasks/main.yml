@@ -6,41 +6,41 @@
 # inventory_hostname it is targeted at; main.yml drives ordering.
 #
 # Host targets:
-#   dc01.corp.local  -> acl.yml, rbcd.yml (trust / AD-side)
-#   file01.corp.local -> smb.yml (SMB signing, writable share)
-#   ws01.corp.local  -> smb.yml (SMB signing, IPv6, coercion files)
+#   coruscant.empire.local  -> acl.yml, rbcd.yml (trust / AD-side)
+#   scarif.empire.local -> smb.yml (SMB signing, writable share)
+#   tatooine.empire.local  -> smb.yml (SMB signing, IPv6, coercion files)
 # ==============================================================================
 
-- name: Import ACL tasks (dc01 only)
+- name: Import ACL tasks (coruscant only)
   ansible.builtin.import_tasks: acl.yml
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'
 
-- name: Import RBCD tasks (dc01 only)
+- name: Import RBCD tasks (coruscant only)
   ansible.builtin.import_tasks: rbcd.yml
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'
 
-- name: Import SMB / share tasks (file01 and ws01)
+- name: Import SMB / share tasks (scarif and tatooine)
   ansible.builtin.import_tasks: smb.yml
-  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+  when: inventory_hostname in ['scarif.empire.local', 'tatooine.empire.local']
 
 # Extended lateral movement (absorbed from vuln_lat_ext + vuln_lat_df_extended)
 
-- name: Import coercion surfaces (all_dcs + file01)
+- name: Import coercion surfaces (all_dcs + scarif)
   ansible.builtin.import_tasks: coerce.yml
-  when: inventory_hostname in groups['all_dcs'] + ['file01.corp.local']
+  when: inventory_hostname in groups['all_dcs'] + ['scarif.empire.local']
 
-- name: Import NTLM relay surfaces (all_dcs + file01)
+- name: Import NTLM relay surfaces (all_dcs + scarif)
   ansible.builtin.import_tasks: relay.yml
-  when: inventory_hostname in groups['all_dcs'] + ['file01.corp.local']
+  when: inventory_hostname in groups['all_dcs'] + ['scarif.empire.local']
 
-- name: Import ACL abuse lateral surfaces (dc01)
+- name: Import ACL abuse lateral surfaces (coruscant)
   ansible.builtin.import_tasks: acl_abuse.yml
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'
 
-- name: Import advanced lateral movement surfaces (dc01 + file01 + ws01)
+- name: Import advanced lateral movement surfaces (coruscant + scarif + tatooine)
   ansible.builtin.import_tasks: lateral_adv.yml
-  when: inventory_hostname in ['dc01.corp.local', 'file01.corp.local', 'ws01.corp.local']
+  when: inventory_hostname in ['coruscant.empire.local', 'scarif.empire.local', 'tatooine.empire.local']
 
-- name: Import DCOM/WMI lateral movement surfaces (dc01 + file01)
+- name: Import DCOM/WMI lateral movement surfaces (coruscant + scarif)
   ansible.builtin.import_tasks: dcom_wmi.yml
-  when: inventory_hostname in ['dc01.corp.local', 'file01.corp.local']
+  when: inventory_hostname in ['coruscant.empire.local', 'scarif.empire.local']

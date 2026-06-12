@@ -6,7 +6,7 @@ This chapter is the longest in the book that has nothing to do with Active Direc
 
 - Why does `nmap -sS` produce different results than `nmap -sT` for a firewalled host?
 - What's the difference between a broadcast and a multicast at the Ethernet layer, and why does it matter for LLMNR poisoning?
-- Why does `dig @10.10.0.10 corp.local AXFR` work or fail, and what would you see on the wire either way?
+- Why does `dig @10.10.0.10 empire.local AXFR` work or fail, and what would you see on the wire either way?
 - What's the byte structure of an SMB negotiate request, and which fields does an attacker control?
 
 If you can already answer those, skim. If you can't, this is where to slow down.
@@ -23,27 +23,27 @@ Every Active Directory attack we will study reduces to one of three primitives:
 
 To do any of these intentionally, you have to know which protocol carries which information, what the legitimate sequence looks like, and which fields the recipient validates versus accepts blindly. That is what this chapter teaches.
 
-The DVAD lab is built on a flat IPv4 segment with three forests, each on its own subnet:
+The EMPIRE lab is built on a flat IPv4 segment with three forests, each on its own subnet:
 
 ```
 +--------------------------------------------------------------+
-|  10.10.0.0/21   dvad-ctf bridge      corp.local              |
-|                  10.10.0.10  dc01.corp.local                 |
-|                  10.10.0.11  dc01.eu.corp.local              |
-|                  10.10.0.12  ca01.corp.local  (ADCS)         |
-|                  10.10.0.13  file01.corp.local               |
-|                  10.10.0.14  sql01.corp.local                |
-|                  10.10.0.100 ws01.corp.local                 |
+|  10.10.0.0/21   empire-ctf bridge      empire.local              |
+|                  10.10.0.10  coruscant.empire.local                 |
+|                  10.10.0.11  deathstar.eu.empire.local              |
+|                  10.10.0.12  endor.empire.local  (ADCS)         |
+|                  10.10.0.13  scarif.empire.local               |
+|                  10.10.0.14  kamino.empire.local                |
+|                  10.10.0.100 tatooine.empire.local                 |
 |                                                              |
-|  10.20.0.0/24   dvad-finance bridge   finance.local          |
-|                  10.20.0.10  dc01.finance.local              |
+|  10.20.0.0/24   empire-rebel bridge   rebel.local          |
+|                  10.20.0.10  yavin4.rebel.local              |
 |                                                              |
-|  10.30.0.0/24   dvad-root bridge      root.corp              |
-|                  10.30.0.10  dc01.root.corp                  |
+|  10.30.0.0/24   empire-tradefed bridge      trade.corp              |
+|                  10.30.0.10  neimoidia.trade.corp                  |
 +--------------------------------------------------------------+
 ```
 
-Bridges are Linux bridges (`brctl` / `ip link`) created by `qemu/network/setup-network.sh`. Hosts get static DHCP leases from a project-local dnsmasq running under `/tmp/dvad-dnsmasq/`. Your Kali (or Parrot/BlackArch/Ubuntu-with-tools) attacker box typically sits on `10.10.0.1` — the host machine — and reaches all three subnets through routing the host kernel performs between the bridges.
+Bridges are Linux bridges (`brctl` / `ip link`) created by `qemu/network/setup-network.sh`. Hosts get static DHCP leases from a project-local dnsmasq running under `/tmp/empire-dnsmasq/`. Your Kali (or Parrot/BlackArch/Ubuntu-with-tools) attacker box typically sits on `10.10.0.1` — the host machine — and reaches all three subnets through routing the host kernel performs between the bridges.
 
 Open three terminals when you work through this chapter. One for commands on the attacker host, one for `tcpdump` on the bridge interface, one for notes.
 
@@ -71,10 +71,10 @@ Textbooks teach OSI's seven layers. In practice, when you are writing attack too
 
 (We collapse OSI's physical and data-link into one layer because Wireshark does too. We collapse session, presentation, and application into one because nobody on a Windows network draws the line between TLS-as-session and SMB-as-application.)
 
-A user typing `\\dc01\sysvol` in Explorer causes, in order:
+A user typing `\\coruscant\sysvol` in Explorer causes, in order:
 
 1. Application code converts the UNC path into an SMB connection request.
-2. Windows resolves `dc01` to an IP via DNS, then LLMNR, then NBT-NS (in that order, with timeouts).
+2. Windows resolves `coruscant` to an IP via DNS, then LLMNR, then NBT-NS (in that order, with timeouts).
 3. The TCP layer opens a connection to 445/tcp on the resolved IP.
 4. The IP layer routes the SYN packet to the correct gateway (or directly if same subnet).
 5. The link layer ARPs for the gateway's MAC, then emits an Ethernet frame.
@@ -107,13 +107,13 @@ For attacks, the important behaviours are:
 - **Broadcasts are heard by every host on the segment.** ARP requests, DHCP discovers, NBT-NS queries all use broadcast.
 - **Multicasts are heard by hosts that subscribed.** LLMNR sends to `224.0.0.252` (IPv4) which maps to MAC `01:00:5e:00:00:fc`; mDNS sends to `224.0.0.251` mapped to `01:00:5e:00:00:fb`; IPv6 ND/DHCPv6 use other multicast groups.
 
-DVAD's bridges are exactly the kind of layer-2 segment that LLMNR + mitm6 attacks rely on.
+EMPIRE's bridges are exactly the kind of layer-2 segment that LLMNR + mitm6 attacks rely on.
 
 ### Inspecting your own MAC and ARP table
 
 ```bash
-ip link show dvad-ctf                # the bridge
-ip neigh show dev dvad-ctf           # MAC↔IP cache for that interface
+ip link show empire-ctf                # the bridge
+ip neigh show dev empire-ctf           # MAC↔IP cache for that interface
 ip route show table all              # what gets sent where
 ```
 
@@ -121,19 +121,19 @@ The `ip neigh` table is populated by passive ARP traffic. Entries can be `REACHA
 
 ### ARP step by step
 
-When 10.10.0.100 (ws01) wants to send a packet to 10.10.0.10 (dc01) and the kernel doesn't have a MAC for 10.10.0.10:
+When 10.10.0.100 (tatooine) wants to send a packet to 10.10.0.10 (coruscant) and the kernel doesn't have a MAC for 10.10.0.10:
 
-1. ws01 broadcasts: "Who has 10.10.0.10? Tell 10.10.0.100." Ethernet destination is `ff:ff:ff:ff:ff:ff`; ARP opcode is `request` (1).
+1. tatooine broadcasts: "Who has 10.10.0.10? Tell 10.10.0.100." Ethernet destination is `ff:ff:ff:ff:ff:ff`; ARP opcode is `request` (1).
 2. Every host on the segment receives the frame. Only the one with IP 10.10.0.10 responds.
-3. dc01 unicasts: "10.10.0.10 is at 52:54:00:aa:bb:cc." ARP opcode is `reply` (2). The Ethernet destination here is ws01's MAC.
-4. ws01 caches the mapping and proceeds.
+3. coruscant unicasts: "10.10.0.10 is at 52:54:00:aa:bb:cc." ARP opcode is `reply` (2). The Ethernet destination here is tatooine's MAC.
+4. tatooine caches the mapping and proceeds.
 
-The vulnerability built into ARP: there is no authentication. **Anyone on the segment can answer for any IP.** That is the foundation of ARP spoofing, which we won't lean on heavily in DVAD because LLMNR and DHCPv6 are quieter and more reliable, but you should know it exists.
+The vulnerability built into ARP: there is no authentication. **Anyone on the segment can answer for any IP.** That is the foundation of ARP spoofing, which we won't lean on heavily in EMPIRE because LLMNR and DHCPv6 are quieter and more reliable, but you should know it exists.
 
 ### Watching ARP traffic
 
 ```bash
-sudo tcpdump -i dvad-ctf -nn arp
+sudo tcpdump -i empire-ctf -nn arp
 # typical output:
 # 14:01:00.123 ARP, Request who-has 10.10.0.10 tell 10.10.0.100, length 28
 # 14:01:00.124 ARP, Reply 10.10.0.10 is-at 52:54:00:aa:bb:cc, length 28
@@ -157,7 +157,7 @@ A canonical IPv4 header is 20 bytes (with optional options up to 60 bytes total)
 - **Flags + Fragment Offset.** Used to fragment large packets. Fragmentation can be used to evade poorly-configured IDS — split a malicious payload across two fragments so signature matching on the first fails. Modern Suricata reassembles before inspecting.
 - **Source/Destination Address.** 32 bits each.
 
-For DVAD work you rarely care about anything but source/destination, TTL (for OS fingerprinting), and total length (when crafting packets manually with Scapy).
+For EMPIRE work you rarely care about anything but source/destination, TTL (for OS fingerprinting), and total length (when crafting packets manually with Scapy).
 
 ### Addressing and CIDR
 
@@ -200,7 +200,7 @@ Knowing /21 = 2046 hosts in your head saves you ten seconds every time you set u
 | 240.0.0.0/4 | Reserved |
 | 255.255.255.255/32 | Limited broadcast |
 
-`169.254.x.x` is what you see when DHCP fails — APIPA. If a victim host on DVAD shows up with a 169.254 address, your dnsmasq probably isn't running.
+`169.254.x.x` is what you see when DHCP fails — APIPA. If a victim host on EMPIRE shows up with a 169.254 address, your dnsmasq probably isn't running.
 
 ### Routing
 
@@ -210,14 +210,14 @@ Each host has a routing table. View yours:
 ip route
 # example:
 # default via 10.10.0.1 dev wlan0
-# 10.10.0.0/21 dev dvad-ctf proto kernel scope link src 10.10.0.1
-# 10.20.0.0/24 dev dvad-finance proto kernel scope link src 10.20.0.1
-# 10.30.0.0/24 dev dvad-root proto kernel scope link src 10.30.0.1
+# 10.10.0.0/21 dev empire-ctf proto kernel scope link src 10.10.0.1
+# 10.20.0.0/24 dev empire-rebel proto kernel scope link src 10.20.0.1
+# 10.30.0.0/24 dev empire-tradefed proto kernel scope link src 10.30.0.1
 ```
 
 `default via 10.10.0.1` means anything not matching a more specific route goes to the gateway at `10.10.0.1`. The kernel matches longest prefix first, so a `/24` route beats a `/16` route to the same destination.
 
-When you add a new bridge to DVAD's host, the kernel auto-installs an on-link route for that bridge's subnet. Cross-bridge traffic between forests uses the host's routing table — that's why your attacker box can reach `10.30.0.10` even though it sits on the `dvad-ctf` bridge.
+When you add a new bridge to EMPIRE's host, the kernel auto-installs an on-link route for that bridge's subnet. Cross-bridge traffic between forests uses the host's routing table — that's why your attacker box can reach `10.30.0.10` even though it sits on the `empire-ctf` bridge.
 
 ---
 
@@ -296,7 +296,7 @@ AD makes very heavy use of a small number of ports. Memorize this table cold.
 | 464 | tcp/udp | Kerberos password change / set | Used by `kpasswd` and AD |
 | 593 | tcp | MS-RPC over HTTP | Tunnelled RPC |
 | 636 | tcp | LDAPS | LDAP over TLS |
-| 1433 | tcp | MSSQL | DVAD's sql01 |
+| 1433 | tcp | MSSQL | EMPIRE's kamino |
 | 1434 | udp | MSSQL Browser | Reveals instance names |
 | 2179 | tcp | Hyper-V VMConnect | Sometimes exposed |
 | 3268 | tcp | Global Catalog LDAP | Forest-wide queries |
@@ -310,7 +310,7 @@ AD makes very heavy use of a small number of ports. Memorize this table cold.
 | 47001 | tcp | WinRM listener service | Sometimes used by HTTP.sys |
 | 49152-65535 | tcp | Dynamic RPC | Negotiated through 135 |
 
-For a DC, expect open: 53, 88, 135, 139, 389, 445, 464, 593, 636, 3268, 3269, 5985, 9389, and a handful of dynamic RPC ports above 49152. For an ADCS host like ca01, expect additionally 80 (certsrv HTTP enrollment), and possibly 443.
+For a DC, expect open: 53, 88, 135, 139, 389, 445, 464, 593, 636, 3268, 3269, 5985, 9389, and a handful of dynamic RPC ports above 49152. For an ADCS host like endor, expect additionally 80 (certsrv HTTP enrollment), and possibly 443.
 
 When `nmap` shows you these in expected configuration, you have confirmed "this is a domain controller" without ever sending an LDAP query.
 
@@ -345,15 +345,15 @@ DNS deserves its own section because *every AD attack involves DNS somewhere*. T
 
 | Type | Purpose | Example |
 |---|---|---|
-| A | IPv4 address | `dc01.corp.local. A 10.10.0.10` |
-| AAAA | IPv6 address | `dc01.corp.local. AAAA fe80::1` |
-| PTR | Reverse lookup | `10.0.10.10.in-addr.arpa. PTR dc01.corp.local.` |
-| CNAME | Alias | `kdc.corp.local. CNAME dc01.corp.local.` |
-| NS | Nameserver | `corp.local. NS dc01.corp.local.` |
+| A | IPv4 address | `coruscant.empire.local. A 10.10.0.10` |
+| AAAA | IPv6 address | `coruscant.empire.local. AAAA fe80::1` |
+| PTR | Reverse lookup | `10.0.10.10.in-addr.arpa. PTR coruscant.empire.local.` |
+| CNAME | Alias | `kdc.empire.local. CNAME coruscant.empire.local.` |
+| NS | Nameserver | `empire.local. NS coruscant.empire.local.` |
 | SOA | Start of authority | metadata about the zone |
 | MX | Mail exchanger | rare in lab |
 | TXT | Free-form text | SPF, DKIM, ownership proofs |
-| SRV | Service location | `_ldap._tcp.dc._msdcs.corp.local.` |
+| SRV | Service location | `_ldap._tcp.dc._msdcs.empire.local.` |
 | TLSA | DANE binding | rare |
 | CAA | Cert authority authorisation | rare |
 
@@ -368,11 +368,11 @@ _service._proto.name.   TTL   IN   SRV   priority weight port target.
 Common AD SRV records:
 
 ```
-_ldap._tcp.dc._msdcs.corp.local.    -> dc01.corp.local
-_kerberos._tcp.dc._msdcs.corp.local. -> dc01.corp.local
-_gc._tcp.corp.local.                 -> dc01.corp.local
-_kpasswd._udp.corp.local.            -> dc01.corp.local
-_ldap._tcp.Default-First-Site-Name._sites.corp.local.  -> dc01.corp.local
+_ldap._tcp.dc._msdcs.empire.local.    -> coruscant.empire.local
+_kerberos._tcp.dc._msdcs.empire.local. -> coruscant.empire.local
+_gc._tcp.empire.local.                 -> coruscant.empire.local
+_kpasswd._udp.empire.local.            -> coruscant.empire.local
+_ldap._tcp.Default-First-Site-Name._sites.empire.local.  -> coruscant.empire.local
 ```
 
 A Windows client booting on a new network looks up `_ldap._tcp.dc._msdcs.<domain>` to find a DC. If you control DNS for that domain, you control which DC the client uses — which is how the rogue-DC variants of DCShadow work.
@@ -381,30 +381,30 @@ A Windows client booting on a new network looks up `_ldap._tcp.dc._msdcs.<domain
 
 ```
 client          stub resolver       recursive resolver       authoritative
-  |--------query "dc01.corp.local"-->|                              |
+  |--------query "coruscant.empire.local"-->|                              |
   |                                  |-- query upstream ----------> |
   |                                  |  (or recurse from root)      |
   |                                  |<-- answer ---- 10.10.0.10 -- |
   |<-- answer 10.10.0.10 ------------|                              |
 ```
 
-Inside DVAD, dnsmasq plays the recursive + authoritative role for the lab zones. Hosts are configured to point at dnsmasq via DHCP option 6. When a Windows host wants to resolve a name not in dnsmasq's zone, dnsmasq forwards to the host machine's upstream resolver.
+Inside EMPIRE, dnsmasq plays the recursive + authoritative role for the lab zones. Hosts are configured to point at dnsmasq via DHCP option 6. When a Windows host wants to resolve a name not in dnsmasq's zone, dnsmasq forwards to the host machine's upstream resolver.
 
 ### Dig usage
 
 ```bash
-dig @10.10.0.10 corp.local SOA            # who owns the zone
-dig @10.10.0.10 dc01.corp.local A          # forward lookup
+dig @10.10.0.10 empire.local SOA            # who owns the zone
+dig @10.10.0.10 coruscant.empire.local A          # forward lookup
 dig @10.10.0.10 -x 10.10.0.10              # reverse
-dig @10.10.0.10 corp.local AXFR            # zone transfer (often allowed in lab)
-dig @10.10.0.10 _ldap._tcp.dc._msdcs.corp.local SRV  # find DC
-dig @10.10.0.10 corp.local ANY +noall +answer
-dig @10.10.0.10 NS corp.local              # list nameservers
+dig @10.10.0.10 empire.local AXFR            # zone transfer (often allowed in lab)
+dig @10.10.0.10 _ldap._tcp.dc._msdcs.empire.local SRV  # find DC
+dig @10.10.0.10 empire.local ANY +noall +answer
+dig @10.10.0.10 NS empire.local              # list nameservers
 ```
 
-`AXFR` (full zone transfer) is the recon gold mine when allowed. It dumps every record in the zone — every host, every service, every alias. Modern DNS servers restrict AXFR to designated secondary servers; DVAD intentionally leaves it open.
+`AXFR` (full zone transfer) is the recon gold mine when allowed. It dumps every record in the zone — every host, every service, every alias. Modern DNS servers restrict AXFR to designated secondary servers; EMPIRE intentionally leaves it open.
 
-`dig +trace +nodnssec corp.local` walks the resolution path from the root and shows each delegation step. Useful when something resolves but you don't know who's authoritative.
+`dig +trace +nodnssec empire.local` walks the resolution path from the root and shows each delegation step. Useful when something resolves but you don't know who's authoritative.
 
 ### Negative caching
 
@@ -414,11 +414,11 @@ LLMNR has the same issue — once Windows has cached a successful resolution, fu
 
 ### Authoritative vs recursive
 
-Authoritative servers hold the actual records for a zone. Recursive resolvers hold no records but follow delegations. A typical Windows DC runs both: authoritative for `corp.local` and recursive for everything else.
+Authoritative servers hold the actual records for a zone. Recursive resolvers hold no records but follow delegations. A typical Windows DC runs both: authoritative for `empire.local` and recursive for everything else.
 
 ### DNSSEC
 
-You will encounter DNSSEC in defended enterprises, never in DVAD. The short version: zones are signed by RRSIG records, validated up to root using DS records. An attacker who can MITM DNS without DNSSEC can spoof; with DNSSEC and a validating resolver, the spoof fails validation.
+You will encounter DNSSEC in defended enterprises, never in EMPIRE. The short version: zones are signed by RRSIG records, validated up to root using DS records. An attacker who can MITM DNS without DNSSEC can spoof; with DNSSEC and a validating resolver, the spoof fails validation.
 
 ### REC-001..REC-015 — DNS-based recon
 
@@ -437,27 +437,27 @@ This populates a list of every host with a forward+reverse record. Faster than A
 #### REC-002 — zone transfer
 
 ```bash
-dig @10.10.0.10 corp.local AXFR > corp.zone
+dig @10.10.0.10 empire.local AXFR > corp.zone
 wc -l corp.zone
 grep -E '\bA\s' corp.zone | awk '{print $1, $5}'
 ```
 
-Captures the whole forward zone. Look for hosts not on your standard list — staging servers, scanners, jump boxes. Repeat for `_msdcs.corp.local`, `eu.corp.local`, `finance.local`, `root.corp`.
+Captures the whole forward zone. Look for hosts not on your standard list — staging servers, scanners, jump boxes. Repeat for `_msdcs.empire.local`, `eu.empire.local`, `rebel.local`, `trade.corp`.
 
 #### REC-003 — SRV enumeration
 
 ```bash
 for s in _ldap _kerberos _kpasswd _gc _kerberos-master _ldap._tcp.dc._msdcs _ldap._tcp.gc._msdcs; do
-  dig @10.10.0.10 ${s}.corp.local SRV +short
+  dig @10.10.0.10 ${s}.empire.local SRV +short
 done
 ```
 
 #### REC-004 — name servers
 
 ```bash
-dig @10.10.0.10 corp.local NS +short
-dig @10.10.0.10 finance.local NS +short
-dig @10.10.0.10 root.corp NS +short
+dig @10.10.0.10 empire.local NS +short
+dig @10.10.0.10 rebel.local NS +short
+dig @10.10.0.10 trade.corp NS +short
 ```
 
 If you can resolve all three from the corp DC, the forest topology is exposed even without authentication.
@@ -477,7 +477,7 @@ If aging is enabled, stale records age out. You can sometimes find records for d
 #### REC-007 — wildcard records
 
 ```bash
-dig @10.10.0.10 random$(date +%s).corp.local
+dig @10.10.0.10 random$(date +%s).empire.local
 ```
 
 If anything other than NXDOMAIN comes back, a wildcard A or CNAME is in play. Lab usually doesn't have one, but real environments often do for legacy reasons.
@@ -485,8 +485,8 @@ If anything other than NXDOMAIN comes back, a wildcard A or CNAME is in play. La
 #### REC-008 — DNSSEC posture
 
 ```bash
-dig @10.10.0.10 corp.local DNSKEY +short
-dig @10.10.0.10 corp.local DS +short
+dig @10.10.0.10 empire.local DNSKEY +short
+dig @10.10.0.10 empire.local DS +short
 ```
 
 #### REC-009 — DNS over TCP
@@ -494,7 +494,7 @@ dig @10.10.0.10 corp.local DS +short
 If UDP/53 is blocked or filtered, try TCP/53:
 
 ```bash
-dig +tcp @10.10.0.10 corp.local SOA
+dig +tcp @10.10.0.10 empire.local SOA
 ```
 
 #### REC-010 — DNS dynamic update
@@ -504,17 +504,17 @@ If dynamic updates are allowed without authentication, you can register your own
 ```bash
 nsupdate
 > server 10.10.0.10
-> update add evil.corp.local 60 A 10.10.0.99
+> update add evil.empire.local 60 A 10.10.0.99
 > send
 ```
 
-This is the kind of thing DVAD permits at points to enable certain coercion paths.
+This is the kind of thing EMPIRE permits at points to enable certain coercion paths.
 
 #### REC-011 — TXT records
 
 ```bash
-dig @10.10.0.10 corp.local TXT +short
-dig @10.10.0.10 _ldap._tcp.corp.local TXT +short
+dig @10.10.0.10 empire.local TXT +short
+dig @10.10.0.10 _ldap._tcp.empire.local TXT +short
 ```
 
 Sometimes contains version strings, ownership tags, or hints.
@@ -525,20 +525,20 @@ Follow them with `dig +nocname` to see the underlying A records, or `dig +trace`
 
 #### REC-013 — Trusts hinted via DNS
 
-The presence of authoritative records for `finance.local` on a corp DC suggests a conditional forwarder or zone transfer arrangement — often a sign that a trust exists.
+The presence of authoritative records for `rebel.local` on a corp DC suggests a conditional forwarder or zone transfer arrangement — often a sign that a trust exists.
 
 #### REC-014 — KDC discovery
 
 ```bash
-dig @10.10.0.10 _kerberos._tcp.dc._msdcs.corp.local SRV +short
-dig @10.10.0.10 _kerberos._udp.corp.local SRV +short
+dig @10.10.0.10 _kerberos._tcp.dc._msdcs.empire.local SRV +short
+dig @10.10.0.10 _kerberos._udp.empire.local SRV +short
 ```
 
 #### REC-015 — Sites and subnets
 
 ```bash
-dig @10.10.0.10 _ldap._tcp.Default-First-Site-Name._sites.corp.local SRV +short
-dig @10.10.0.10 _ldap._tcp.eu-site._sites.eu.corp.local SRV +short  # if eu-site exists
+dig @10.10.0.10 _ldap._tcp.Default-First-Site-Name._sites.empire.local SRV +short
+dig @10.10.0.10 _ldap._tcp.eu-site._sites.eu.empire.local SRV +short  # if eu-site exists
 ```
 
 Site naming sometimes leaks geography.
@@ -565,7 +565,7 @@ Question
 Responder's job: see the query, craft a response with `ResponseFlag=1`, same TXID, an answer pointing to the attacker's IP, and unicast it back to the source. Done.
 
 ```bash
-sudo responder -I dvad-ctf -wrf -v
+sudo responder -I empire-ctf -wrf -v
 ```
 
 Flags:
@@ -598,7 +598,7 @@ The remediations are:
 2. Disable NetBIOS over TCP/IP per interface: `Network Connections → adapter → IPv4 Properties → Advanced → WINS → NetBIOS setting = Disable`.
 3. Disable mDNS: `HKLM\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\EnableMDNS = 0`.
 
-Modern Windows (11 22H2+, Server 2025) disables LLMNR by default; older releases (and DVAD's hosts) leave it on.
+Modern Windows (11 22H2+, Server 2025) disables LLMNR by default; older releases (and EMPIRE's hosts) leave it on.
 
 ---
 
@@ -667,18 +667,18 @@ attacker                                       victim (Windows host)
 ```
 
 ```bash
-sudo mitm6 -d corp.local -i dvad-ctf
+sudo mitm6 -d empire.local -i empire-ctf
 ```
 
 mitm6 needs to be paired with `ntlmrelayx`:
 
 ```bash
-sudo ntlmrelayx.py -wh attacker.corp.local -t ldaps://dc01.corp.local --delegate-access -smb2support
+sudo ntlmrelayx.py -wh attacker.empire.local -t ldaps://coruscant.empire.local --delegate-access -smb2support
 ```
 
-`-wh attacker.corp.local` instructs ntlmrelayx to serve WPAD pointing at itself; `--delegate-access` tells it that on successful LDAPS auth, modify the victim's `msDS-AllowedToActOnBehalfOfOtherIdentity` to grant a controlled computer account RBCD over the victim. Net result: you get a Kerberos S4U2Proxy ticket as Administrator to the victim host.
+`-wh attacker.empire.local` instructs ntlmrelayx to serve WPAD pointing at itself; `--delegate-access` tells it that on successful LDAPS auth, modify the victim's `msDS-AllowedToActOnBehalfOfOtherIdentity` to grant a controlled computer account RBCD over the victim. Net result: you get a Kerberos S4U2Proxy ticket as Administrator to the victim host.
 
-This entire chain runs unauthenticated. **You need zero credentials to start.** That's why mitm6 is one of the highest-value initial-access primitives in DVAD ([Flag: IA-012]).
+This entire chain runs unauthenticated. **You need zero credentials to start.** That's why mitm6 is one of the highest-value initial-access primitives in EMPIRE ([Flag: IA-012]).
 
 ### Defending mitm6
 
@@ -687,7 +687,7 @@ This entire chain runs unauthenticated. **You need zero credentials to start.** 
 - RA Guard on switches drops unauthorised RAs.
 - Filter DHCPv6 from non-server ports.
 
-DVAD leaves IPv6 enabled and ignores all of the above to keep mitm6 exploitable.
+EMPIRE leaves IPv6 enabled and ignores all of the above to keep mitm6 exploitable.
 
 ---
 
@@ -702,7 +702,7 @@ REQUEST   -- client says "yes, that one"
 ACK       -- server confirms
 ```
 
-Within DVAD, the project-local dnsmasq under `/tmp/dvad-dnsmasq/` answers DHCP for all three bridges, using the static-lease configuration from `qemu/network/setup-network.sh`. The same MAC-to-IP mapping appears in `qemu/vm-create.sh` — that's why those two files must stay in sync, per CLAUDE.md.
+Within EMPIRE, the project-local dnsmasq under `/tmp/empire-dnsmasq/` answers DHCP for all three bridges, using the static-lease configuration from `qemu/network/setup-network.sh`. The same MAC-to-IP mapping appears in `qemu/vm-create.sh` — that's why those two files must stay in sync, per CLAUDE.md.
 
 DHCP options carry more than just the address:
 
@@ -720,7 +720,7 @@ DHCP options carry more than just the address:
 | 119 | Domain Search List | |
 | 252 | WPAD URL | Proxy auto-config |
 
-A rogue DHCP server can hand out a malicious gateway, DNS resolver, or WPAD URL. On DVAD this is rarely the cleanest attack — mitm6 against IPv6 is easier and bypasses the wired DHCP that's already authoritative.
+A rogue DHCP server can hand out a malicious gateway, DNS resolver, or WPAD URL. On EMPIRE this is rarely the cleanest attack — mitm6 against IPv6 is easier and bypasses the wired DHCP that's already authoritative.
 
 ---
 
@@ -731,19 +731,19 @@ You cannot debug an attack you can't see. Get good at `tcpdump` and Wireshark.
 ### tcpdump basics
 
 ```bash
-sudo tcpdump -i dvad-ctf -nn                       # all traffic on bridge
-sudo tcpdump -i dvad-ctf -nn host 10.10.0.10       # to/from one host
-sudo tcpdump -i dvad-ctf -nn port 88               # Kerberos
-sudo tcpdump -i dvad-ctf -nn -X port 5355          # LLMNR with payload hex
-sudo tcpdump -i dvad-ctf -nn -w capture.pcap       # write to file
+sudo tcpdump -i empire-ctf -nn                       # all traffic on bridge
+sudo tcpdump -i empire-ctf -nn host 10.10.0.10       # to/from one host
+sudo tcpdump -i empire-ctf -nn port 88               # Kerberos
+sudo tcpdump -i empire-ctf -nn -X port 5355          # LLMNR with payload hex
+sudo tcpdump -i empire-ctf -nn -w capture.pcap       # write to file
 ```
 
 Filter expressions follow BPF syntax. Combine with `and`, `or`, `not`:
 
 ```bash
-sudo tcpdump -i dvad-ctf -nn 'port (88 or 389 or 445 or 636 or 5985) and host 10.10.0.10'
-sudo tcpdump -i dvad-ctf -nn 'tcp[tcpflags] & tcp-syn != 0 and tcp[tcpflags] & tcp-ack = 0'  # SYNs only
-sudo tcpdump -i dvad-ctf -nn 'udp[8:2] = 0x0000 and port 5355'   # LLMNR queries (TXID 0x0000)
+sudo tcpdump -i empire-ctf -nn 'port (88 or 389 or 445 or 636 or 5985) and host 10.10.0.10'
+sudo tcpdump -i empire-ctf -nn 'tcp[tcpflags] & tcp-syn != 0 and tcp[tcpflags] & tcp-ack = 0'  # SYNs only
+sudo tcpdump -i empire-ctf -nn 'udp[8:2] = 0x0000 and port 5355'   # LLMNR queries (TXID 0x0000)
 ```
 
 ### Wireshark display filters
@@ -763,21 +763,21 @@ Wireshark dissectors decode each protocol; expand the tree to see fields. For Ke
 
 ### Capturing on a bridge
 
-The Linux bridge `dvad-ctf` is a virtual switch. Capturing on it shows you all traffic flowing through, but unicast frames between two specific bridge ports are not duplicated to your capture unless you make your interface promiscuous and the kernel decides to mirror them. For DVAD this works because the host runs the bridge, but on a real switched LAN you'd need port mirroring (SPAN port) or attacking inline.
+The Linux bridge `empire-ctf` is a virtual switch. Capturing on it shows you all traffic flowing through, but unicast frames between two specific bridge ports are not duplicated to your capture unless you make your interface promiscuous and the kernel decides to mirror them. For EMPIRE this works because the host runs the bridge, but on a real switched LAN you'd need port mirroring (SPAN port) or attacking inline.
 
 ```bash
-sudo ip link set dvad-ctf promisc on
+sudo ip link set empire-ctf promisc on
 ```
 
 ### Capturing on a specific VM's interface
 
-Each VM has a tap interface like `vm-dc01`, `vm-file01` (set in `qemu/vm-create.sh`). You can capture on the tap to see only that VM's traffic:
+Each VM has a tap interface like `vm-coruscant`, `vm-scarif` (set in `qemu/vm-create.sh`). You can capture on the tap to see only that VM's traffic:
 
 ```bash
-sudo tcpdump -i vm-dc01 -nn
+sudo tcpdump -i vm-coruscant -nn
 ```
 
-Useful when you want to confirm "did dc01 actually emit a Kerberos AS-REQ to my attacker?" without other noise.
+Useful when you want to confirm "did coruscant actually emit a Kerberos AS-REQ to my attacker?" without other noise.
 
 ### pcapng vs pcap
 
@@ -817,7 +817,7 @@ sudo nmap -sV --version-intensity 5 -p 53,88,135,139,389,445,464,593,636,3268,32
 NSE runs Lua scripts for additional probing.
 
 ```bash
-sudo nmap -p 88 --script krb5-enum-users --script-args krb5-enum-users.realm='corp.local',userdb=users.txt 10.10.0.10
+sudo nmap -p 88 --script krb5-enum-users --script-args krb5-enum-users.realm='empire.local',userdb=users.txt 10.10.0.10
 sudo nmap -p 445 --script smb-os-discovery 10.10.0.10
 sudo nmap -p 389 --script ldap-rootdse 10.10.0.10
 sudo nmap -p 389 --script ldap-search --script-args 'ldap.username=,ldap.password=' 10.10.0.10
@@ -829,10 +829,10 @@ sudo nmap -p 80,443 --script http-enum,http-title 10.10.0.12
 ### Aggressive
 
 ```bash
-sudo nmap -A -p- --min-rate 1000 10.10.0.10 -oA dc01-full
+sudo nmap -A -p- --min-rate 1000 10.10.0.10 -oA coruscant-full
 ```
 
-`-A` is `-sV -O -sC --traceroute`. Loud but informative. For DVAD where stealth isn't required, fine.
+`-A` is `-sV -O -sC --traceroute`. Loud but informative. For EMPIRE where stealth isn't required, fine.
 
 ### UDP
 
@@ -875,7 +875,7 @@ You don't need to be a webdev, but ADCS web enrollment runs over HTTP/HTTPS, and
 
 ```
 GET /certsrv/ HTTP/1.1
-Host: ca01.corp.local
+Host: endor.empire.local
 User-Agent: Mozilla/5.0
 Accept: text/html
 Authorization: NTLM TlRMTVNTUAABAAAA...
@@ -900,9 +900,9 @@ The interesting object is the Type 3 message — it contains the client's respon
 
 TLS wraps a TCP connection in encryption + integrity using a session key derived from a key-exchange. Versions: 1.0, 1.1 (both deprecated), 1.2 (still widespread), 1.3 (current).
 
-For attacks in DVAD you mainly care about:
+For attacks in EMPIRE you mainly care about:
 
-- **What cert does the server present?** — `openssl s_client -connect dc01.corp.local:636 -showcerts` gives you the chain. Useful to inspect the CA's cert (ADCS hands out the CA's own cert as the root of the chain).
+- **What cert does the server present?** — `openssl s_client -connect coruscant.empire.local:636 -showcerts` gives you the chain. Useful to inspect the CA's cert (ADCS hands out the CA's own cert as the root of the chain).
 - **Is channel binding (EPA) enforced?** — when enforced, the channel-binding token (CBT) carried in the SASL bind ties the LDAP authentication to the TLS channel. NTLM relay to LDAPS fails. When not enforced, relay works.
 
 You'll see plenty of openssl commands in the ADCS chapter (06). For now, recognise that TLS isn't a magic safety blanket — attackers still relay through it when channel binding is off.
@@ -920,7 +920,7 @@ from scapy.all import *
 pkt = (IPv6(src='fe80::1', dst='ff02::1:2')
        /UDP(sport=547, dport=546)
        /...)  # DHCPv6 fields
-send(pkt, iface='dvad-ctf')
+send(pkt, iface='empire-ctf')
 ```
 
 You will not write a lot of scapy for this lab — the tools cover the standard attacks — but knowing it exists keeps you out of corners. For example: if your LLMNR poisoning isn't catching because the victim's resolver cache hasn't expired, you can scapy a query with the exact name to seed the cache.
@@ -929,12 +929,12 @@ You will not write a lot of scapy for this lab — the tools cover the standard 
 from scapy.all import *
 
 q = IP(src='10.10.0.99', dst='224.0.0.252')/UDP(sport=5355,dport=5355)/DNS(rd=1, qd=DNSQR(qname='nonexistent', qtype='A'))
-send(q, iface='dvad-ctf')
+send(q, iface='empire-ctf')
 ```
 
 Or — if you want to manually validate a custom Kerberos PA-PAC-OPTIONS field — you can use `impacket.krb5` to craft an AS-REQ at the ASN.1 level.
 
-This is bonus skill. You can pass DVAD without ever writing a scapy line.
+This is bonus skill. You can pass EMPIRE without ever writing a scapy line.
 
 ---
 
@@ -1078,7 +1078,7 @@ impacket-rpcdump 10.10.0.10                     # list RPC endpoints
 
 ## 1.20 (Mechanics) Building your attacker box
 
-A workable attacker box for DVAD:
+A workable attacker box for EMPIRE:
 
 ```bash
 # Base packages
@@ -1115,53 +1115,53 @@ sudo apt install -y wordlists seclists
 Add hostnames to `/etc/hosts` so you don't depend on dnsmasq for every name resolution:
 
 ```
-10.10.0.10  dc01.corp.local dc01 corp.local
-10.10.0.11  dc01.eu.corp.local
-10.10.0.12  ca01.corp.local ca01
-10.10.0.13  file01.corp.local file01
-10.10.0.14  sql01.corp.local sql01
-10.10.0.100 ws01.corp.local ws01
-10.20.0.10  dc01.finance.local finance.local
-10.30.0.10  dc01.root.corp root.corp
+10.10.0.10  coruscant.empire.local coruscant empire.local
+10.10.0.11  deathstar.eu.empire.local
+10.10.0.12  endor.empire.local endor
+10.10.0.13  scarif.empire.local scarif
+10.10.0.14  kamino.empire.local kamino
+10.10.0.100 tatooine.empire.local tatooine
+10.20.0.10  yavin4.rebel.local rebel.local
+10.30.0.10  neimoidia.trade.corp trade.corp
 ```
 
 Add a `KRB5_CONFIG` template at `~/krb5.conf`:
 
 ```ini
 [libdefaults]
-    default_realm = CORP.LOCAL
+    default_realm = empire.local
     dns_lookup_kdc = false
     dns_lookup_realm = false
     ticket_lifetime = 24h
     renew_lifetime = 7d
 
 [realms]
-    CORP.LOCAL = {
+    empire.local = {
         kdc = 10.10.0.10
         admin_server = 10.10.0.10
     }
-    EU.CORP.LOCAL = {
+    EU.empire.local = {
         kdc = 10.10.0.11
         admin_server = 10.10.0.11
     }
-    FINANCE.LOCAL = {
+    rebel.local = {
         kdc = 10.20.0.10
         admin_server = 10.20.0.10
     }
-    ROOT.CORP = {
+    trade.corp = {
         kdc = 10.30.0.10
         admin_server = 10.30.0.10
     }
 
 [domain_realm]
-    .corp.local = CORP.LOCAL
-    corp.local = CORP.LOCAL
-    .eu.corp.local = EU.CORP.LOCAL
-    eu.corp.local = EU.CORP.LOCAL
-    .finance.local = FINANCE.LOCAL
-    finance.local = FINANCE.LOCAL
-    .root.corp = ROOT.CORP
-    root.corp = ROOT.CORP
+    .empire.local = empire.local
+    empire.local = empire.local
+    .eu.empire.local = EU.empire.local
+    eu.empire.local = EU.empire.local
+    .rebel.local = rebel.local
+    rebel.local = rebel.local
+    .trade.corp = trade.corp
+    trade.corp = trade.corp
 ```
 
 `export KRB5_CONFIG=~/krb5.conf` (or copy to `/etc/krb5.conf`). With this in place, Kerberos-aware tools auto-discover KDCs and routes for cross-realm tickets.
@@ -1183,14 +1183,14 @@ These will burn you if you don't know them:
 
 ## 1.22 The shape of an end-to-end recon session
 
-Here is what your first 30 minutes on a new DVAD instance should look like:
+Here is what your first 30 minutes on a new EMPIRE instance should look like:
 
 ```bash
-mkdir -p ~/dvad-engagement/{recon,pcap,loot,notes}
-cd ~/dvad-engagement
+mkdir -p ~/empire-engagement/{recon,pcap,loot,notes}
+cd ~/empire-engagement
 
 # 1. Identify your interface
-ip addr show | grep -A2 -E 'dvad|enp|eth|wlan'
+ip addr show | grep -A2 -E 'empire|enp|eth|wlan'
 
 # 2. Initial liveness sweep on all three bridges (5 min)
 for net in 10.10.0.0/21 10.20.0.0/24 10.30.0.0/24; do
@@ -1206,7 +1206,7 @@ done; wait
 sudo nmap -sS -p- --min-rate 1000 10.10.0.0/24 -oA recon/all-10.10.0.0-24
 
 # 5. DNS recon
-for d in corp.local eu.corp.local finance.local root.corp; do
+for d in empire.local eu.empire.local rebel.local trade.corp; do
   dig @10.10.0.10 $d SOA >> recon/dns.txt
   dig @10.10.0.10 $d AXFR >> recon/dns.txt
   dig @10.10.0.10 _ldap._tcp.dc._msdcs.$d SRV >> recon/dns.txt
@@ -1215,14 +1215,14 @@ done
 
 # 6. Anonymous LDAP
 ldapsearch -x -H ldap://10.10.0.10 -s base namingcontexts > recon/ldap-rootdse.txt
-ldapsearch -x -H ldap://10.10.0.10 -b 'DC=corp,DC=local' '(objectClass=user)' samAccountName -LLL > recon/users.txt
+ldapsearch -x -H ldap://10.10.0.10 -b 'DC=empire,DC=local' '(objectClass=user)' samAccountName -LLL > recon/users.txt
 
 # 7. Anonymous SMB
 nxc smb 10.10.0.10 -u '' -p '' --shares > recon/smb-anon.txt
 enum4linux-ng -A 10.10.0.10 > recon/enum4linux.txt
 
 # 8. Start a packet capture for the rest of the session
-sudo tcpdump -i dvad-ctf -nn -w pcap/session-$(date +%H%M).pcap &
+sudo tcpdump -i empire-ctf -nn -w pcap/session-$(date +%H%M).pcap &
 ```
 
 This baseline takes about 10 minutes to run, produces ~50MB of output, and gives you the recon foundation to plan everything else.
@@ -1251,7 +1251,7 @@ done > network-map.csv
 Capture five minutes of traffic on the corp bridge. Open the pcap in Wireshark, filter `llmnr`, and identify any queries. For each query, identify the source host and the queried name.
 
 ```bash
-sudo timeout 300 tcpdump -i dvad-ctf -nn -w llmnr-sweep.pcap udp port 5355 or udp port 137
+sudo timeout 300 tcpdump -i empire-ctf -nn -w llmnr-sweep.pcap udp port 5355 or udp port 137
 wireshark llmnr-sweep.pcap   # filter: llmnr || nbns
 ```
 
@@ -1259,27 +1259,27 @@ Bonus: what's the relationship between the queried name and any nearby A records
 
 ### Exercise 1.C — Trace a DNS resolution
 
-From a Windows host, resolve `dc01.corp.local`. Capture the traffic on the bridge. Identify which protocols were used, in what order. (Hint: it depends on whether the cache is warm; flush it first.)
+From a Windows host, resolve `coruscant.empire.local`. Capture the traffic on the bridge. Identify which protocols were used, in what order. (Hint: it depends on whether the cache is warm; flush it first.)
 
 ```cmd
 ipconfig /flushdns
-nslookup dc01.corp.local
+nslookup coruscant.empire.local
 ```
 
 Bridge-side:
 
 ```bash
-sudo tcpdump -i dvad-ctf -nn 'port 53 or port 5355 or port 137 or port 5353'
+sudo tcpdump -i empire-ctf -nn 'port 53 or port 5355 or port 137 or port 5353'
 ```
 
 Was there an LLMNR query? An mDNS query? Why or why not?
 
 ### Exercise 1.D — Decode a TCP handshake
 
-Capture a single SMB session-setup from your attacker host to dc01. In Wireshark, identify the TCP three-way handshake. For each segment, note the sequence number, ACK number, and flags. Confirm that the third packet's ACK equals the second packet's seq+1.
+Capture a single SMB session-setup from your attacker host to coruscant. In Wireshark, identify the TCP three-way handshake. For each segment, note the sequence number, ACK number, and flags. Confirm that the third packet's ACK equals the second packet's seq+1.
 
 ```bash
-sudo tcpdump -i dvad-ctf -nn -s 0 -w smb-session.pcap tcp port 445
+sudo tcpdump -i empire-ctf -nn -s 0 -w smb-session.pcap tcp port 445
 # in another terminal
 smbclient -L //10.10.0.10 -N
 ```
@@ -1303,7 +1303,7 @@ All should report ~128 (Windows default with 0 hops). If any reports 64, that ho
 
 ### Exercise 1.G — Trace a Kerberos negotiation
 
-(Requires creds, foreshadows chapter 5.) Authenticate to dc01 using `kinit peter.parker@CORP.LOCAL` after `KRB5_CONFIG=~/krb5.conf`. Capture the AS-REQ/AS-REP on the wire. Open in Wireshark, expand the Kerberos tree. Identify the encryption type, the salt, the principal name, and the realm. You'll come back to this in chapter 5.
+(Requires creds, foreshadows chapter 5.) Authenticate to coruscant using `kinit peter.parker@empire.local` after `KRB5_CONFIG=~/krb5.conf`. Capture the AS-REQ/AS-REP on the wire. Open in Wireshark, expand the Kerberos tree. Identify the encryption type, the salt, the principal name, and the realm. You'll come back to this in chapter 5.
 
 ---
 
@@ -1314,7 +1314,7 @@ All should report ~128 (Windows default with 0 hops). If any reports 64, that ho
 3. Given a host on `10.10.0.10/21`, what's the broadcast address for that subnet?
 4. Why does mitm6 prefer DHCPv6 over Router Advertisement spoofing?
 5. What's the byte sequence at the start of a Kerberos AS-REQ on the wire? (Hint: ASN.1 application tag.)
-6. Why does `tcpdump -i dvad-ctf` show traffic between two VMs even though it's a switched bridge?
+6. Why does `tcpdump -i empire-ctf` show traffic between two VMs even though it's a switched bridge?
 7. What happens if your attacker host's clock is 10 minutes off from the DC?
 8. Why is UDP DNS limited to 512 bytes in classic RFC 1035, and what mechanism extends it?
 9. Which UDP port carries LLMNR and which multicast address does it use?
@@ -1339,3 +1339,85 @@ All should report ~128 (Windows default with 0 hops). If any reports 64, that ho
 - **Network Warrior** by Gary Donahue — operator's view of routing/switching.
 
 Next: [02-windows-internals.md](02-windows-internals.md).
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

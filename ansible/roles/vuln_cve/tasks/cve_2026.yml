@@ -19,7 +19,7 @@
 
 # ------------------------------------------------------------------------------
 # Print Spooler RCE surface (post-PrintNightmare pattern).
-# Spooler running on DC01 (configured by DF-011) provides the attack surface.
+# Spooler running on coruscant (configured by DF-011) provides the attack surface.
 # ------------------------------------------------------------------------------
 - name: CVE-2026-PrintSpooler - Drop spooler RCE surface note
   ansible.windows.win_copy:
@@ -27,7 +27,7 @@
     content: |
       2026 Print Spooler RCE Surface
       ================================
-      Print Spooler is running on dc01.corp.local (DF-011 in vuln_df_ext).
+      Print Spooler is running on coruscant.empire.local (DF-011 in vuln_df_ext).
       New Spooler RCE/LPE variants continue to emerge yearly (T1547.012).
 
       Known 2025-2026 Spooler variants:
@@ -41,7 +41,7 @@
 # ------------------------------------------------------------------------------
 # WebDAV + NTLM reflection (2026 pattern — enhanced library-ms coercion)
 # ------------------------------------------------------------------------------
-- name: CVE-2026-WebDAV-NTLM - Ensure WebClient service is auto-start on ws01
+- name: CVE-2026-WebDAV-NTLM - Ensure WebClient service is auto-start on tatooine
   ansible.windows.win_shell: |
     $s = Get-Service WebClient -ErrorAction SilentlyContinue
     if ($s) {
@@ -57,7 +57,7 @@
   register: webclient_set
   changed_when: "'changed:' in webclient_set.stdout"
   failed_when: webclient_set.rc != 0
-  when: inventory_hostname == 'ws01.corp.local'
+  when: inventory_hostname == 'tatooine.empire.local'
 
 - name: CVE-2026-WebDAV-NTLM - Drop WebDAV coercion note
   ansible.windows.win_copy:
@@ -65,19 +65,19 @@
     content: |
       2026 WebDAV NTLM Reflection Surface
       ======================================
-      WebClient service is Automatic on ws01 (set by packer/autounattend + this role).
+      WebClient service is Automatic on tatooine (set by packer/autounattend + this role).
 
       Attack:
-        1. Get ws01 to authenticate via WebDAV to attacker (coerce via .library-ms or .url)
+        1. Get tatooine to authenticate via WebDAV to attacker (coerce via .library-ms or .url)
         2. Relay NTLM to DC LDAP (no signing on corp DCs — vuln_recon role)
         3. Use relayed auth to add computer account (MAQ=10 from CRED-023) or DCSync
 
       Tools:
         Responder --no-smb + ntlmrelayx.py --target ldap://10.10.0.10 --add-computer
-        impacket-ntlmrelayx -t ldaps://10.10.0.10 --shadow-credentials --shadow-target ws01$
+        impacket-ntlmrelayx -t ldaps://10.10.0.10 --shadow-credentials --shadow-target tatooine$
 
       CVE pattern: follows CVE-2025-24054 / CVE-2025-24071 WebDAV coercion chain
-  when: inventory_hostname == 'ws01.corp.local'
+  when: inventory_hostname == 'tatooine.empire.local'
 
 # ------------------------------------------------------------------------------
 # ADCS PKINIT variant (2026 research — ESC extension via PKINIT U2U)
@@ -140,7 +140,7 @@
   register: lsa_check
   changed_when: false
   failed_when: lsa_check.rc != 0
-  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+  when: inventory_hostname in ['scarif.empire.local', 'tatooine.empire.local']
 
 - name: CVE-2026-LSA-SSPI - Drop LSA SSPI note
   ansible.windows.win_copy:
@@ -148,7 +148,7 @@
     content: |
       2026 LSA Hash Exposure via SSPI
       =================================
-      WDigest enabled on file01 + ws01 (vuln_cred_access role).
+      WDigest enabled on scarif + tatooine (vuln_cred_access role).
       Any local admin can dump plaintext passwords from LSASS.
 
       2026 SSPI pattern: CredSSP misconfiguration allows credential delegation
@@ -161,4 +161,4 @@
         rdp-sec-check target_ip; use credssp downgrade
 
       Dump: mimikatz# sekurlsa::logonpasswords
-  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+  when: inventory_hostname in ['scarif.empire.local', 'tatooine.empire.local']

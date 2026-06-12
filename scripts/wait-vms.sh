@@ -7,8 +7,8 @@
 # ==============================================================================
 set -euo pipefail
 
-DUNDER_HOME="${DUNDER_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-VM_DIR="${CFG_DISK_PATH:-${DUNDER_HOME}/vms}"
+EMPIRE_HOME="${EMPIRE_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+VM_DIR="${CFG_DISK_PATH:-${EMPIRE_HOME}/vms}"
 # All-fresh model: VMs install Windows from ISO on first create (~15-20 min
 # each, run in parallel), not a seconds-fast CoW clone boot. Allow for it.
 MAX_WAIT_MINUTES="${MAX_WAIT_MINUTES:-60}"
@@ -20,14 +20,14 @@ info() { echo -e "\033[0;34m[*]\033[0m $*"; }
 
 # Static IP map (mirrors AGENTS.md topology)
 declare -A VM_IPS=(
-    ["dc01-corp"]="10.10.0.10"
-    ["dc01-eu"]="10.10.0.11"
-    ["ca01"]="10.10.0.12"
-    ["file01"]="10.10.0.13"
-    ["sql01"]="10.10.0.14"
-    ["ws01"]="10.10.0.100"
-    ["dc01-fin"]="10.10.20.10"
-    ["dc01-root"]="10.10.30.10"
+    ["coruscant-corp"]="10.10.0.10"
+    ["coruscant-eu"]="10.10.0.11"
+    ["endor"]="10.10.0.12"
+    ["scarif"]="10.10.0.13"
+    ["kamino"]="10.10.0.14"
+    ["tatooine"]="10.10.0.100"
+    ["coruscant-fin"]="10.10.20.10"
+    ["coruscant-root"]="10.10.30.10"
 )
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────

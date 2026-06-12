@@ -3,8 +3,8 @@
 # vuln_lateral/defaults/main.yml
 # ==============================================================================
 
-# corp.local domain DN (used for New-ADUser/ACL -Path targets)
-ad_domain_dn: "DC=corp,DC=local"
+# empire.local domain DN (used for New-ADUser/ACL -Path targets)
+ad_domain_dn: "DC=empire,DC=local"
 
 # Attacker-controlled IP used in UNC coercion bait (.url IconFile, etc.)
 attacker_ip: "10.10.0.1"

@@ -3,23 +3,23 @@
 # ad_trust role defaults
 # ==============================================================================
 
-# corp.local DC coordinates
-corp_dc: "dc01.corp.local"
+# empire.local DC coordinates
+corp_dc: "coruscant.empire.local"
 corp_dc_ip: "10.10.0.10"
-corp_admin_user: "CORP\\Administrator"
-corp_admin_password: "DVADlab2024!"
+corp_admin_user: "EMPIRE\\Administrator"
+corp_admin_password: "SithLord123!"
 
-# finance.local DC coordinates
-finance_dc: "dc01.finance.local"
+# rebel.local DC coordinates
+finance_dc: "yavin4.rebel.local"
 finance_dc_ip: "10.10.20.10"
-finance_admin_user: "FINANCE\\Administrator"
-finance_admin_password: "DVADlab2024!"
+finance_admin_user: "REBEL\\Administrator"
+finance_admin_password: "SithLord123!"
 
-# root.corp DC coordinates
-root_dc: "dc01.root.corp"
+# trade.corp DC coordinates
+root_dc: "neimoidia.trade.corp"
 root_dc_ip: "10.10.30.10"
-root_admin_user: "ROOT\\Administrator"
-root_admin_password: "DVADlab2024!"
+jedi_admin_user: "TRADE\\Administrator"
+jedi_admin_password: "SithLord123!"
 
 # Trust direction — BiDirectional for all trusts in this lab
 trust_direction: "BiDirectional"

@@ -4,20 +4,20 @@
 
 traffic_sim_interval: 30          # seconds between traffic rounds
 traffic_sim_install_dir: 'C:\DunderLab'
-traffic_sim_script: 'C:\DunderLab\dunder-traffic.ps1'
+traffic_sim_script: 'C:\DunderLab\empire-traffic.ps1'
 traffic_sim_log: 'C:\DunderLab\traffic-sim.log'
 
-ad_domain_netbios: "CORP"
+ad_domain_netbios: "EMPIRE"
 
 # Accounts that run traffic tasks — pulled from ad_domain users
 # Each gets its own scheduled task running as that user
 traffic_sim_users:
-  - username: "pam.beesly"
+  - username: "leia.organa"
     password: "Alice1234!"
     task_name: "DunderTraffic-Accounting"
-  - username: "jim.halpert"
-    password: "Password123!"
+  - username: "luke.skywalker"
+    password: "SithLord123!"
     task_name: "DunderTraffic-Sales"
-  - username: "dwight.schrute"
+  - username: "darth.maul"
     password: "BeetFarm2024!"
     task_name: "DunderTraffic-Assistant"

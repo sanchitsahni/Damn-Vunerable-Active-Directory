@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_linux/tasks/flags.yml
-# Drops DUNDER{...} flags (each with an Office quote) at the location a given
+# Drops EMPIRE{...} flags (each with an Office quote) at the location a given
 # attack reaches. Idempotent. In ctf mode flags live where only a successful
 # exploit lands; in training mode an index is also dropped for the player.
 # ==============================================================================
@@ -12,7 +12,7 @@
     state: directory
     mode: "0755"
   loop:
-    - /opt/dunder/flags
+    - /opt/empire/flags
   failed_when: false
 
 # ── root flag — reachable only after a Linux-local privilege escalation ───────
@@ -21,106 +21,106 @@
     dest: /root/flag-root.txt
     mode: "0600"
     content: |
-      DUNDER{LINUX_ROOT_LPE_BEARS_BEETS_BATTLESTAR}
-      "Bears. Beets. Battlestar Galactica." — Jim Halpert
-      You rooted linux01 — sudo/SUID/cron/NFS all led here.
+      EMPIRE{LINUX_ROOT_LPE_BEARS_BEETS_BATTLESTAR}
+      "Bears. Beets. Battlestar Galactica." — Luke Skywalker
+      You rooted mandalore — sudo/SUID/cron/NFS all led here.
 
 # ── per-attack flags, each placed where that attack yields access ─────────────
 - name: Flag — readable host keytab (Linux-in-AD)
   ansible.builtin.copy:
-    dest: /opt/dunder/flags/flag-keytab.txt
+    dest: /opt/empire/flags/flag-keytab.txt
     mode: "0644"
     content: |
-      DUNDER{LINUX_AD_KEYTAB_THEFT_IDENTITY_THEFT_JIM}
-      "Identity theft is not a joke, Jim!" — Dwight Schrute
-      The host keytab let you impersonate linux01$ to the DC.
+      EMPIRE{LINUX_AD_KEYTAB_THEFT_IDENTITY_THEFT_JIM}
+      "Identity theft is not a joke, Jim!" — Darth Maul
+      The host keytab let you impersonate mandalore$ to the DC.
 
 - name: Flag — leaked domain creds (Linux to Windows lateral)
   ansible.builtin.copy:
     dest: /home/{{ vuln_linux_weak_user }}/.creds_backup.txt
     mode: "0644"
     content: |
-      DUNDER{LINUX_TO_AD_LEAKED_CREDS_THATS_WHAT_SHE_SAID}
-      "That's what she said." — Michael Scott
+      EMPIRE{LINUX_TO_AD_LEAKED_CREDS_THATS_WHAT_SHE_SAID}
+      "That's what she said." — Sheev Palpatine
       {{ vuln_linux_leaked_ad_user }} / {{ vuln_linux_leaked_ad_pass }}
-      Pivot these AD creds from linux01 back into corp.local.
+      Pivot these AD creds from mandalore back into empire.local.
   failed_when: false
 
 - name: Flag — Redis unauthenticated
   ansible.builtin.copy:
-    dest: /opt/dunder/flags/flag-redis.txt
+    dest: /opt/empire/flags/flag-redis.txt
     mode: "0644"
     content: |
-      DUNDER{NET_REDIS_UNAUTH_RCE_WORLDS_BEST_BOSS}
-      "World's Best Boss." — Michael Scott
+      EMPIRE{NET_REDIS_UNAUTH_RCE_WORLDS_BEST_BOSS}
+      "World's Best Boss." — Sheev Palpatine
     when: vuln_linux_enable_redis | bool
   failed_when: false
 
 - name: Flag — MongoDB no-auth
   ansible.builtin.copy:
-    dest: /opt/dunder/flags/flag-mongodb.txt
+    dest: /opt/empire/flags/flag-mongodb.txt
     mode: "0644"
     content: |
-      DUNDER{NET_MONGODB_NOAUTH_I_DECLARE_BANKRUPTCY}
-      "I... DECLARE... BANKRUPTCY!" — Michael Scott
+      EMPIRE{NET_MONGODB_NOAUTH_I_DECLARE_BANKRUPTCY}
+      "I... DECLARE... BANKRUPTCY!" — Sheev Palpatine
     when: vuln_linux_enable_mongodb | bool
   failed_when: false
 
 - name: Flag — Memcached exposed
   ansible.builtin.copy:
-    dest: /opt/dunder/flags/flag-memcached.txt
+    dest: /opt/empire/flags/flag-memcached.txt
     mode: "0644"
     content: |
-      DUNDER{NET_MEMCACHED_EXPOSED_DUNDER_MIFFLIN_THIS_IS_PAM}
-      "Dunder Mifflin, this is Pam." — Pam Beesly
+      EMPIRE{NET_MEMCACHED_EXPOSED_EMPIRE_MIFFLIN_THIS_IS_PAM}
+      "empire Mifflin, this is Pam." — Leia Organa
     when: vuln_linux_enable_memcached | bool
   failed_when: false
 
 - name: Flag — MySQL weak root / RCE
   ansible.builtin.copy:
-    dest: /opt/dunder/flags/flag-mysql.txt
+    dest: /opt/empire/flags/flag-mysql.txt
     mode: "0644"
     content: |
-      DUNDER{NET_MYSQL_WEAK_ROOT_UDF_RCE_BOOM_ROASTED}
-      "Boom. Roasted." — Michael Scott
+      EMPIRE{NET_MYSQL_WEAK_ROOT_UDF_RCE_BOOM_ROASTED}
+      "Boom. Roasted." — Sheev Palpatine
     when: vuln_linux_enable_mysql | bool
   failed_when: false
 
 - name: Flag — vulnerable web app (command injection to shell)
   ansible.builtin.copy:
-    dest: /opt/dunder/flags/flag-webapp.txt
+    dest: /opt/empire/flags/flag-webapp.txt
     mode: "0644"
     content: |
-      DUNDER{WEB_CMDINJECTION_SHELL_PARKOUR_PARKOUR}
-      "Parkour! Parkour!" — Michael Scott
+      EMPIRE{WEB_CMDINJECTION_SHELL_PARKOUR_PARKOUR}
+      "Parkour! Parkour!" — Sheev Palpatine
     when: vuln_linux_enable_webapp | bool
   failed_when: false
 
 - name: Flag — NFS no_root_squash export
   ansible.builtin.copy:
-    dest: /opt/dunder/flags/flag-nfs.txt
+    dest: /opt/empire/flags/flag-nfs.txt
     mode: "0644"
     content: |
-      DUNDER{NET_NFS_NO_ROOT_SQUASH_IM_NOT_SUPERSTITIOUS}
-      "I'm not superstitious, but I am a little stitious." — Michael Scott
+      EMPIRE{NET_NFS_NO_ROOT_SQUASH_IM_NOT_SUPERSTITIOUS}
+      "I'm not superstitious, but I am a little stitious." — Sheev Palpatine
     when: vuln_linux_enable_nfs | bool
   failed_when: false
 
 # ── training-mode convenience index (ctf mode hides it) ───────────────────────
 - name: Flag index (training mode only)
   ansible.builtin.copy:
-    dest: /opt/dunder/flags/INDEX.txt
+    dest: /opt/empire/flags/INDEX.txt
     mode: "0644"
     content: |
-      DUNDER lab — linux01 flag locations (training mode):
+      EMPIRE lab — mandalore flag locations (training mode):
         /root/flag-root.txt                       (root LPE)
-        /opt/dunder/flags/flag-keytab.txt         (AD keytab theft)
+        /opt/empire/flags/flag-keytab.txt         (AD keytab theft)
         /home/{{ vuln_linux_weak_user }}/.creds_backup.txt  (leaked AD creds)
-        /opt/dunder/flags/flag-redis.txt          (Redis unauth)
-        /opt/dunder/flags/flag-mongodb.txt        (MongoDB no-auth)
-        /opt/dunder/flags/flag-memcached.txt      (Memcached)
-        /opt/dunder/flags/flag-mysql.txt          (MySQL RCE)
-        /opt/dunder/flags/flag-webapp.txt         (web cmd-injection)
-        /opt/dunder/flags/flag-nfs.txt            (NFS no_root_squash)
+        /opt/empire/flags/flag-redis.txt          (Redis unauth)
+        /opt/empire/flags/flag-mongodb.txt        (MongoDB no-auth)
+        /opt/empire/flags/flag-memcached.txt      (Memcached)
+        /opt/empire/flags/flag-mysql.txt          (MySQL RCE)
+        /opt/empire/flags/flag-webapp.txt         (web cmd-injection)
+        /opt/empire/flags/flag-nfs.txt            (NFS no_root_squash)
   when: flag_mode | default('ctf') == 'training'
   failed_when: false

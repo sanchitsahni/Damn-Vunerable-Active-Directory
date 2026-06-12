@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_cred_extended/tasks/browser_keys.yml — CRED-121..150
-# Target: ws01.corp.local
+# Target: tatooine.empire.local
 #
 # CRED-121  Chrome saved passwords (accessible via DPAPI)
 # CRED-122  Edge saved passwords
@@ -19,9 +19,9 @@
 - name: CRED-124 - Store credentials in Windows Credential Manager
   ansible.windows.win_shell: |
     # cmdkey stores credentials accessible via DPAPI
-    cmdkey /add:dc01.corp.local /user:CORP\Administrator /pass:DVADlab2024! 2>&1
-    cmdkey /add:file01.corp.local /user:CORP\svc_darryl /pass:Darryl2024! 2>&1
-    cmdkey /add:sql01.corp.local /user:sa /pass:SqlServer2025! 2>&1
+    cmdkey /add:coruscant.empire.local /user:EMPIRE\Administrator /pass:SithLord123! 2>&1
+    cmdkey /add:scarif.empire.local /user:EMPIRE\svc_bobafett /pass:Darryl2024! 2>&1
+    cmdkey /add:kamino.empire.local /user:sa /pass:DeathStar2025! 2>&1
     Write-Output "changed: credentials stored in Credential Manager"
   register: cred124_set
   changed_when: "'changed:' in cred124_set.stdout"
@@ -78,9 +78,9 @@
             "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
             "instances": [{
               "attributes": {
-                "password": "DVADlab2024!",
+                "password": "SithLord123!",
                 "username": "Administrator",
-                "connection_string": "{{ sql_conn_string | default('Server=sql01;Password=SqlServer2025!') }}"
+                "connection_string": "{{ sql_conn_string | default('Server=kamino;Password=DeathStar2025!') }}"
               }
             }]
           }
@@ -96,8 +96,8 @@
       use multimon:i:0
       desktopwidth:i:1920
       desktopheight:i:1080
-      full address:s:dc01.corp.local
-      username:s:CORP\Administrator
+      full address:s:coruscant.empire.local
+      username:s:EMPIRE\Administrator
       password 51:b:DVAD-CRED-130-stub-DPAPI-encrypted-password-placeholder
       authentication level:i:0
 
@@ -107,7 +107,7 @@
     content: |
       CRED-121..130: Browser and Key Material Extraction
       ====================================================
-      Available credential stores on ws01:
+      Available credential stores on tatooine:
         Windows Credential Manager: CRED-124 — cmdkey list
         SSH private key:            CRED-125 — C:\Users\Administrator\.ssh\id_rsa
         AWS credentials:            CRED-126 — C:\Users\Administrator\.aws\credentials

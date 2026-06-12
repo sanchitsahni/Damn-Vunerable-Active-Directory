@@ -1,23 +1,23 @@
 ---
 # ==============================================================================
-# vuln_ia_surface/tasks/ws01_surface.yml  —  ws01.corp.local
+# vuln_ia_surface/tasks/ws01_surface.yml  —  tatooine.empire.local
 # BATCHED: one templated PowerShell run instead of ~13 WinRM round-trips.
 # Logic in templates/ws01_surface.ps1.j2 (IA-019..022 ASR, IA-024 .library-ms,
 # IA-027/043 RDP NLA, IA-033 WSH/AMSI, IA-045 WebClient, IA-047 WSD/SSDP,
 # IA-040 WinRM-HTTPS). Office-macro/MOTW tasks were removed (Server Core).
 # ==============================================================================
 
-- name: IA-ws01 - Ensure DunderLab dir exists
+- name: IA-tatooine - Ensure DunderLab dir exists
   ansible.windows.win_file:
     path: C:\DunderLab
     state: directory
 
-- name: IA-ws01 - Render batched ws01 surface script
+- name: IA-tatooine - Render batched tatooine surface script
   ansible.windows.win_template:
     src: ws01_surface.ps1.j2
     dest: C:\DunderLab\ws01_surface.ps1
 
-- name: IA-ws01 - Run batched ws01 surface script (IA-019..047/040)
+- name: IA-tatooine - Run batched tatooine surface script (IA-019..047/040)
   ansible.windows.win_shell: powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\DunderLab\ws01_surface.ps1
   register: ia_ws01_run
   changed_when: "'CHANGED:' in ia_ws01_run.stdout"

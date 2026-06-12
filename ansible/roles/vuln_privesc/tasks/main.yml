@@ -6,10 +6,10 @@
 # `when: inventory_hostname ==` guards for host-specific steps.
 #
 # Host → sub-tasks applicable:
-#   dc01.corp.local    -> groups.yml (operator groups), registry.yml (none)
-#   file01.corp.local  -> services.yml, tokens.yml, registry.yml
-#   sql01.corp.local   -> tokens.yml
-#   ws01.corp.local    -> registry.yml, services.yml (minimal)
+#   coruscant.empire.local    -> groups.yml (operator groups), registry.yml (none)
+#   scarif.empire.local  -> services.yml, tokens.yml, registry.yml
+#   kamino.empire.local   -> tokens.yml
+#   tatooine.empire.local    -> registry.yml, services.yml (minimal)
 # ==============================================================================
 
 - name: Import services tasks
@@ -29,9 +29,9 @@
 - name: Import extended service privesc surfaces
   ansible.builtin.import_tasks: ext_services.yml
 
-- name: Import extended CVE privesc surfaces (ws01 + file01)
+- name: Import extended CVE privesc surfaces (tatooine + scarif)
   ansible.builtin.import_tasks: ext_cves.yml
-  when: inventory_hostname in ['ws01.corp.local', 'file01.corp.local']
+  when: inventory_hostname in ['tatooine.empire.local', 'scarif.empire.local']
 
 - name: Import kernel/BYOVD privesc surfaces
   ansible.builtin.import_tasks: kernel.yml
@@ -39,13 +39,13 @@
 - name: Import extended privilege escalation token/right surfaces
   ansible.builtin.import_tasks: ext_privileges.yml
 
-- name: Import DLL hijack / PATH hijack privesc surfaces (file01 + ws01)
+- name: Import DLL hijack / PATH hijack privesc surfaces (scarif + tatooine)
   ansible.builtin.import_tasks: ext_paths_dlls.yml
-  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+  when: inventory_hostname in ['scarif.empire.local', 'tatooine.empire.local']
 
 - name: Import PE extended registry surfaces
   ansible.builtin.import_tasks: registry_pe.yml
 
-- name: Import AD privilege escalation surfaces (dc01)
+- name: Import AD privilege escalation surfaces (coruscant)
   ansible.builtin.import_tasks: ad_pe.yml
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'

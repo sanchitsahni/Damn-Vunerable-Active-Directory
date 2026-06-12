@@ -3,21 +3,21 @@
 # vuln_forest/defaults/main.yml
 # ==============================================================================
 
-# corp.local domain DN (used for New-ADUser -Path)
-ad_domain_dn: "DC=corp,DC=local"
+# empire.local domain DN (used for New-ADUser -Path)
+ad_domain_dn: "DC=empire,DC=local"
 
 # DF-005: developer2 account granted DsAddSidHistory extended right
 developer2_user: "developer2"
-developer2_password: "DVADlab2024!"
+developer2_password: "SithLord123!"
 
 # Known lab password for child-domain krbtgt (ExtraSID / DF-007)
 child_krbtgt_password: "KrbtgtEU2024!"
 
-# SPN added to svc_dwight for cross-forest Kerberoasting (DF-010)
-crossforest_spn: "HTTP/crossforest.finance.local"
+# SPN added to svc_maul for cross-forest Kerberoasting (DF-010)
+crossforest_spn: "HTTP/crossforest.rebel.local"
 
 # Trust names to disable SID filtering on (DF-008)
 corp_trust_targets:
-  - finance.local
-  - root.corp
-  - eu.corp.local
+  - rebel.local
+  - trade.corp
+  - eu.empire.local

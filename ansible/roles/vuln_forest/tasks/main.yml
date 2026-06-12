@@ -1,53 +1,53 @@
 ---
 # ==============================================================================
 # vuln_forest/tasks/main.yml
-# Target: dc01.corp.local
+# Target: coruscant.empire.local
 #
 # Runs after ad_trust has established trusts.  Injects forest-compromise
 # preconditions:
 #
-#   DF-003  michael.scott has DCSync rights (Replicating Directory Changes +
+#   DF-003  sheev.palpatine has DCSync rights (Replicating Directory Changes +
 #           Replicating Directory Changes All) on the domain NC object
 #   DF-007  ExtraSID — child-domain krbtgt reset to known value so the child-DA
 #           → parent-EA forging chain is exercisable
 #   DF-008  SID filtering (quarantine) disabled on all external trusts
-#   DF-009  Finance.local Administrator FSP in corp.local Domain Admins
-#   DF-010  svc_dwight has a cross-forest-reachable SPN for Kerberoasting
-#           from finance.local
+#   DF-009  rebel.local Administrator FSP in empire.local Domain Admins
+#   DF-010  svc_maul has a cross-forest-reachable SPN for Kerberoasting
+#           from rebel.local
 #   DF-023  No SID filtering on parent-child trust (set in DF-008 / ad_trust);
-#           verify eu.corp.local test user exists
+#           verify eu.empire.local test user exists
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# DF-003: DCSync rights for michael.scott
+# DF-003: DCSync rights for sheev.palpatine
 # Extended rights required:
 #   DS-Replication-Get-Changes     1131f6aa-9c07-11d1-f79f-00c04fc2dcd2
 #   DS-Replication-Get-Changes-All 1131f6ad-9c07-11d1-f79f-00c04fc2dcd2
 # Check ACE presence before adding.
 # ------------------------------------------------------------------------------
-- name: DF-003 - Check DCSync ACEs for michael.scott on domain NC
+- name: DF-003 - Check DCSync ACEs for sheev.palpatine on domain NC
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $usr   = Get-ADUser -Identity "michael.scott" -ErrorAction Stop
+    $usr   = Get-ADUser -Identity "sheev.palpatine" -ErrorAction Stop
     $domDn = (Get-ADDomain).DistinguishedName
     $acl   = Get-Acl "AD:\$domDn"
     $guidA = [guid]"1131f6aa-9c07-11d1-f79f-00c04fc2dcd2"
     $guidB = [guid]"1131f6ad-9c07-11d1-f79f-00c04fc2dcd2"
     $hasA  = $acl.Access | Where-Object {
-      $_.IdentityReference -like "*michael.scott*" -and $_.ObjectType -eq $guidA }
+      $_.IdentityReference -like "*sheev.palpatine*" -and $_.ObjectType -eq $guidA }
     $hasB  = $acl.Access | Where-Object {
-      $_.IdentityReference -like "*michael.scott*" -and $_.ObjectType -eq $guidB }
+      $_.IdentityReference -like "*sheev.palpatine*" -and $_.ObjectType -eq $guidB }
     if ($hasA -and $hasB) { Write-Output "present" } else { Write-Output "absent" }
   register: result_dcsync_check
   changed_when: false
   failed_when: result_dcsync_check.rc != 0
-  # michael.scott exists only in corp.local — don't run on finance/root/eu DCs.
-  when: inventory_hostname == 'dc01.corp.local'
+  # sheev.palpatine exists only in empire.local — don't run on finance/root/eu DCs.
+  when: inventory_hostname == 'coruscant.empire.local'
 
-- name: DF-003 - Grant michael.scott DCSync extended rights on domain NC
+- name: DF-003 - Grant sheev.palpatine DCSync extended rights on domain NC
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $usr   = Get-ADUser -Identity "michael.scott" -ErrorAction Stop
+    $usr   = Get-ADUser -Identity "sheev.palpatine" -ErrorAction Stop
     $sid   = New-Object System.Security.Principal.SecurityIdentifier ($usr.SID)
     $domDn = (Get-ADDomain).DistinguishedName
     $acl   = Get-Acl "AD:\$domDn"
@@ -61,18 +61,18 @@
     }
     Set-Acl -Path "AD:\$domDn" -AclObject $acl
   when:
-    - inventory_hostname == 'dc01.corp.local'
+    - inventory_hostname == 'coruscant.empire.local'
     - "'absent' in (result_dcsync_check.stdout | default(''))"
   register: result_dcsync_set
   failed_when: result_dcsync_set.rc != 0
 
 # ------------------------------------------------------------------------------
-# DF-007: ExtraSID — reset eu.corp.local krbtgt to known lab value.
+# DF-007: ExtraSID — reset eu.empire.local krbtgt to known lab value.
 # Child DA can then forge a TGT with the Enterprise Admins SID in the PAC
 # ExtraSIDs field, escalating into the parent forest.
 # Delegated to the child DC.
 # ------------------------------------------------------------------------------
-- name: DF-007 - Reset eu.corp.local krbtgt to known lab password (ExtraSID prereq)
+- name: DF-007 - Reset eu.empire.local krbtgt to known lab password (ExtraSID prereq)
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $p = ConvertTo-SecureString "{{ child_krbtgt_password }}" -AsPlainText -Force
@@ -82,7 +82,7 @@
     } catch {
       Write-Error "child krbtgt reset: $($_.Exception.Message)"
     }
-  delegate_to: dc01.eu.corp.local
+  delegate_to: deathstar.eu.empire.local
   run_once: true
   register: result_child_krbtgt
   changed_when: "'changed:' in result_child_krbtgt.stdout"
@@ -95,8 +95,8 @@
 - name: DF-008 - Disable SID filtering (quarantine) on external trusts
   ansible.windows.win_shell: |
     $t = "{{ item }}"
-    $r1 = & netdom.exe trust corp.local /domain:$t /quarantine:No 2>&1
-    $r2 = & netdom.exe trust corp.local /domain:$t /enablesidhistory:Yes 2>&1
+    $r1 = & netdom.exe trust empire.local /domain:$t /quarantine:No 2>&1
+    $r2 = & netdom.exe trust empire.local /domain:$t /enablesidhistory:Yes 2>&1
     Write-Output "Trust ${t}: quarantine=$r1 sidhistory=$r2"
   loop: "{{ corp_trust_targets }}"
   register: result_sid_filter
@@ -108,18 +108,18 @@
   changed_when: false
 
 # ------------------------------------------------------------------------------
-# DF-009: Foreign Security Principal — finance.local Administrator in
-# corp.local Domain Admins.
+# DF-009: Foreign Security Principal — rebel.local Administrator in
+# empire.local Domain Admins.
 # Check FSP + membership before adding.
 # ------------------------------------------------------------------------------
-- name: DF-009 - Add FINANCE\Administrator as FSP in corp.local Domain Admins
+- name: DF-009 - Add REBEL\Administrator as FSP in empire.local Domain Admins
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     try {
-      # SID of FINANCE\Administrator, read straight from the finance ADWS. The
+      # SID of REBEL\Administrator, read straight from the finance ADWS. The
       # NTAccount.Translate (LSA) path fails "could not be translated" right
       # after the trust is created, before the Netlogon secure channel settles.
-      $sid   = (Get-ADUser -Server finance.local -Identity Administrator -ErrorAction Stop).SID.Value
+      $sid   = (Get-ADUser -Server rebel.local -Identity Administrator -ErrorAction Stop).SID.Value
       $domDn = (Get-ADDomain).DistinguishedName
       $fspDn = "CN=$sid,CN=ForeignSecurityPrincipals,$domDn"
 
@@ -149,19 +149,19 @@
     result_fsp_da.rc != 0 and
     "trust" not in (result_fsp_da.stderr | default("") | lower) and
     "not found" not in (result_fsp_da.stderr | default("") | lower)
-  # FSP into CORP's Domain Admins — corp DC only (it ran on all_dcs and failed
-  # on finance/root/eu trying to translate FINANCE\ into the wrong domain).
-  when: inventory_hostname == 'dc01.corp.local'
+  # FSP into EMPIRE's Domain Admins — corp DC only (it ran on all_dcs and failed
+  # on finance/root/eu trying to translate REBEL\ into the wrong domain).
+  when: inventory_hostname == 'coruscant.empire.local'
 
 # ------------------------------------------------------------------------------
-# DF-010: Cross-forest Kerberoasting — add HTTP/crossforest.finance.local SPN
-# to svc_dwight so the account is Kerberoastable from finance.local.
+# DF-010: Cross-forest Kerberoasting — add HTTP/crossforest.rebel.local SPN
+# to svc_maul so the account is Kerberoastable from rebel.local.
 # Check SPN list before adding (idempotent).
 # ------------------------------------------------------------------------------
-- name: DF-010 - Check cross-forest SPN on svc_dwight
+- name: DF-010 - Check cross-forest SPN on svc_maul
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $u = Get-ADUser -Identity "svc_dwight" -Properties ServicePrincipalName
+    $u = Get-ADUser -Identity "svc_maul" -Properties ServicePrincipalName
     if ($u.ServicePrincipalName -contains "{{ crossforest_spn }}") {
       Write-Output "present"
     } else {
@@ -170,16 +170,16 @@
   register: result_spn_cf_check
   changed_when: false
   failed_when: result_spn_cf_check.rc != 0
-  # svc_dwight is corp-only — don't query it on finance/root/eu.
-  when: inventory_hostname == 'dc01.corp.local'
+  # svc_maul is corp-only — don't query it on finance/root/eu.
+  when: inventory_hostname == 'coruscant.empire.local'
 
-- name: DF-010 - Add cross-forest SPN to svc_dwight
+- name: DF-010 - Add cross-forest SPN to svc_maul
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    Set-ADUser -Identity "svc_dwight" `
+    Set-ADUser -Identity "svc_maul" `
       -ServicePrincipalNames @{Add="{{ crossforest_spn }}"} -ErrorAction Stop
   when:
-    - inventory_hostname == 'dc01.corp.local'
+    - inventory_hostname == 'coruscant.empire.local'
     - "'absent' in (result_spn_cf_check.stdout | default(''))"
   register: result_spn_cf_set
   failed_when: >
@@ -188,18 +188,18 @@
     "duplicate" not in (result_spn_cf_set.stderr | default("") | lower)
 
 # ------------------------------------------------------------------------------
-# DF-023: Verify eu.corp.local test user exists for child→parent EA path.
+# DF-023: Verify eu.empire.local test user exists for child→parent EA path.
 # Trust already has SID filtering off (DF-008).  We just ensure there is a
 # domain admin in the child domain that can forge the ExtraSID TGT.
 # ------------------------------------------------------------------------------
-- name: DF-023 - Check eu.corp.local child domain admin exists for ExtraSID path
+- name: DF-023 - Check eu.empire.local child domain admin exists for ExtraSID path
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     try {
-      $u = Get-ADUser -Identity "Administrator" -Server "eu.corp.local" -ErrorAction Stop
-      Write-Output "present: $($u.SamAccountName) in eu.corp.local"
+      $u = Get-ADUser -Identity "Administrator" -Server "eu.empire.local" -ErrorAction Stop
+      Write-Output "present: $($u.SamAccountName) in eu.empire.local"
     } catch {
-      Write-Output "warning: cannot reach eu.corp.local - $($_.Exception.Message)"
+      Write-Output "warning: cannot reach eu.empire.local - $($_.Exception.Message)"
     }
   register: result_df023_check
   changed_when: false
@@ -218,25 +218,25 @@
   ansible.windows.win_copy:
     dest: 'C:\Flags\forest\df-003-dcsync.txt'
     content: |
-      DUNDER{DF-003_DCSYNC_ALL_HASHES}
-      "You have no idea how high I can fly." — Michael Scott
-      Hint: michael.scott holds Replicating Directory Changes + All.
+      EMPIRE{DF-003_DCSYNC_ALL_HASHES}
+      "I am the Senate." — Sheev Palpatine
+      Hint: sheev.palpatine holds Replicating Directory Changes + All.
 
 - name: DF-009 - Drop FSP hijack flag
   ansible.windows.win_copy:
     dest: 'C:\Flags\forest\df-009-fsp.txt'
     content: |
-      DUNDER{DF-009_FSP_HIJACK_DOMAIN_ADMINS}
-      "Identity theft is not a joke, Jim! Millions of families suffer every year!" — Dwight Schrute
-      Hint: FINANCE\Administrator is a corp.local Domain Admin via FSP.
+      EMPIRE{DF-009_FSP_HIJACK_DOMAIN_ADMINS}
+      "At last we will reveal ourselves to the Jedi." — Darth Maul
+      Hint: REBEL\Administrator is a empire.local Domain Admin via FSP.
 
 - name: DF-010 - Drop cross-forest Kerberoast flag
   ansible.windows.win_copy:
     dest: 'C:\Flags\forest\df-010-crossforest-kerb.txt'
     content: |
-      DUNDER{DF-010_CROSS_FOREST_KERBEROAST}
-      "I am better than you have ever been or ever will be." — Dwight Schrute
-      Hint: svc_dwight has SPN reachable from finance.local.
+      EMPIRE{DF-010_CROSS_FOREST_KERBEROAST}
+      "Fear is the path to the dark side." — Yoda
+      Hint: svc_maul has SPN reachable from rebel.local.
 
 - name: Lock forest flag directory to SYSTEM/Admins
   ansible.windows.win_shell: |
@@ -247,18 +247,18 @@
 
 # Extended domain/forest surfaces (absorbed from vuln_df_ext + vuln_lat_df_extended)
 
-- name: Import ADCS ESC extension surfaces (ca01)
+- name: Import ADCS ESC extension surfaces (endor)
   ansible.builtin.import_tasks: esc_ext.yml
-  when: inventory_hostname == 'ca01.corp.local'
+  when: inventory_hostname == 'endor.empire.local'
 
-- name: Import forest attack surfaces (dc01)
+- name: Import forest attack surfaces (coruscant)
   ansible.builtin.import_tasks: forest_attacks.yml
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'
 
-- name: Import advanced domain attack surfaces (dc01)
+- name: Import advanced domain attack surfaces (coruscant)
   ansible.builtin.import_tasks: domain_adv.yml
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'
 
-- name: Import trust abuse attack surfaces (dc01)
+- name: Import trust abuse attack surfaces (coruscant)
   ansible.builtin.import_tasks: trust_abuse.yml
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'

@@ -1,12 +1,12 @@
 ---
 # ==============================================================================
 # vuln_cred_gaps/tasks/users-creds.yml
-# Target: dc01.corp.local (all_dcs group via main.yml guard)
+# Target: coruscant.empire.local (all_dcs group via main.yml guard)
 #
-# CRED-003  Password spray cohort (7 low-priv users, Password123!)
-# CRED-004  Saved Windows credentials + DBeaver config on ws01
+# CRED-003  Password spray cohort (7 low-priv users, SithLord123!)
+# CRED-004  Saved Windows credentials + DBeaver config on tatooine
 # CRED-008  svc_angela user + GenericWrite from HelpDesk group
-# CRED-009  kevin.malone with AllowReversiblePasswordEncryption
+# CRED-009  greedo.tets with AllowReversiblePasswordEncryption
 # CRED-023  david.wallace user + ms-DS-MachineAccountQuota=10 confirm
 # CRED-033  IT_Team group with ms-Mcs-AdmPwd read on Computers OU
 # CRED-034  gMSA gmsa_web$ with PrincipalsAllowedToRetrieveManagedPassword
@@ -16,7 +16,7 @@
 
 # ------------------------------------------------------------------------------
 # CRED-003: Password spray cohort
-# Create 7 low-priv users with the common spray password Password123!.
+# Create 7 low-priv users with the common spray password SithLord123!.
 # Check each user with Get-ADUser before calling New-ADUser.
 # ------------------------------------------------------------------------------
 - name: CRED-003 - Check which spray-cohort users already exist
@@ -33,7 +33,7 @@
   changed_when: false
   failed_when: result_spray_missing.rc != 0
 
-- name: CRED-003 - Create missing spray-cohort users with Password123!
+- name: CRED-003 - Create missing spray-cohort users with SithLord123!
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $sec = ConvertTo-SecureString "{{ spray_password }}" -AsPlainText -Force
@@ -76,71 +76,71 @@
   failed_when: result_spray_reset.rc != 0
 
 # ------------------------------------------------------------------------------
-# CRED-004: Saved credentials on ws01
+# CRED-004: Saved credentials on tatooine
 # 1) Windows Credentials file stub under Administrator AppData
 # 2) DBeaver credentials-config.json with plaintext sa password
-# Both tasks run against ws01 directly.
+# Both tasks run against tatooine directly.
 # ------------------------------------------------------------------------------
-- name: CRED-004 - Check Windows Credentials stub directory on ws01
+- name: CRED-004 - Check Windows Credentials stub directory on tatooine
   ansible.windows.win_stat:
     path: 'C:\Users\Administrator\AppData\Roaming\Microsoft\Credentials'
   register: result_wincred_dir
-  when: inventory_hostname == 'ws01.corp.local'
+  when: inventory_hostname == 'tatooine.empire.local'
   changed_when: false
 
-- name: CRED-004 - Ensure Windows Credentials directory exists on ws01
+- name: CRED-004 - Ensure Windows Credentials directory exists on tatooine
   ansible.windows.win_file:
     path: 'C:\Users\Administrator\AppData\Roaming\Microsoft\Credentials'
     state: directory
   when:
-    - inventory_hostname == 'ws01.corp.local'
+    - inventory_hostname == 'tatooine.empire.local'
     - not result_wincred_dir.stat.exists
 
-- name: CRED-004 - Check Windows Credentials blob file on ws01
+- name: CRED-004 - Check Windows Credentials blob file on tatooine
   ansible.windows.win_stat:
-    path: 'C:\Users\Administrator\AppData\Roaming\Microsoft\Credentials\DUNDER_CRED_BLOB'
+    path: 'C:\Users\Administrator\AppData\Roaming\Microsoft\Credentials\EMPIRE_CRED_BLOB'
   register: result_wincred_blob
-  when: inventory_hostname == 'ws01.corp.local'
+  when: inventory_hostname == 'tatooine.empire.local'
   changed_when: false
 
-- name: CRED-004 - Drop Windows Credentials blob stub on ws01
+- name: CRED-004 - Drop Windows Credentials blob stub on tatooine
   ansible.windows.win_copy:
-    dest: 'C:\Users\Administrator\AppData\Roaming\Microsoft\Credentials\DUNDER_CRED_BLOB'
+    dest: 'C:\Users\Administrator\AppData\Roaming\Microsoft\Credentials\EMPIRE_CRED_BLOB'
     content: |
       DVAD lab stub credential blob — use Mimikatz dpapi::cred to parse.
-      Credential: sql01.corp.local sa SqlServer2025!
+      Credential: kamino.empire.local sa DeathStar2025!
   when:
-    - inventory_hostname == 'ws01.corp.local'
+    - inventory_hostname == 'tatooine.empire.local'
     - not result_wincred_blob.stat.exists
 
-- name: CRED-004 - Check DBeaver workspace directory on ws01
+- name: CRED-004 - Check DBeaver workspace directory on tatooine
   ansible.windows.win_stat:
     path: 'C:\Tools\DBeaver\workspace\.dbeaver'
   register: result_dbeaver_dir
-  when: inventory_hostname == 'ws01.corp.local'
+  when: inventory_hostname == 'tatooine.empire.local'
   changed_when: false
 
-- name: CRED-004 - Ensure DBeaver workspace .dbeaver directory exists on ws01
+- name: CRED-004 - Ensure DBeaver workspace .dbeaver directory exists on tatooine
   ansible.windows.win_file:
     path: 'C:\Tools\DBeaver\workspace\.dbeaver'
     state: directory
   when:
-    - inventory_hostname == 'ws01.corp.local'
+    - inventory_hostname == 'tatooine.empire.local'
     - not result_dbeaver_dir.stat.exists
 
-- name: CRED-004 - Check DBeaver credentials-config.json on ws01
+- name: CRED-004 - Check DBeaver credentials-config.json on tatooine
   ansible.windows.win_stat:
     path: 'C:\Tools\DBeaver\workspace\.dbeaver\credentials-config.json'
   register: result_dbeaver_creds
-  when: inventory_hostname == 'ws01.corp.local'
+  when: inventory_hostname == 'tatooine.empire.local'
   changed_when: false
 
-- name: CRED-004 - Drop DBeaver credentials-config.json with sa password on ws01
+- name: CRED-004 - Drop DBeaver credentials-config.json with sa password on tatooine
   ansible.windows.win_copy:
     dest: 'C:\Tools\DBeaver\workspace\.dbeaver\credentials-config.json'
     content: "{{ dbeaver_creds_content }}"
   when:
-    - inventory_hostname == 'ws01.corp.local'
+    - inventory_hostname == 'tatooine.empire.local'
     - not result_dbeaver_creds.stat.exists
 
 # ------------------------------------------------------------------------------
@@ -164,7 +164,7 @@
 - name: CRED-008 - Create svc_angela user
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $sec = ConvertTo-SecureString "DVADlab2024!" -AsPlainText -Force
+    $sec = ConvertTo-SecureString "SithLord123!" -AsPlainText -Force
     New-ADUser -Name "svc_angela" -SamAccountName "svc_angela" `
       -UserPrincipalName "svc_angela@{{ ad_domain }}" `
       -AccountPassword $sec -Enabled $true `
@@ -223,15 +223,15 @@
   failed_when: result_shadow_ace_set.rc != 0
 
 # ------------------------------------------------------------------------------
-# CRED-009: Reversible password encryption on kevin.malone
+# CRED-009: Reversible password encryption on greedo.tets
 # Check AllowReversiblePasswordEncryption attribute before setting.
-# kevin.malone may already exist (referenced in vuln-cred-access.yml CRED-007);
+# greedo.tets may already exist (referenced in vuln-cred-access.yml CRED-007);
 # create if absent, then enforce the reversible flag + reset password.
 # ------------------------------------------------------------------------------
-- name: CRED-009 - Check kevin.malone user and reversible encryption attribute
+- name: CRED-009 - Check greedo.tets user and reversible encryption attribute
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $u = Get-ADUser -Filter "SamAccountName -eq 'kevin.malone'" `
+    $u = Get-ADUser -Filter "SamAccountName -eq 'greedo.tets'" `
       -Properties AllowReversiblePasswordEncryption -ErrorAction SilentlyContinue
     if (-not $u) {
       Write-Output "absent"
@@ -244,12 +244,12 @@
   changed_when: false
   failed_when: result_heimdall_check.rc != 0
 
-- name: CRED-009 - Create kevin.malone if absent with reversible encryption
+- name: CRED-009 - Create greedo.tets if absent with reversible encryption
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $sec = ConvertTo-SecureString "DVADlab2024!" -AsPlainText -Force
-    New-ADUser -Name "kevin.malone" -SamAccountName "kevin.malone" `
-      -UserPrincipalName "kevin.malone@{{ ad_domain }}" `
+    $sec = ConvertTo-SecureString "SithLord123!" -AsPlainText -Force
+    New-ADUser -Name "greedo.tets" -SamAccountName "greedo.tets" `
+      -UserPrincipalName "greedo.tets@{{ ad_domain }}" `
       -AccountPassword $sec -Enabled $true `
       -PasswordNeverExpires $true `
       -AllowReversiblePasswordEncryption $true `
@@ -260,12 +260,12 @@
     result_heimdall_create.rc != 0 and
     "already" not in (result_heimdall_create.stderr | default("") | lower)
 
-- name: CRED-009 - Set AllowReversiblePasswordEncryption on kevin.malone if not set
+- name: CRED-009 - Set AllowReversiblePasswordEncryption on greedo.tets if not set
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    Set-ADUser -Identity "kevin.malone" -AllowReversiblePasswordEncryption $true
-    $sec = ConvertTo-SecureString "DVADlab2024!" -AsPlainText -Force
-    Set-ADAccountPassword -Identity "kevin.malone" -NewPassword $sec -Reset
+    Set-ADUser -Identity "greedo.tets" -AllowReversiblePasswordEncryption $true
+    $sec = ConvertTo-SecureString "SithLord123!" -AsPlainText -Force
+    Set-ADAccountPassword -Identity "greedo.tets" -NewPassword $sec -Reset
   when: result_heimdall_check.stdout | trim == "needs_set"
   register: result_heimdall_set
   failed_when: result_heimdall_set.rc != 0
@@ -309,7 +309,7 @@
 - name: CRED-023 - Create david.wallace user (standard domain user for noPac demo)
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $sec = ConvertTo-SecureString "DVADlab2024!" -AsPlainText -Force
+    $sec = ConvertTo-SecureString "SithLord123!" -AsPlainText -Force
     New-ADUser -Name "david.wallace" -SamAccountName "david.wallace" `
       -UserPrincipalName "david.wallace@{{ ad_domain }}" `
       -AccountPassword $sec -Enabled $true `
@@ -551,7 +551,7 @@
 - name: CRED-045 - Create svc_toby user
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $sec = ConvertTo-SecureString "DVADlab2024!" -AsPlainText -Force
+    $sec = ConvertTo-SecureString "SithLord123!" -AsPlainText -Force
     New-ADUser -Name "svc_toby" -SamAccountName "svc_toby" `
       -UserPrincipalName "svc_toby@{{ ad_domain }}" `
       -AccountPassword $sec -Enabled $true `
@@ -563,7 +563,7 @@
     result_svc_toby_create.rc != 0 and
     "already" not in (result_svc_toby_create.stderr | default("") | lower)
 
-- name: CRED-045 - Check DVADDpapiSeed scheduled task existence on dc01
+- name: CRED-045 - Check DVADDpapiSeed scheduled task existence on coruscant
   ansible.windows.win_shell: |
     $t = Get-ScheduledTask -TaskName "DVADDpapiSeed" -ErrorAction SilentlyContinue
     if ($t) { Write-Output "present" } else { Write-Output "absent" }
@@ -581,7 +581,7 @@
     Register-ScheduledTask -TaskName "DVADDpapiSeed" `
       -Action $action -Trigger $trigger `
       -RunLevel Limited `
-      -User "CORP\svc_toby" -Password "DVADlab2024!" `
+      -User "EMPIRE\svc_toby" -Password "SithLord123!" `
       -Force -ErrorAction Stop | Out-Null
   when: result_dpapi_task_check.stdout | trim == "absent"
   register: result_dpapi_task_create

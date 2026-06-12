@@ -3,13 +3,13 @@
 # vuln_adcs/defaults/main.yml
 # ==============================================================================
 
-ad_domain:  "corp.local"
-ad_basedn:  "DC=corp,DC=local"
+ad_domain:  "empire.local"
+ad_basedn:  "DC=empire,DC=local"
 ca_name:    "corp-CA"
-ca_host:    "ca01.corp.local"
+ca_host:    "endor.empire.local"
 
 # ADCS configuration naming context (used in LDAP searches for templates)
-config_nc:  "CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local"
+config_nc:  "CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=empire,DC=local"
 
 # Template names — referenced across templates.yml and ca-flags.yml
 esc1_template:    "DVADUserESC1"
@@ -30,7 +30,7 @@ esc13_oid: "1.3.6.1.4.1.311.21.8.99887761.12345671.13"
 esc15_oid: "1.3.6.1.4.1.311.21.8.99887761.12345671.15"
 
 # CA manager account for ESC7
-ca_manager_user:  "svc_darryl"
+ca_manager_user:  "svc_bobafett"
 
 # ADCS web enrollment site path in IIS
 certsrv_iis_path: "IIS:\\Sites\\Default Web Site\\CertSrv"

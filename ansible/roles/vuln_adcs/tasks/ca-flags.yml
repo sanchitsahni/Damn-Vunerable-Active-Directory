@@ -2,7 +2,7 @@
 # ==============================================================================
 # vuln_adcs/tasks/ca-flags.yml
 # CA-level misconfigurations for ESC6, ESC7, ESC8, ESC11.
-# Target: ca01.corp.local (runs on the CA itself via WinRM)
+# Target: endor.empire.local (runs on the CA itself via WinRM)
 # ==============================================================================
 
 # ==============================================================================
@@ -47,27 +47,27 @@
   notify: "restart certsvc"
 
 # ==============================================================================
-# ESC7 — Add svc_darryl to the CA "Certificate Manager" role
+# ESC7 — Add svc_bobafett to the CA "Certificate Manager" role
 # Certificate Managers can approve pending certificate requests and revoke
 # issued certs. A low-priv account in this role can approve ESC3-agent requests
 # or revoke/re-issue to escalate.
 # ==============================================================================
-- name: ESC7 - Check if svc_darryl is already a CA Certificate Manager
+- name: ESC7 - Check if svc_bobafett is already a CA Certificate Manager
   ansible.windows.win_shell: |
     $out = certutil -getreg CA\Officers 2>&1
-    if ($out -match "svc_darryl") { Write-Output "present" } else { Write-Output "absent" }
+    if ($out -match "svc_bobafett") { Write-Output "present" } else { Write-Output "absent" }
   register: result_esc7_check
   changed_when: false
   failed_when: >
     result_esc7_check.rc != 0 and
     "element not found" not in (result_esc7_check.stderr | default("") | lower)
 
-- name: ESC7 - Grant svc_darryl Certificate Manager role on CA
+- name: ESC7 - Grant svc_bobafett Certificate Manager role on CA
   ansible.windows.win_shell: |
-    # Add svc_darryl to the CA's Officers (Certificate Manager) role
+    # Add svc_bobafett to the CA's Officers (Certificate Manager) role
     # This uses the CA's built-in role management via certutil
     $domain = $env:USERDOMAIN
-    certutil -setreg CA\Officers "+$domain\svc_darryl:Manage CA,Issue and Manage Certificates"
+    certutil -setreg CA\Officers "+$domain\svc_bobafett:Manage CA,Issue and Manage Certificates"
   when: "'absent' in result_esc7_check.stdout"
   register: result_esc7_set
   failed_when: >

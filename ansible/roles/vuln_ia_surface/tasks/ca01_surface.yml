@@ -1,22 +1,22 @@
 ---
 # ==============================================================================
-# vuln_ia_surface/tasks/ca01_surface.yml  —  ca01.corp.local
+# vuln_ia_surface/tasks/ca01_surface.yml  —  endor.empire.local
 # BATCHED: one templated PowerShell run instead of ~8 WinRM round-trips.
 # Logic in templates/ca01_surface.ps1.j2 (IA-039/049 WebDAV write, IA-045
 # WebClient, IA-040 WinRM-HTTPS).
 # ==============================================================================
 
-- name: IA-ca01 - Ensure DunderLab dir exists
+- name: IA-endor - Ensure DunderLab dir exists
   ansible.windows.win_file:
     path: C:\DunderLab
     state: directory
 
-- name: IA-ca01 - Render batched ca01 surface script
+- name: IA-endor - Render batched endor surface script
   ansible.windows.win_template:
     src: ca01_surface.ps1.j2
     dest: C:\DunderLab\ca01_surface.ps1
 
-- name: IA-ca01 - Run batched ca01 surface script (IA-039/049/045/040)
+- name: IA-endor - Run batched endor surface script (IA-039/049/045/040)
   ansible.windows.win_shell: powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\DunderLab\ca01_surface.ps1
   register: ia_ca01_run
   changed_when: "'CHANGED:' in ia_ca01_run.stdout"

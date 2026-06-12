@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_network_protocols/tasks/tftp.yml
-# Target: file01.corp.local
+# Target: scarif.empire.local
 #
 # NET-004  TFTP server on UDP/69 — anonymous, read AND write enabled, no auth.
 #          Windows ships no TFTP *server* feature, so this drops a small native
@@ -19,7 +19,7 @@
 - name: NET-004 - Seed a sample file in the TFTP root
   ansible.windows.win_copy:
     dest: "{{ np_tftp_root }}\\README.txt"
-    content: "DUNDER{NET-004_TFTP_ANON_WRITABLE_UDP69}\r\nThis TFTP server is open to read and write with no authentication.\r\nWhy waste time say lot word when few word do trick. — Kevin Malone\r\n"
+    content: "EMPIRE{NET-004_TFTP_ANON_WRITABLE_UDP69}\r\nThis TFTP server is open to read and write with no authentication.\r\nWhy waste time say lot word when few word do trick. — Greedo\r\n"
 
 - name: NET-004 - Deploy native PowerShell TFTP listener script
   ansible.windows.win_copy:
@@ -85,7 +85,7 @@
 
 - name: NET-004 - Open UDP/69 inbound firewall for TFTP
   community.windows.win_firewall_rule:
-    name: "DUNDER TFTP UDP69"
+    name: "EMPIRE TFTP UDP69"
     localport: 69
     protocol: udp
     direction: in

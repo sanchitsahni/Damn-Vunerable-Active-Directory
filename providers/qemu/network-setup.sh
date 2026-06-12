@@ -167,19 +167,19 @@ write_dnsmasq_config() {
     # Static lease file — MACs from the VM topology table
     cat > "${DNSMASQ_STATIC}" <<'STATIC_EOF'
 # DVAD static DHCP leases — keyed on VM MAC addresses
-# corp.local / eu.corp.local
-dhcp-host=52:54:00:01:01:01,dc01.corp.local,10.10.0.10,infinite
-dhcp-host=52:54:00:01:01:02,dc01.eu.corp.local,10.10.0.11,infinite
-dhcp-host=52:54:00:01:01:03,ca01.corp.local,10.10.0.12,infinite
-dhcp-host=52:54:00:01:01:04,file01.corp.local,10.10.0.13,infinite
-dhcp-host=52:54:00:01:01:05,sql01.corp.local,10.10.0.14,infinite
-dhcp-host=52:54:00:01:01:06,ws01.corp.local,10.10.0.100,infinite
-# linux01 — Ubuntu 22.04 member (Linux-in-AD)
-dhcp-host=52:54:00:01:01:07,linux01.corp.local,10.10.0.15,infinite
-# finance.local
-dhcp-host=52:54:00:02:01:01,dc01.finance.local,10.10.20.10,infinite
-# root.corp
-dhcp-host=52:54:00:03:01:01,dc01.root.corp,10.10.30.10,infinite
+# empire.local / eu.empire.local
+dhcp-host=52:54:00:01:01:01,coruscant.empire.local,10.10.0.10,infinite
+dhcp-host=52:54:00:01:01:02,deathstar.eu.empire.local,10.10.0.11,infinite
+dhcp-host=52:54:00:01:01:03,endor.empire.local,10.10.0.12,infinite
+dhcp-host=52:54:00:01:01:04,scarif.empire.local,10.10.0.13,infinite
+dhcp-host=52:54:00:01:01:05,kamino.empire.local,10.10.0.14,infinite
+dhcp-host=52:54:00:01:01:06,tatooine.empire.local,10.10.0.100,infinite
+# mandalore — Ubuntu 22.04 member (Linux-in-AD)
+dhcp-host=52:54:00:01:01:07,mandalore.empire.local,10.10.0.15,infinite
+# rebel.local
+dhcp-host=52:54:00:02:01:01,yavin4.rebel.local,10.10.20.10,infinite
+# trade.corp
+dhcp-host=52:54:00:03:01:01,neimoidia.trade.corp,10.10.30.10,infinite
 STATIC_EOF
 
     # Main dnsmasq configuration
@@ -204,7 +204,7 @@ interface=${BRIDGE_CTF}
 dhcp-range=${BRIDGE_CTF},10.10.0.150,10.10.0.200,255.255.0.0,12h
 dhcp-option=${BRIDGE_CTF},3,${GW_CTF}
 dhcp-option=${BRIDGE_CTF},6,10.10.0.10
-dhcp-option=${BRIDGE_CTF},15,corp.local
+dhcp-option=${BRIDGE_CTF},15,empire.local
 
 # ── NAT bridge (dvad-nat, 10.0.2.0/24) ───────────────────────────────────────
 interface=${BRIDGE_NAT}

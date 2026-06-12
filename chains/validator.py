@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ==============================================================================
-# validator.py — DUNDER / DVAD attack-combination checker.
+# validator.py — EMPIRE / DVAD attack-combination checker.
 #
 # Validates that EVERY intended milestone in the lab is PRACTICALLY reachable
 # end-to-end from the initial-access footholds the lab actually provides — not
@@ -197,7 +197,7 @@ def list_edges(graph, c):
 
 def emit_text(c, graph, results, args):
     print(f"\n{c.BLD}{'='*74}{c.RST}")
-    print(f"{c.BLD} DUNDER / DVAD — Attack-Combination Reachability Checker (STATIC){c.RST}")
+    print(f"{c.BLD} EMPIRE / DVAD — Attack-Combination Reachability Checker (STATIC){c.RST}")
     print(f"{c.BLD}{'='*74}{c.RST}")
     print(f"  Graph:     {len(graph.all_edges)} edges / {len(graph.nodes)} access-states "
           f"(derived from ansible vuln_* roles)")
@@ -325,7 +325,7 @@ def emit_json(graph, results):
 
 def main():
     p = argparse.ArgumentParser(
-        description="DUNDER/DVAD attack-combination reachability checker "
+        description="EMPIRE/DVAD attack-combination reachability checker "
                     "(static graph analysis of the vuln_* roles).")
     p.add_argument("--json", action="store_true", help="machine-readable output")
     p.add_argument("--live", action="store_true",

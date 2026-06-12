@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_network_protocols/tasks/smtp_mail.yml
-# Target: file01.corp.local
+# Target: scarif.empire.local
 #
 # NET-008  SMTP open relay + VRFY/EXPN user enumeration on TCP/25. The Windows
 #          SMTP-Server feature was removed after 2012 R2 and cannot be installed
@@ -9,7 +9,7 @@
 #          Instead of an offline package we inject a tiny NATIVE PowerShell SMTP
 #          listener that speaks just enough RFC 5321 to be vulnerable:
 #            - greets 220, accepts HELO/EHLO (250)
-#            - VRFY <user>  -> 250 <user@corp.local>      (user enumeration)
+#            - VRFY <user>  -> 250 <user@empire.local>      (user enumeration)
 #            - EXPN <list>  -> 250 members                (list expansion)
 #            - MAIL FROM / RCPT TO / DATA accepted for ANY domain (250) = OPEN
 #              RELAY: it acknowledges relay to external recipients without auth.
@@ -36,7 +36,7 @@
       $ErrorActionPreference = 'Continue'
       $spool = 'C:\SMTP-Spool\relayed.log'
       $users = @('administrator','jhalpert','dschrute','mscott','kmalone','pbeesly','svc_sql')
-      $lists = @{ 'all' = 'administrator@corp.local, mscott@corp.local'; 'admins' = 'administrator@corp.local' }
+      $lists = @{ 'all' = 'administrator@empire.local, mscott@empire.local'; 'admins' = 'administrator@empire.local' }
       $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, 25)
       $listener.Start()
       while ($true) {
@@ -47,7 +47,7 @@
           $sr = New-Object System.IO.StreamReader($ns)
           $sw = New-Object System.IO.StreamWriter($ns)
           $sw.NewLine = "`r`n"; $sw.AutoFlush = $true
-          $sw.WriteLine('220 mail.corp.local DUNDER ESMTP ready')
+          $sw.WriteLine('220 mail.empire.local EMPIRE ESMTP ready')
           $inData = $false
           $msg = New-Object System.Text.StringBuilder
           while ($true) {
@@ -65,12 +65,12 @@
             }
             $u = $line.ToUpper()
             if ($u.StartsWith('HELO') -or $u.StartsWith('EHLO')) {
-              $sw.WriteLine('250-mail.corp.local Hello')
+              $sw.WriteLine('250-mail.empire.local Hello')
               $sw.WriteLine('250-VRFY')
               $sw.WriteLine('250 EXPN')
             } elseif ($u.StartsWith('VRFY')) {
               $q = ($line.Substring(4)).Trim().ToLower()
-              if ($users -contains $q) { $sw.WriteLine("250 <$q@corp.local>") }
+              if ($users -contains $q) { $sw.WriteLine("250 <$q@empire.local>") }
               else { $sw.WriteLine('550 No such user') }
             } elseif ($u.StartsWith('EXPN')) {
               $q = ($line.Substring(4)).Trim().ToLower()
@@ -101,7 +101,7 @@
 
 - name: NET-008 - Open TCP/25 inbound firewall for SMTP
   community.windows.win_firewall_rule:
-    name: "DUNDER SMTP TCP25"
+    name: "EMPIRE SMTP TCP25"
     localport: 25
     protocol: tcp
     direction: in
@@ -146,13 +146,13 @@
   ansible.windows.win_copy:
     dest: 'C:\Flags\net-smtp.txt'
     content: |
-      DUNDER{NET-008_SMTP_OPEN_RELAY_VRFY_EXPN}
-      I declare bankruptcy! — Michael Scott
+      EMPIRE{NET-008_SMTP_OPEN_RELAY_VRFY_EXPN}
+      I declare bankruptcy! — Sheev Palpatine
 
-      NET-008 SMTP open relay + user enumeration (file01 TCP/25):
+      NET-008 SMTP open relay + user enumeration (scarif TCP/25):
         nmap -p25 --script smtp-open-relay,smtp-enum-users 10.10.0.13
-        VRFY administrator   -> 250 <administrator@corp.local>
-        EXPN admins          -> 250 administrator@corp.local
+        VRFY administrator   -> 250 <administrator@empire.local>
+        EXPN admins          -> 250 administrator@empire.local
         Open relay: MAIL FROM / RCPT TO any domain is accepted with no auth;
         relayed messages spool to C:\SMTP-Spool\relayed.log
       NOTE: native PowerShell SMTP responder (not a full MTA). It proves the

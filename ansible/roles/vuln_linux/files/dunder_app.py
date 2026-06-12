@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-DUNDER MIFFLIN Paper Company — "Schrute Logistics" portal.
-Intentionally vulnerable Flask app for the DUNDER lab (linux01).
+EMPIRE MIFFLIN Paper Company — "Schrute Logistics" portal.
+Intentionally vulnerable Flask app for the EMPIRE lab (mandalore).
 
 Vulns (the spec):
   * OS command injection  -> /ping?host=10.10.0.1;id      (reverse shell)
@@ -17,9 +17,9 @@ from urllib.parse import urlparse, parse_qs
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-PAGE = b"""<html><head><title>Schrute Logistics - Dunder Mifflin</title></head>
+PAGE = b"""<html><head><title>Schrute Logistics - empire Mifflin</title></head>
 <body style="font-family:sans-serif;background:#f4f4e8">
-<h1>Dunder Mifflin :: Schrute Logistics Portal</h1>
+<h1>empire Mifflin :: Schrute Logistics Portal</h1>
 <p>"Whenever I'm about to do something, I think 'would an idiot do that?'
 and if they would, I do not do that thing." &mdash; Dwight</p>
 <h3>Network diagnostics</h3>

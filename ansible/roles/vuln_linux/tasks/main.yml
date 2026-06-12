@@ -2,7 +2,7 @@
 # ==============================================================================
 # vuln_linux/tasks/main.yml
 # Orchestrates the Linux-in-AD member build. Order:
-#   A. domain join (realmd/sssd/adcli → corp.local)
+#   A. domain join (realmd/sssd/adcli → empire.local)
 #   B. Linux-in-AD attack surface (keytab theft, sudo, SUID, cron LPE, NFS, SSH)
 #   C. non-Windows services (Redis/Memcached/Mongo/MySQL/NFS/web app + heavy)
 #   D. flags
@@ -13,7 +13,7 @@
   ansible.builtin.meta: end_host
   when: inventory_hostname not in groups['linux_hosts'] | default([])
 
-- name: A — Domain join (realmd + sssd + adcli → corp.local)
+- name: A — Domain join (realmd + sssd + adcli → empire.local)
   ansible.builtin.import_tasks: domain_join.yml
   tags: [vuln_linux_join]
 

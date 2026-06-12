@@ -1,15 +1,15 @@
 ---
 # ==============================================================================
 # vuln_privesc_ext/tasks/services.yml
-# Targets: file01, sql01, ws01, dc01 (per-task guards)
+# Targets: scarif, kamino, tatooine, coruscant (per-task guards)
 #
-# PE-009   Writable service binary path (svc_phyllis on file01)
-# PE-010   AlwaysInstallElevated registry keys (ws01 + file01)
-# PE-013   SeDebugPrivilege for Domain Users (dc01)
-# PE-014   SeBackupPrivilege for Backup_Operators (dc01)
+# PE-009   Writable service binary path (svc_jabba on scarif)
+# PE-010   AlwaysInstallElevated registry keys (tatooine + scarif)
+# PE-013   SeDebugPrivilege for Domain Users (coruscant)
+# PE-014   SeBackupPrivilege for Backup_Operators (coruscant)
 # PE-015   Weak service DACL — Authenticated Users can modify svc_dvad_weak
-# PE-016   Unquoted service path (file01) — svc_pathsvc
-# PE-017   DLL hijack via writable service binary directory (sql01)
+# PE-016   Unquoted service path (scarif) — svc_pathsvc
+# PE-017   DLL hijack via writable service binary directory (kamino)
 # PE-020   Scheduled task runs as SYSTEM with world-writable script
 # PE-025   Named pipe impersonation surface (svc_named_pipe service)
 # PE-028   Token impersonation — SeImpersonatePrivilege on IIS/SQL accounts
@@ -18,9 +18,9 @@
 
 # ------------------------------------------------------------------------------
 # PE-010: AlwaysInstallElevated — both HKLM + HKCU must be 1 for MSI to install
-# as SYSTEM. Set on ws01 and file01.
+# as SYSTEM. Set on tatooine and scarif.
 # ------------------------------------------------------------------------------
-- name: PE-010 - Check AlwaysInstallElevated HKLM on ws01/file01
+- name: PE-010 - Check AlwaysInstallElevated HKLM on tatooine/scarif
   ansible.windows.win_shell: |
     $v = (Get-ItemProperty `
             -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer' `
@@ -29,7 +29,7 @@
   register: pe010_hklm_check
   changed_when: false
   failed_when: pe010_hklm_check.rc != 0
-  when: inventory_hostname in ['ws01.corp.local', 'file01.corp.local']
+  when: inventory_hostname in ['tatooine.empire.local', 'scarif.empire.local']
 
 - name: PE-010 - Set AlwaysInstallElevated HKLM=1
   ansible.windows.win_regedit:
@@ -38,7 +38,7 @@
     data: 1
     type: dword
   when:
-    - inventory_hostname in ['ws01.corp.local', 'file01.corp.local']
+    - inventory_hostname in ['tatooine.empire.local', 'scarif.empire.local']
     - pe010_hklm_check.stdout | trim != '1'
 
 - name: PE-010 - Set AlwaysInstallElevated HKCU=1
@@ -47,7 +47,7 @@
     name: AlwaysInstallElevated
     data: 1
     type: dword
-  when: inventory_hostname in ['ws01.corp.local', 'file01.corp.local']
+  when: inventory_hostname in ['tatooine.empire.local', 'scarif.empire.local']
 
 # ------------------------------------------------------------------------------
 # PE-015: Weak service DACL — Authenticated Users have SERVICE_ALL_ACCESS on
@@ -60,7 +60,7 @@
   register: pe015_check
   changed_when: false
   failed_when: pe015_check.rc != 0
-  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+  when: inventory_hostname in ['scarif.empire.local', 'tatooine.empire.local']
 
 - name: PE-015 - Create svc_dvad_weak service with world-accessible DACL
   ansible.windows.win_shell: |
@@ -78,11 +78,11 @@
   changed_when: "'changed:' in pe015_set.stdout"
   failed_when: pe015_set.rc != 0 and 'already exists' not in (pe015_set.stdout | default('') | lower)
   when:
-    - inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+    - inventory_hostname in ['scarif.empire.local', 'tatooine.empire.local']
     - "'absent' in pe015_check.stdout"
 
 # ------------------------------------------------------------------------------
-# PE-016: Unquoted service path — svc_pathsvc on file01.
+# PE-016: Unquoted service path — svc_pathsvc on scarif.
 # Binary path contains a space and no quotes → Windows probes C:\Program.exe etc.
 # ------------------------------------------------------------------------------
 - name: PE-016 - Check if svc_pathsvc service exists
@@ -92,7 +92,7 @@
   register: pe016_check
   changed_when: false
   failed_when: pe016_check.rc != 0
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: PE-016 - Create svc_pathsvc with unquoted service path
   ansible.windows.win_shell: |
@@ -106,7 +106,7 @@
   changed_when: "'changed:' in pe016_set.stdout"
   failed_when: pe016_set.rc != 0 and 'already exists' not in (pe016_set.stdout | default('') | lower)
   when:
-    - inventory_hostname == 'file01.corp.local'
+    - inventory_hostname == 'scarif.empire.local'
     - "'absent' in pe016_check.stdout"
 
 - name: PE-016 - Ensure unquoted service directory exists (world-writable)
@@ -117,11 +117,11 @@
     Write-Output "changed: directory world-writable"
   register: pe016_dir
   changed_when: "'changed:' in pe016_dir.stdout"
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 # ------------------------------------------------------------------------------
-# PE-017: DLL hijack via writable service binary directory on sql01.
-# The sql01 SQL Server service binary directory is world-writable.
+# PE-017: DLL hijack via writable service binary directory on kamino.
+# The kamino SQL Server service binary directory is world-writable.
 # Any DLL placed there (e.g., MSVCR120.dll) loads into the SYSTEM process.
 # ------------------------------------------------------------------------------
 - name: PE-017 - Check MSSQL binary directory ACL
@@ -139,7 +139,7 @@
   register: pe017_check
   changed_when: false
   failed_when: pe017_check.rc != 0
-  when: inventory_hostname == 'sql01.corp.local'
+  when: inventory_hostname == 'kamino.empire.local'
 
 - name: PE-017 - Make MSSQL Binn directory world-writable (DLL hijack surface)
   ansible.windows.win_shell: |
@@ -151,7 +151,7 @@
   changed_when: "'changed:' in pe017_set.stdout"
   failed_when: pe017_set.rc != 0
   when:
-    - inventory_hostname == 'sql01.corp.local'
+    - inventory_hostname == 'kamino.empire.local'
     - "'not_writable' in pe017_check.stdout or 'dir_not_found' in pe017_check.stdout"
 
 # ------------------------------------------------------------------------------
@@ -165,7 +165,7 @@
   register: pe020_check
   changed_when: false
   failed_when: pe020_check.rc != 0
-  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+  when: inventory_hostname in ['scarif.empire.local', 'tatooine.empire.local']
 
 - name: PE-020 - Create SYSTEM scheduled task with writable script
   ansible.windows.win_shell: |
@@ -192,7 +192,7 @@
   changed_when: "'changed:' in pe020_set.stdout"
   failed_when: pe020_set.rc != 0
   when:
-    - inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+    - inventory_hostname in ['scarif.empire.local', 'tatooine.empire.local']
     - "'absent' in pe020_check.stdout"
 
 # ------------------------------------------------------------------------------
@@ -206,7 +206,7 @@
   register: pe025_check
   changed_when: false
   failed_when: pe025_check.rc != 0
-  when: inventory_hostname in ['file01.corp.local', 'sql01.corp.local']
+  when: inventory_hostname in ['scarif.empire.local', 'kamino.empire.local']
 
 - name: PE-025 - Create named pipe service and note file
   ansible.windows.win_copy:
@@ -220,10 +220,10 @@
       Tools: PrintSpoofer, RogueWinRM, GodPotato, PipeSeeker
       Prereq: SeImpersonatePrivilege or SeAssignPrimaryTokenPrivilege (granted via PE-028)
 
-      Service accounts on this machine (sql01/file01) have SeImpersonatePrivilege by default.
+      Service accounts on this machine (kamino/scarif) have SeImpersonatePrivilege by default.
       IIS AppPool, SQL Server Agent accounts → same privilege.
   when:
-    - inventory_hostname in ['file01.corp.local', 'sql01.corp.local']
+    - inventory_hostname in ['scarif.empire.local', 'kamino.empire.local']
     - "'absent' in pe025_check.stdout"
 
 # ------------------------------------------------------------------------------
@@ -251,7 +251,7 @@
   register: pe028_set
   changed_when: "'changed:' in pe028_set.stdout"
   failed_when: pe028_set.rc != 0
-  when: inventory_hostname in ['file01.corp.local', 'sql01.corp.local']
+  when: inventory_hostname in ['scarif.empire.local', 'kamino.empire.local']
 
 # ------------------------------------------------------------------------------
 # PE-029: Writable SYSTEM PATH entry — %TEMP% added to system PATH.
@@ -264,7 +264,7 @@
   register: pe029_check
   changed_when: false
   failed_when: pe029_check.rc != 0
-  when: inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+  when: inventory_hostname in ['scarif.empire.local', 'tatooine.empire.local']
 
 - name: PE-029 - Add %TEMP% to system PATH (PE-029)
   ansible.windows.win_shell: |
@@ -275,5 +275,5 @@
   changed_when: "'changed:' in pe029_set.stdout"
   failed_when: pe029_set.rc != 0
   when:
-    - inventory_hostname in ['file01.corp.local', 'ws01.corp.local']
+    - inventory_hostname in ['scarif.empire.local', 'tatooine.empire.local']
     - "'absent' in pe029_check.stdout"

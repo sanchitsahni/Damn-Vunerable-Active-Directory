@@ -1,15 +1,15 @@
 ---
 # ==============================================================================
 # vuln_lat_ext/tasks/coerce.yml
-# Targets: all_dcs + file01.corp.local
+# Targets: all_dcs + scarif.empire.local
 #
 # LAT-001  MS-RPRN PrinterBug — Print Spooler on all DCs (see DF-011 too)
 # LAT-002  MS-EFSR PetitPotam — EFS service enabled
 # LAT-003  MS-FSRVP ShadowCopyAgent — shadow copy coercion
 # LAT-004  MS-DFSNM DFS coercion — DFS namespace service
 # LAT-005  MS-NRPC Netlogon coercion — always-on service
-# LAT-006  WebDAV coercion — WebClient on ws01 (set in packer)
-# LAT-007  MS-ICPR ADCS HTTP enrollment endpoint (ca01)
+# LAT-006  WebDAV coercion — WebClient on tatooine (set in packer)
+# LAT-007  MS-ICPR ADCS HTTP enrollment endpoint (endor)
 # LAT-008  PrivExchange — Exchange coercion (note + placeholder)
 # LAT-009  HTTP coercion via SCF file in share
 # LAT-010  Multicast DNS poisoning surface (LLMNR/NBT-NS still active)
@@ -97,13 +97,13 @@
   register: lat009_check
   changed_when: false
   failed_when: lat009_check.rc != 0
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: LAT-009 - Create Shares\Public if missing
   ansible.windows.win_file:
     path: 'C:\Shares\Public'
     state: directory
-  when: inventory_hostname == 'file01.corp.local'
+  when: inventory_hostname == 'scarif.empire.local'
 
 - name: LAT-009 - Drop SCF coercion file in public share
   ansible.windows.win_copy:
@@ -115,7 +115,7 @@
       [Taskbar]
       Command=ToggleDesktop
   when:
-    - inventory_hostname == 'file01.corp.local'
+    - inventory_hostname == 'scarif.empire.local'
     - "'missing' in lat009_check.stdout"
 
 # LAT-010: LLMNR/NBT-NS surface — already configured by vuln_recon role.
@@ -126,7 +126,7 @@
     content: |
       LAT-010: LLMNR + NBT-NS Poisoning Surface
       ===========================================
-      LLMNR and NBT-NS are enabled on all corp.local hosts (vuln_recon role).
+      LLMNR and NBT-NS are enabled on all empire.local hosts (vuln_recon role).
       Any failed name resolution triggers multicast LLMNR or broadcast NBT-NS.
 
       Attack:
@@ -136,5 +136,5 @@
       Then: hashcat -m 5600 <hash> rockyou.txt  (NTLMv2)
       Or:   ntlmrelayx.py --target <relay_target> (if signing disabled)
 
-      SMB signing off on member servers: file01, sql01, ws01 (vuln_recon role)
-  when: inventory_hostname == 'dc01.corp.local'
+      SMB signing off on member servers: scarif, kamino, tatooine (vuln_recon role)
+  when: inventory_hostname == 'coruscant.empire.local'

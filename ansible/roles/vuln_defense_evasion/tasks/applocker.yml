@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_defense_evasion/tasks/applocker.yml — DEF-041..060
-# Target: ws01.corp.local, file01.corp.local
+# Target: tatooine.empire.local, scarif.empire.local
 #
 # DEF-041  AppLocker bypass via writable C:\Windows\Temp\
 # DEF-042  AppLocker bypass via mshta.exe / wscript.exe LOLbins

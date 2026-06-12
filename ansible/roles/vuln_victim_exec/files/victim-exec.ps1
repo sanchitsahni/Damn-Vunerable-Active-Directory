@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Dunder Mifflin victim-executor simulator.
+    empire Mifflin victim-executor simulator.
     Runs as a domain user via Task Scheduler.  Every ~30 s it behaves like a
     gullible employee: it enumerates the drop locations and OPENS / EXECUTES
     whatever an attacker has dropped, and BROWSES any folder containing an

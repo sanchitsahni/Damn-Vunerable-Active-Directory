@@ -29,7 +29,7 @@
   ansible.builtin.meta: reset_connection
 
 # --------------------------------------------------------------------------
-# Hostname — derive short name from inventory_hostname (e.g. ca01.corp.local -> CA01)
+# Hostname — derive short name from inventory_hostname (e.g. endor.empire.local -> endor)
 # --------------------------------------------------------------------------
 
 - name: Set hostname from inventory short name

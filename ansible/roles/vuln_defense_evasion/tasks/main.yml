@@ -4,7 +4,7 @@
 #
 # amsi_etw.yml   — all hosts: DEF-001..020 AMSI/ETW/AV bypass surfaces
 # logging.yml    — all hosts: DEF-021..040 logging weakness misconfigs
-# applocker.yml  — ws01/file01: DEF-041..060 AppLocker bypass paths
+# applocker.yml  — tatooine/scarif: DEF-041..060 AppLocker bypass paths
 # c2_exfil.yml   — all hosts: DEF-061..080 + C2-001..030 + EXF-001..030 notes
 # ==============================================================================
 
@@ -16,8 +16,8 @@
 
 - name: Import AppLocker bypass path tasks
   ansible.builtin.import_tasks: applocker.yml
-  when: inventory_hostname in ['ws01.corp.local', 'file01.corp.local']
+  when: inventory_hostname in ['tatooine.empire.local', 'scarif.empire.local']
 
 - name: Import C2/exfil surface notes
   ansible.builtin.import_tasks: c2_exfil.yml
-  when: inventory_hostname == 'dc01.corp.local'
+  when: inventory_hostname == 'coruscant.empire.local'

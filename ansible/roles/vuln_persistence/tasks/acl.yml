@@ -1,13 +1,13 @@
 ---
 # ==============================================================================
 # vuln_persistence/tasks/acl.yml
-# Target: dc01.corp.local
+# Target: coruscant.empire.local
 #
 # PER-015/033  stanley.hudson → GenericAll on AdminSDHolder
 #              SDProp re-propagates this ACE every 60 min to all protected objects,
 #              giving stanley.hudson persistent GenericAll across the entire
 #              AdminSDHolder-protected group/user set.
-# PER-027      KeyCredentialLink write surface — svc_printer has GenericWrite on
+# PER-027      KeyCredentialLink write surface — svc_trooper has GenericWrite on
 #              its own object so the owner can add ms-DS-KeyCredentialLink
 #              (Shadow Credentials / PKINIT backdoor).
 # ==============================================================================
@@ -48,17 +48,17 @@
 
 # ------------------------------------------------------------------------------
 # PER-027: KeyCredentialLink write surface
-# Grant svc_printer GenericWrite on its own AD object so an attacker who
-# compromises svc_printer can write ms-DS-KeyCredentialLink (Shadow Credentials).
+# Grant svc_trooper GenericWrite on its own AD object so an attacker who
+# compromises svc_trooper can write ms-DS-KeyCredentialLink (Shadow Credentials).
 # ms-DS-KeyCredentialLink GUID: 5b47d60f-6090-40b2-9f37-2a4de88f3063
 # ------------------------------------------------------------------------------
-- name: PER-027 - Check GenericWrite ACE for svc_printer on own object
+- name: PER-027 - Check GenericWrite ACE for svc_trooper on own object
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $u   = Get-ADUser -Identity "svc_printer"
+    $u   = Get-ADUser -Identity "svc_trooper"
     $acl = Get-Acl "AD:\$($u.DistinguishedName)"
     $exists = $acl.Access | Where-Object {
-      $_.IdentityReference -like "*svc_printer*" -and
+      $_.IdentityReference -like "*svc_trooper*" -and
       ($_.ActiveDirectoryRights -match "GenericWrite" -or
        $_.ActiveDirectoryRights -match "WriteProperty")
     }
@@ -67,10 +67,10 @@
   changed_when: false
   failed_when: result_kcl_check.rc != 0
 
-- name: PER-027 - Grant svc_printer GenericWrite on own object (KeyCredentialLink surface)
+- name: PER-027 - Grant svc_trooper GenericWrite on own object (KeyCredentialLink surface)
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $u   = Get-ADUser -Identity "svc_printer" -ErrorAction Stop
+    $u   = Get-ADUser -Identity "svc_trooper" -ErrorAction Stop
     $sid = New-Object System.Security.Principal.SecurityIdentifier ($u.SID)
     $acl = Get-Acl "AD:\$($u.DistinguishedName)"
     $rule = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(

@@ -1,6 +1,6 @@
 ---
 # ==============================================================================
-# vuln_privesc/tasks/registry.yml  —  ws01 + file01 (Jinja-gated in template)
+# vuln_privesc/tasks/registry.yml  —  tatooine + scarif (Jinja-gated in template)
 # BATCHED: one templated run instead of up to 5 WinRM round-trips.
 # Logic in templates/registry.ps1.j2 (PE-011/012/024).
 # ==============================================================================
@@ -9,17 +9,17 @@
   ansible.windows.win_file:
     path: C:\DunderLab
     state: directory
-  when: inventory_hostname in ['ws01.corp.local', 'file01.corp.local']
+  when: inventory_hostname in ['tatooine.empire.local', 'scarif.empire.local']
 
 - name: PE-registry - Render batched registry-PE script
   ansible.windows.win_template:
     src: registry.ps1.j2
     dest: C:\DunderLab\registry_pe.ps1
-  when: inventory_hostname in ['ws01.corp.local', 'file01.corp.local']
+  when: inventory_hostname in ['tatooine.empire.local', 'scarif.empire.local']
 
 - name: PE-registry - Run batched registry-PE script (PE-011/012/024)
   ansible.windows.win_shell: powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\DunderLab\registry_pe.ps1
   register: pe_registry_run
   changed_when: "'CHANGED:' in pe_registry_run.stdout"
   failed_when: "'ERROR:' in pe_registry_run.stdout"
-  when: inventory_hostname in ['ws01.corp.local', 'file01.corp.local']
+  when: inventory_hostname in ['tatooine.empire.local', 'scarif.empire.local']

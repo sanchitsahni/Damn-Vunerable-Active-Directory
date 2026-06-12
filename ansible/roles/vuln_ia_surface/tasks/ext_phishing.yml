@@ -1,6 +1,6 @@
 ---
 # ==============================================================================
-# vuln_ia_surface/tasks/ext_phishing.yml  —  ws01.corp.local
+# vuln_ia_surface/tasks/ext_phishing.yml  —  tatooine.empire.local
 # BATCHED: one templated PowerShell run instead of ~5 WinRM round-trips.
 # Logic in templates/ext_phishing.ps1.j2 (IA-052 LNK, IA-053 AutoPlay,
 # IA-056 HTA, IA-063 CHM note). The victim-executor (vuln_victim_exec) opens

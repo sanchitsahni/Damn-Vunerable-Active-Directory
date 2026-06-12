@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_web_apps/tasks/iis_config.yml — WEB-001..020
-# Target: file01.corp.local
+# Target: scarif.empire.local
 #
 # WEB-001  IIS installed + running
 # WEB-002  Anonymous authentication on default site
@@ -114,7 +114,7 @@
         <!-- WEB-009: Plaintext API key in app settings -->
         <appSettings>
           <add key="ApiKey" value="dvad-secret-key-2024-insecure"/>
-          <add key="AdminPassword" value="DVADlab2024!"/>
+          <add key="AdminPassword" value="SithLord123!"/>
           <add key="SqlSaPassword" value="{{ sql_conn_string }}"/>
         </appSettings>
       </configuration>

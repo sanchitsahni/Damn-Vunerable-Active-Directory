@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_adcs/tasks/main.yml
-# Target: ca01.corp.local
+# Target: endor.empire.local
 #
 # Imports sub-task files in dependency order:
 #   1. templates.yml  — ESC1-5, ESC13, ESC15 template objects in AD
@@ -12,7 +12,7 @@
 # Install + configure AD CS. Nothing else does this — the image bakes a generic
 # feature set (no ADCS), so certsvc does not exist until the CA is configured
 # here. EnterpriseRootCA configuration needs Enterprise Admin rights, so it runs
-# with CORP\Administrator (the WinRM user on ca01 is only a local admin).
+# with EMPIRE\Administrator (the WinRM user on endor is only a local admin).
 # ------------------------------------------------------------------------------
 - name: Install AD CS role features (CA + web enrollment)
   ansible.windows.win_feature:
@@ -23,7 +23,7 @@
     include_management_tools: yes
   register: adcs_feature
 
-- name: Reboot ca01 if AD CS feature install requires it
+- name: Reboot endor if AD CS feature install requires it
   ansible.windows.win_reboot:
     reboot_timeout: 600
   when: adcs_feature.reboot_required
@@ -34,14 +34,14 @@
   register: ca_state
   changed_when: false
 
-- name: Configure Enterprise Root CA on ca01 (needs Enterprise Admin)
+- name: Configure Enterprise Root CA on endor (needs Enterprise Admin)
   ansible.windows.win_shell: |
     Import-Module ADCSDeployment
     $cred = New-Object System.Management.Automation.PSCredential(
-      "CORP\Administrator",
+      "EMPIRE\Administrator",
       (ConvertTo-SecureString "{{ ansible_password }}" -AsPlainText -Force))
     Install-AdcsCertificationAuthority -CAType EnterpriseRootCA `
-      -CACommonName "corp-CA01-CA" -KeyLength 2048 `
+      -CACommonName "corp-endor-CA" -KeyLength 2048 `
       -HashAlgorithmName SHA256 -ValidityPeriod Years -ValidityPeriodUnits 10 `
       -Credential $cred -Force
   when: ca_state.stdout | trim == "absent"
@@ -54,7 +54,7 @@
   ansible.windows.win_shell: |
     Import-Module ADCSDeployment
     $cred = New-Object System.Management.Automation.PSCredential(
-      "CORP\Administrator",
+      "EMPIRE\Administrator",
       (ConvertTo-SecureString "{{ ansible_password }}" -AsPlainText -Force))
     Install-AdcsWebEnrollment -Credential $cred -Force
   register: webenroll_config

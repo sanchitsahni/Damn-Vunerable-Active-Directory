@@ -1,11 +1,11 @@
 ---
 # ==============================================================================
 # vuln_traffic_sim/tasks/main.yml
-# Target: ws01.corp.local (and optionally file01 for cross-subnet traffic)
+# Target: tatooine.empire.local (and optionally scarif for cross-subnet traffic)
 #
-# Deploys dunder-traffic.ps1 + three scheduled tasks (one per domain user).
+# Deploys empire-traffic.ps1 + three scheduled tasks (one per domain user).
 # Each task runs an infinite PS loop that opens SMB shares every 30 s:
-#   - Real hosts (file01, dc01, sql01) → ntlmrelayx relay targets
+#   - Real hosts (scarif, coruscant, kamino) → ntlmrelayx relay targets
 #   - Fake hostnames                   → LLMNR/NBNS → Responder NTLMv2 capture
 #   - WPAD probes                      → proxy auth abuse
 #
@@ -19,9 +19,9 @@
     path: "{{ traffic_sim_install_dir }}"
     state: directory
 
-- name: Traffic sim - Deploy dunder-traffic.ps1
+- name: Traffic sim - Deploy empire-traffic.ps1
   ansible.windows.win_copy:
-    src: dunder-traffic.ps1
+    src: empire-traffic.ps1
     dest: "{{ traffic_sim_script }}"
 
 - name: Traffic sim - Unblock script (allow execution without prompt)
@@ -37,7 +37,7 @@
   community.windows.win_scheduled_task:
     name: "{{ item.task_name }}"
     description: >
-      Dunder Mifflin — {{ item.username }} simulated workstation traffic.
+      empire Mifflin — {{ item.username }} simulated workstation traffic.
       Generates SMB NTLM auth every {{ traffic_sim_interval }}s for relay/capture practice.
     actions:
       - path: powershell.exe

