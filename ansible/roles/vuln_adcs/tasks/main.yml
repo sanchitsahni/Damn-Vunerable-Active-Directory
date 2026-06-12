@@ -46,7 +46,7 @@
       "EMPIRE\Administrator",
       (ConvertTo-SecureString "{{ ansible_password }}" -AsPlainText -Force))
     Install-AdcsCertificationAuthority -CAType EnterpriseRootCA `
-      -CACommonName "corp-endor-CA" -KeyLength 2048 `
+      -CACommonName "{{ ca_name }}" -KeyLength 2048 `
       -HashAlgorithmName SHA256 -ValidityPeriod Years -ValidityPeriodUnits 10 `
       -Credential $cred -Force
   when: ca_state.stdout | trim == "absent"
@@ -73,6 +73,20 @@
     name: certsvc
     state: started
     start_mode: auto
+
+# The CA registry key + templates.yml/ca-flags.yml all reference {{ ca_name }}.
+# Override it with the ACTUAL configured CA name (the 'Active' value) so it works
+# whether the CA was created as corp-CA (fresh) or a different name on an existing box.
+- name: Discover the actual configured CA name
+  ansible.windows.win_shell: |
+    (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\CertSvc\Configuration" -Name Active -ErrorAction SilentlyContinue).Active
+  register: ca_active
+  changed_when: false
+
+- name: Use the discovered CA name for the rest of the role
+  ansible.builtin.set_fact:
+    ca_name: "{{ ca_active.stdout | trim }}"
+  when: ca_active.stdout | trim | length > 0
 
 - name: Ensure IIS web enrollment services are running (skip any not present)
   # IISADMIN (legacy IIS Admin Service) is usually absent on Server 2022; only
