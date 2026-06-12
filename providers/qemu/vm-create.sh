@@ -348,6 +348,11 @@ create_vm() {
         if [[ ! -f "${disk_path}" ]]; then
             log "Cloning cloud image for ${vm_name}: ${base_img} → ${disk_path}"
             qemu-img create -f qcow2 -b "${base_img}" -F qcow2 "${disk_path}"
+            # Ubuntu cloud images ship a ~2 GB rootfs — too small for apt + AD
+            # packages (realmd/sssd/krb5) -> "No space left on device". Grow the
+            # overlay to the VM's disk size; cloud-init growpart expands rootfs on boot.
+            log "Resizing ${vm_name} disk to ${vm_disk}G (cloud-init grows rootfs)"
+            qemu-img resize "${disk_path}" "${vm_disk}G"
         fi
         launch_vm "${vm_name}"
         return $?

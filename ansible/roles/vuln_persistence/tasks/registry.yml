@@ -68,6 +68,8 @@
   register: result_krbtgt
   changed_when: "'changed:' in result_krbtgt.stdout"
   failed_when: result_krbtgt.rc != 0
+  # krbtgt is a domain object — only a DC has ADWS to reset it. Skip on members.
+  when: inventory_hostname in groups['all_dcs'] | default([])
 
 - name: PER-018 - Drop flag hint for Golden Ticket path
   ansible.windows.win_copy:

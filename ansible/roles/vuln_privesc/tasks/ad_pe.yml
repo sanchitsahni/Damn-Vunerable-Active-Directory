@@ -19,4 +19,4 @@
   ansible.windows.win_shell: powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\DunderLab\ad_pe.ps1
   register: pe_ad_run
   changed_when: "'CHANGED:' in pe_ad_run.stdout"
-  failed_when: "'ERROR:' in pe_ad_run.stdout"
+  failed_when: "'DONE' not in pe_ad_run.stdout"

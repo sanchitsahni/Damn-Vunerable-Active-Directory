@@ -46,6 +46,12 @@
   changed_when: false
 
 # ── B4. Cron job (root) runs a world-writable script (cron → root LPE) ────────
+- name: B4 — Ensure /opt/empire exists (copy does not create parent dirs)
+  ansible.builtin.file:
+    path: /opt/empire
+    state: directory
+    mode: "0755"
+
 - name: B4 — Drop a world-writable script run by root cron
   ansible.builtin.copy:
     dest: /opt/empire/backup.sh

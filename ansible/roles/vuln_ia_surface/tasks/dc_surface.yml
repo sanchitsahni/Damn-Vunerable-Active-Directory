@@ -21,4 +21,4 @@
   ansible.windows.win_shell: powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\DunderLab\dc_surface.ps1
   register: ia_dc_run
   changed_when: "'CHANGED:' in ia_dc_run.stdout"
-  failed_when: "'ERROR:' in ia_dc_run.stdout"
+  failed_when: "'DONE' not in ia_dc_run.stdout"
