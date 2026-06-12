@@ -37,7 +37,7 @@ variable "output_dir" {
 
 variable "disk_size" {
   type    = number
-  # ws01 needs more room: Desktop Experience + tools + phishing payloads
+  # tatooine needs more room: Desktop Experience + tools + phishing payloads
   default = 61440
 }
 
@@ -59,7 +59,7 @@ locals {
 
 # ==============================================================================
 # QEMU builder
-# ws01 — victim workstation; needs full Desktop Experience for:
+# tatooine — victim workstation; needs full Desktop Experience for:
 #   CVE-2025-24071 (.library-ms Explorer preview NTLM leak)
 #   CVE-2023-21716 (WordPad RTF RCE)
 #   CVE-2024-30051 (DWM Core Library LPE — graphical session required)

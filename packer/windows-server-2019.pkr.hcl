@@ -58,7 +58,7 @@ locals {
 
 # ==============================================================================
 # QEMU builder
-# file01 uses 2019 specifically for EternalBlue (MS17-010) + SMBv1 surface
+# scarif uses 2019 specifically for EternalBlue (MS17-010) + SMBv1 surface
 # ==============================================================================
 source "qemu" "server2019" {
   vm_name          = "${local.vm_name}.qcow2"
@@ -160,7 +160,7 @@ build {
     inline = ["echo WinRM OK"]
   }
 
-  # Pre-bake file01's IIS/WebDAV/file-server features so Ansible skips the
+  # Pre-bake scarif's IIS/WebDAV/file-server features so Ansible skips the
   # per-deploy feature installs + their reboot. Tolerant 'exit 0'.
   provisioner "windows-shell" {
     inline = [

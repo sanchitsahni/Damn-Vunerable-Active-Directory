@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   providers/qemu/unattend/autounattend-server-2019.xml
-  Per-VM FRESH-INSTALL answer file for the Server 2019 member (file01). Same
+  Per-VM FRESH-INSTALL answer file for the Server 2019 member (scarif). Same
   all-fresh model as the 2022 variant: install from ISO => unique machine SID,
   features baked during install. Index 1 = Server 2019 Standard Core (keeps the
-  EternalBlue/SMB surface on file01). ComputerName '*'; Ansible sets the name.
+  EternalBlue/SMB surface on scarif). ComputerName '*'; Ansible sets the name.
   BIOS/MBR layout — VMs boot SeaBIOS (no OVMF).
 -->
 <unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
@@ -90,7 +90,7 @@
       <FirstLogonCommands>
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>
-          <Description>Bake Windows features (IIS/file surface for file01)</Description>
+          <Description>Bake Windows features (IIS/file surface for scarif)</Description>
           <CommandLine>powershell.exe -NoProfile -Command "Install-WindowsFeature -Name Web-Server,Web-DAV-Publishing,Web-Dir-Browsing,Web-CGI,Web-ISAPI-Ext,Web-ISAPI-Filter,Web-Asp-Net45,Web-Http-Logging,Web-Mgmt-Console,FS-FileServer -IncludeManagementTools -ErrorAction SilentlyContinue; exit 0"</CommandLine>
           <RequiresUserInput>false</RequiresUserInput>
         </SynchronousCommand>

@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   child_domain/files/sysprep-unattend.xml
-  Staged onto dc01.eu by the child_domain role, then used by:
+  Staged onto coruscant.eu by the child_domain role, then used by:
     sysprep /generalize /oobe /reboot /unattend:<this>
-  Purpose: dc01.eu is a CoW clone of the (un-generalized) Packer base, so it shares
+  Purpose: coruscant.eu is a CoW clone of the (un-generalized) Packer base, so it shares
   the parent DC's machine SID and DCPromo rejects the child-domain join. Generalizing
   regenerates a unique SID. This answer file auto-completes the resulting specialize +
   OOBE so the box reboots back unattended (admin password set, WinRM re-enabled) and

@@ -40,7 +40,7 @@
       <ImageInstall>
         <OSImage>
           <InstallFrom>
-            <!-- Index 1 = Server 2019 Standard Core (no GUI) — keeps EternalBlue surface on file01 -->
+            <!-- Index 1 = Server 2019 Standard Core (no GUI) — keeps EternalBlue surface on scarif -->
             <MetaData wcm:action="add">
               <Key>/IMAGE/INDEX</Key><Value>1</Value>
             </MetaData>
