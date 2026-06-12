@@ -160,6 +160,14 @@ build {
     inline = ["echo WinRM OK"]
   }
 
+  # Pre-bake file01's IIS/WebDAV/file-server features so Ansible skips the
+  # per-deploy feature installs + their reboot. Tolerant 'exit 0'.
+  provisioner "windows-shell" {
+    inline = [
+      "powershell -NoProfile -Command \"Install-WindowsFeature -Name Web-Server,Web-DAV-Publishing,Web-Dir-Browsing,Web-CGI,Web-ISAPI-Ext,Web-ISAPI-Filter,Web-Asp-Net45,Web-Http-Logging,Web-Mgmt-Console,FS-FileServer -IncludeManagementTools -ErrorAction SilentlyContinue | Out-Null; exit 0\"",
+    ]
+  }
+
   provisioner "windows-shell" {
     inline = [
       "wevtutil cl System",

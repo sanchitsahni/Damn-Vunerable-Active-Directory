@@ -1,0 +1,67 @@
+#Requires -Version 5
+# ==============================================================================
+# vuln_privesc — AD privilege-escalation surfaces (BATCHED, dc01 only).
+# PE-123 LAPS-not-deployed note, PE-126 Protected Users empty note, PE-128
+# developer2 GenericWrite on Enterprise Admins. Replaces ~4 round-trips with 1.
+# ==============================================================================
+$ErrorActionPreference = 'Continue'
+$log = 'C:\DunderLab\vuln_pe_ad.log'
+New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
+New-Item -ItemType Directory -Force -Path 'C:\Flags' | Out-Null
+function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
+Import-Module ActiveDirectory -ErrorAction SilentlyContinue
+
+# ── PE-123: LAPS-not-deployed note ───────────────────────────────────────────
+try {
+  $n = @'
+PE-123: LAPS Not Deployed — Uniform Local Admin Password
+==========================================================
+No LAPS (Local Administrator Password Solution) is deployed in this lab.
+All machines use the same local Administrator password: DVADlab2024!
+
+Attack (lateral movement after any local admin access):
+  Any machine local admin credential → access to all machines via:
+    - SMB: psexec/smbexec/wmiexec (impacket)
+    - WinRM: evil-winrm -i <ip> -u Administrator -p DVADlab2024!
+    - PtH: impacket-smbexec CORP/Administrator@<ip> -hashes :<hash>
+
+LAPS read ACL (if LAPS were deployed):
+  IT_Team group has ms-Mcs-AdmPwd read (LAT-023 — vuln_lat_ext)
+'@
+  Set-Content -Path 'C:\Flags\FLAG-PE-123-LAPS-NotDeployed.txt' -Value $n
+  Log "CHANGED: PE-123 LAPS note dropped"
+} catch { Log "ERROR: PE-123 $($_.Exception.Message)" }
+
+# ── PE-126: Protected Users empty note ───────────────────────────────────────
+try {
+  $n = @'
+PE-126: Protected Users Group is Empty
+========================================
+The Protected Users security group provides enhanced protection:
+  - No NTLM auth (only Kerberos)
+  - No DES or RC4 Kerberos pre-auth
+  - No credential caching in LSASS
+  - TGT lifetime 4h max
+  - Kerberos unconstrained delegation denied
+
+Status: EMPTY — no DA/EA accounts are protected.
+This means all admin credentials can be extracted from LSASS,
+NTLM relay attacks work against DA accounts,
+and unconstrained delegation attacks are possible.
+'@
+  Set-Content -Path 'C:\Flags\FLAG-PE-126-ProtectedUsers-Empty.txt' -Value $n
+  Log "CHANGED: PE-126 Protected Users note dropped"
+} catch { Log "ERROR: PE-126 $($_.Exception.Message)" }
+
+# ── PE-128: developer2 GenericWrite on Enterprise Admins ─────────────────────
+try {
+  $ea  = Get-ADGroup -Identity 'Enterprise Admins' -ErrorAction Stop
+  $sid = (Get-ADUser -Identity 'developer2' -ErrorAction Stop).SID
+  $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule($sid, [System.DirectoryServices.ActiveDirectoryRights]::GenericWrite, [System.Security.AccessControl.AccessControlType]::Allow)
+  $obj = [ADSI]"LDAP://$($ea.DistinguishedName)"
+  $obj.ObjectSecurity.AddAccessRule($ace)
+  $obj.CommitChanges()
+  Log "CHANGED: PE-128 developer2 GenericWrite on Enterprise Admins"
+} catch { Log "ERROR: PE-128 $($_.Exception.Message)" }
+
+Write-Output "DONE"

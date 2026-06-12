@@ -169,7 +169,10 @@
         UPN  = "svc_michael@corp.local"
         Pwd  = "NoPreauth1!"
         Path = "OU=ServiceAccounts,OU=Corp,$base"
-        Opts = @{ PasswordNeverExpires = $true; DoesNotRequirePreAuth = $true }
+        # NOTE: DoesNotRequirePreAuth is NOT a valid New-ADUser parameter — it
+        # silently errored here and svc_michael never got created. The AS-REP
+        # flag is set later by vuln_kerberos CRED-002 (Set-ADAccountControl).
+        Opts = @{ PasswordNeverExpires = $true }
       },
       # Backup account — intentionally over-privileged for DF-006
       @{

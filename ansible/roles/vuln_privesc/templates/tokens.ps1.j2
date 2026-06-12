@@ -1,0 +1,60 @@
+#Requires -Version 5
+# ==============================================================================
+# vuln_privesc — token/privilege PE surfaces (BATCHED, all Windows hosts).
+# Grants extended privileges via secedit + drops the abuse note (PE-081..100).
+# Replaces 2 WinRM round-trips with 1.
+# ==============================================================================
+$ErrorActionPreference = 'Continue'
+$log = 'C:\DunderLab\vuln_pe_tokens.log'
+New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
+New-Item -ItemType Directory -Force -Path 'C:\Flags' | Out-Null
+function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
+
+# ── PE-081..090: grant extended privileges via secedit ───────────────────────
+try {
+  $tmpCfg = "$env:TEMP\dvad_pe_privs.cfg"
+  $tmpDb  = "$env:TEMP\dvad_pe_privs.sdb"
+  secedit /export /cfg $tmpCfg /quiet 2>&1 | Out-Null
+  $content = Get-Content $tmpCfg -Raw
+  if ($content -match 'SeAssignPrimaryTokenPrivilege') {
+    $content = $content -replace '(SeAssignPrimaryTokenPrivilege\s*=\s*.*)', 'SeAssignPrimaryTokenPrivilege = *S-1-5-6,*S-1-5-20,*S-1-5-19,*S-1-5-32-544'
+  }
+  if ($content -match 'SeTcbPrivilege') {
+    $content = $content -replace '(SeTcbPrivilege\s*=\s*.*)', 'SeTcbPrivilege = *S-1-5-32-544,*S-1-5-19,*S-1-5-20'
+  }
+  if ($content -notmatch 'SeRestorePrivilege') { $content += "`nSeRestorePrivilege = *S-1-5-32-544,*S-1-5-32-551" }
+  if ($content -notmatch 'SeLoadDriverPrivilege') { $content += "`nSeLoadDriverPrivilege = *S-1-5-32-544,*S-1-5-19" }
+  if ($content -match 'SeTakeOwnershipPrivilege') {
+    $content = $content -replace '(SeTakeOwnershipPrivilege\s*=\s*.*)', 'SeTakeOwnershipPrivilege = *S-1-5-32-544'
+  }
+  Set-Content -Path $tmpCfg -Value $content
+  secedit /configure /db $tmpDb /cfg $tmpCfg /quiet 2>&1 | Out-Null
+  Remove-Item $tmpCfg, $tmpDb -ErrorAction SilentlyContinue
+  Log "CHANGED: PE-081..090 extended privileges configured"
+} catch { Log "ERROR: PE-081 $($_.Exception.Message)" }
+
+# ── PE-081..100: abuse-surface note ──────────────────────────────────────────
+try {
+  $note = @'
+PE-081..100: Token/Privilege Abuse Surfaces
+=============================================
+Extended privileges granted to service accounts:
+  SeImpersonatePrivilege  — IIS/SQL: PrintSpoofer, RogueWinRM, GodPotato
+  SeAssignPrimaryToken    — direct token assignment
+  SeRestorePrivilege      — write anywhere (bypass ACLs via restore path)
+  SeLoadDriverPrivilege   — load arbitrary kernel driver → SYSTEM
+
+Tools:
+  PrintSpoofer.exe -i -c cmd  (SeImpersonatePrivilege)
+  GodPotato -cmd "cmd /c whoami"
+  EfsPotato (combined EFS + SeImpersonate)
+  JuicyPotatoNG.exe (newer Potato variant)
+
+Potato family exploits all rely on SeImpersonatePrivilege — always present
+on service accounts (IIS App Pool, SQL Server service, WCF service).
+'@
+  Set-Content -Path 'C:\Flags\FLAG-PE-081-PrivilegeAbuse.txt' -Value $note
+  Log "CHANGED: PE-081 privilege abuse note dropped"
+} catch { Log "ERROR: PE-081-note $($_.Exception.Message)" }
+
+Write-Output "DONE"

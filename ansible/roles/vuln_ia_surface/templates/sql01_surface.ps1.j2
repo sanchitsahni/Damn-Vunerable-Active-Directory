@@ -1,0 +1,80 @@
+#Requires -Version 5
+# ==============================================================================
+# vuln_ia_surface — sql01 initial-access surface (BATCHED single run).
+# Rendered by ansible.windows.win_template, executed once via win_shell — this
+# replaces 6 separate WinRM round-trips with 1. Each block is self-idempotent
+# (check-then-set inline) and emits CHANGED:/OK:/ERROR: markers that the Ansible
+# task parses for changed_when/failed_when.
+#   IA-011  MSSQL sa enabled + weak pw + xp_cmdshell
+#   IA-048  SQL Browser (UDP 1434 instance discovery)
+#   IA-040  WinRM-HTTPS 5986 self-signed listener
+# Vars are Jinja-rendered; intentional weaknesses are the spec.
+# ==============================================================================
+$ErrorActionPreference = 'Continue'
+$log = 'C:\DunderLab\vuln_ia_sql01.log'
+New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
+function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
+
+# ── IA-011: MSSQL sa enable + weak password + xp_cmdshell ────────────────────
+try {
+  $instances = @('localhost', 'localhost\SQLEXPRESS', 'localhost\MSSQLSERVER')
+  $connStr = $null
+  foreach ($inst in $instances) {
+    sqlcmd.exe -S $inst -E -Q "SELECT 1" -h -1 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) { $connStr = $inst; break }
+  }
+  if (-not $connStr) {
+    Log "OK: IA-011 no reachable SQL instance (skipped)"
+  } else {
+    $isDisabled = sqlcmd.exe -S $connStr -E -Q "SET NOCOUNT ON; SELECT is_disabled FROM sys.server_principals WHERE name='sa'" -h -1 -W 2>&1 |
+                    Where-Object { $_ -match '^\s*[01]\s*$' } | Select-Object -First 1
+    if ($isDisabled -and $isDisabled.Trim() -eq '0') {
+      Log "OK: IA-011 sa already enabled"
+    } else {
+      $sql = @"
+ALTER LOGIN [sa] WITH PASSWORD = N'{{ ia_sa_password | default('DVADlab2024!') }}', CHECK_POLICY = OFF, CHECK_EXPIRATION = OFF;
+ALTER LOGIN [sa] ENABLE;
+EXEC xp_instance_regwrite N'HKEY_LOCAL_MACHINE', N'Software\Microsoft\MSSQLServer\MSSQLServer', N'LoginMode', REG_DWORD, 2;
+EXEC sp_configure 'show advanced options', 1; RECONFIGURE WITH OVERRIDE;
+EXEC sp_configure 'xp_cmdshell', 1; RECONFIGURE WITH OVERRIDE;
+"@
+      $sql | sqlcmd.exe -S $connStr -E -b 2>&1 | Out-Null
+      $svcName = (Get-Service | Where-Object { $_.Name -like 'MSSQL*' } | Select-Object -First 1).Name
+      if ($svcName) { Restart-Service $svcName -Force -ErrorAction SilentlyContinue }
+      Log "CHANGED: IA-011 sa enabled + xp_cmdshell on"
+    }
+  }
+} catch { Log "ERROR: IA-011 $($_.Exception.Message)" }
+
+# ── IA-048: SQL Browser service (instance discovery on UDP 1434) ─────────────
+try {
+  $svc = Get-Service -Name SQLBrowser -ErrorAction SilentlyContinue
+  if ($null -eq $svc) {
+    Log "OK: IA-048 SQLBrowser not present (skipped)"
+  } else {
+    Set-Service SQLBrowser -StartupType Automatic -ErrorAction Stop
+    if ((Get-Service SQLBrowser).Status -ne 'Running') {
+      Start-Service SQLBrowser -ErrorAction Stop
+      Log "CHANGED: IA-048 SQLBrowser set Automatic + started"
+    } else {
+      Log "OK: IA-048 SQLBrowser already running"
+    }
+  }
+} catch { Log "ERROR: IA-048 $($_.Exception.Message)" }
+
+# ── IA-040: WinRM-HTTPS 5986 self-signed listener ────────────────────────────
+try {
+  $exists = winrm enumerate winrm/config/Listener 2>&1 | Select-String "Transport = HTTPS"
+  if ($exists) {
+    Log "OK: IA-040 WinRM HTTPS listener already present"
+  } else {
+    $cert = New-SelfSignedCertificate -DnsName $env:COMPUTERNAME -CertStoreLocation "Cert:\LocalMachine\My" -NotAfter (Get-Date).AddYears(10) -ErrorAction Stop
+    winrm create winrm/config/Listener?Address=*+Transport=HTTPS "@{Hostname=`"*`";CertificateThumbprint=`"$($cert.Thumbprint)`"}" | Out-Null
+    if (-not (Get-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -ErrorAction SilentlyContinue)) {
+      New-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow | Out-Null
+    }
+    Log "CHANGED: IA-040 WinRM HTTPS listener created on sql01"
+  }
+} catch { Log "ERROR: IA-040 $($_.Exception.Message)" }
+
+Write-Output "DONE"

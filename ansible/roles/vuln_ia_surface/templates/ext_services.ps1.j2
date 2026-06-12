@@ -1,0 +1,62 @@
+#Requires -Version 5
+# ==============================================================================
+# vuln_ia_surface — extended service surface (BATCHED, file01 only).
+# Replaces ~8 WinRM round-trips with 1. IA-076 IIS dir-browse, IA-078 WebDAV,
+# IA-084 RDP NLA off, IA-085 OpenSSH password auth. Features are pre-baked in the
+# packer image; the install here is an idempotent fallback for non-baked images.
+# ==============================================================================
+$ErrorActionPreference = 'Continue'
+$log = 'C:\DunderLab\vuln_ia_services.log'
+New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
+function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
+
+# ── IA-076: IIS (+WebDAV) installed, directory browsing enabled ──────────────
+try {
+  $f = Get-WindowsFeature Web-Server -ErrorAction SilentlyContinue
+  if (-not ($f -and $f.Installed)) {
+    Install-WindowsFeature -Name Web-Server,Web-DAV-Publishing,Web-Dir-Browsing,Web-Http-Logging,Web-Stat-Compression -ErrorAction SilentlyContinue | Out-Null
+    Log "CHANGED: IA-076 IIS feature installed"
+  } else { Log "OK: IA-076 IIS already installed" }
+  Import-Module WebAdministration -ErrorAction SilentlyContinue
+  Set-WebConfigurationProperty /system.webServer/directoryBrowse -Name enabled -Value True -PSPath 'MACHINE/WEBROOT/APPHOST' -ErrorAction SilentlyContinue
+  Log "CHANGED: IA-076 directory browsing enabled"
+} catch { Log "ERROR: IA-076 $($_.Exception.Message)" }
+
+# ── IA-078: WebDAV authoring (write) enabled ─────────────────────────────────
+try {
+  Import-Module WebAdministration -ErrorAction SilentlyContinue
+  Set-WebConfigurationProperty /system.webServer/webdav/authoring -Name enabled -Value True -PSPath 'MACHINE/WEBROOT/APPHOST' -ErrorAction SilentlyContinue
+  Log "CHANGED: IA-078 WebDAV authoring enabled"
+} catch { Log "ERROR: IA-078 $($_.Exception.Message)" }
+
+# ── IA-084: RDP NLA disabled (pre-auth attack surface) ───────────────────────
+try {
+  $k = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp'
+  $v = (Get-ItemProperty -Path $k -Name UserAuthentication -ErrorAction SilentlyContinue).UserAuthentication
+  if ($v -eq 0) { Log "OK: IA-084 NLA already disabled" }
+  else {
+    Set-ItemProperty -Path $k -Name UserAuthentication -Value 0 -Type DWord
+    Log "CHANGED: IA-084 RDP NLA disabled"
+  }
+} catch { Log "ERROR: IA-084 $($_.Exception.Message)" }
+
+# ── IA-085: OpenSSH server with password authentication ──────────────────────
+try {
+  $cap = Get-WindowsCapability -Online -Name OpenSSH.Server* -ErrorAction SilentlyContinue
+  if ($cap -and $cap.State -eq 'Installed') {
+    Log "OK: IA-085 OpenSSH already installed"
+  } else {
+    Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 -ErrorAction SilentlyContinue | Out-Null
+    Log "CHANGED: IA-085 OpenSSH installed"
+  }
+  Start-Service sshd -ErrorAction SilentlyContinue
+  Set-Service sshd -StartupType Automatic -ErrorAction SilentlyContinue
+  $cfg = 'C:\ProgramData\ssh\sshd_config'
+  if (Test-Path $cfg) {
+    (Get-Content $cfg) -replace '#?PasswordAuthentication.*', 'PasswordAuthentication yes' | Set-Content $cfg
+    Restart-Service sshd -ErrorAction SilentlyContinue
+    Log "CHANGED: IA-085 password auth enabled"
+  }
+} catch { Log "ERROR: IA-085 $($_.Exception.Message)" }
+
+Write-Output "DONE"

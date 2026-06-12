@@ -1,0 +1,75 @@
+#Requires -Version 5
+# ==============================================================================
+# vuln_ia_surface — ca01 initial-access surface (BATCHED, ca01 only).
+# Replaces ~8 WinRM round-trips with 1. IA-039/049 IIS WebDAV write (aspx PUT
+# webshell), IA-045 WebClient (HTTP coercion), IA-040 WinRM-HTTPS 5986 listener.
+# IIS features are pre-baked in packer; install here is an idempotent fallback.
+# ==============================================================================
+$ErrorActionPreference = 'Continue'
+$log = 'C:\DunderLab\vuln_ia_ca01.log'
+New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
+function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
+
+# ── IA-039: ensure WebDAV / dir-browsing IIS features ────────────────────────
+try {
+  $f = Get-WindowsFeature -Name Web-DAV-Publishing -ErrorAction SilentlyContinue
+  if ($f -and $f.InstallState -eq 'Installed') {
+    Log "OK: IA-039 WebDAV feature already installed"
+  } else {
+    Install-WindowsFeature -Name Web-DAV-Publishing,Web-Dir-Browsing,Web-Server -IncludeManagementTools | Out-Null
+    Log "CHANGED: IA-039 WebDAV features installed"
+  }
+} catch { Log "ERROR: IA-039 $($_.Exception.Message)" }
+
+# ── IA-039 / IA-049: WebDAV authoring + write rule on Default Web Site ────────
+try {
+  Import-Module WebAdministration -ErrorAction Stop
+  $site = "IIS:\Sites\Default Web Site"
+  $wdav = Get-WebConfiguration -Filter "system.webServer/webdav/authoring" -PSPath $site -ErrorAction SilentlyContinue
+  if ($wdav -and $wdav.enabled -eq $true) {
+    Log "OK: IA-049 WebDAV already enabled"
+  } else {
+    Set-WebConfigurationProperty -Filter "system.webServer/webdav/authoring" -PSPath $site -Name enabled -Value $true
+    $rule = Get-WebConfiguration -Filter "system.webServer/webdav/authoringRules/add[@users='*']" -PSPath $site -ErrorAction SilentlyContinue
+    if (-not $rule) {
+      Add-WebConfiguration -Filter "system.webServer/webdav/authoringRules" -PSPath $site -Value @{users='*'; path='*'; access='Read,Write,Source'}
+    }
+    Set-WebConfigurationProperty -Filter "system.webServer/directoryBrowse" -PSPath $site -Name enabled -Value $true
+    Set-WebConfigurationProperty -Filter "system.webServer/webdav/authoring" -PSPath $site -Name "requireSsl" -Value $false
+    if (-not (Get-NetFirewallRule -DisplayName "HTTP 80" -ErrorAction SilentlyContinue)) {
+      New-NetFirewallRule -DisplayName "HTTP 80" -Direction Inbound -Protocol TCP -LocalPort 80 -Action Allow | Out-Null
+    }
+    Log "CHANGED: IA-049 WebDAV enabled with write permission"
+  }
+} catch { Log "ERROR: IA-049 $($_.Exception.Message)" }
+
+# ── IA-045: WebClient service Automatic + running (HTTP coercion) ─────────────
+try {
+  $svc = Get-Service -Name WebClient -ErrorAction SilentlyContinue
+  if ($null -eq $svc) {
+    Log "OK: IA-045 WebClient not present (skipped)"
+  } else {
+    Set-Service WebClient -StartupType Automatic -ErrorAction Stop
+    if ((Get-Service WebClient).Status -ne 'Running') {
+      Start-Service WebClient -ErrorAction Stop
+      Log "CHANGED: IA-045 WebClient started on ca01"
+    } else { Log "OK: IA-045 WebClient already running" }
+  }
+} catch { Log "ERROR: IA-045 $($_.Exception.Message)" }
+
+# ── IA-040: WinRM-HTTPS 5986 self-signed listener ────────────────────────────
+try {
+  $exists = winrm enumerate winrm/config/Listener 2>&1 | Select-String "Transport = HTTPS"
+  if ($exists) {
+    Log "OK: IA-040 WinRM HTTPS already present"
+  } else {
+    $cert = New-SelfSignedCertificate -DnsName $env:COMPUTERNAME -CertStoreLocation "Cert:\LocalMachine\My" -NotAfter (Get-Date).AddYears(10) -ErrorAction Stop
+    winrm create winrm/config/Listener?Address=*+Transport=HTTPS "@{Hostname=`"*`";CertificateThumbprint=`"$($cert.Thumbprint)`"}" | Out-Null
+    if (-not (Get-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -ErrorAction SilentlyContinue)) {
+      New-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow | Out-Null
+    }
+    Log "CHANGED: IA-040 WinRM HTTPS listener created on ca01"
+  }
+} catch { Log "ERROR: IA-040 $($_.Exception.Message)" }
+
+Write-Output "DONE"

@@ -1,221 +1,24 @@
 ---
 # ==============================================================================
-# vuln_ia_surface/tasks/dc_surface.yml
-# Target: all_dcs
-#
-# IA-003   Anonymous LDAP bind — dsHeuristics permits anon read
-# IA-004   DNS AXFR open (also IA-041) — SecureSecondaries=TransferAnyServer
-# IA-005   KDC port 88 — verify ADWS running (KDC is always up on a DC)
-# IA-014   ZeroLogon surface — FullSecureChannelProtection=0
-# IA-040   WinRM-HTTPS self-signed cert listener on 5986
-# IA-046   ADWS forced auto-start
-# REC-015  Sensitive credentials in SYSVOL startup script (corp.local DC only)
+# vuln_ia_surface/tasks/dc_surface.yml  —  all_dcs
+# BATCHED: one templated PowerShell run instead of ~13 WinRM round-trips.
+# The template (dc_surface.ps1.j2) is rendered per-DC; corp-only blocks
+# (IA-003 dsHeuristics, REC-015 SYSVOL creds) are Jinja-gated to dc01.corp.local.
+# IA-004/041 AXFR, IA-046 ADWS, IA-014 ZeroLogon, IA-040 WinRM-HTTPS run on all.
 # ==============================================================================
 
-# ------------------------------------------------------------------------------
-# IA-003: Anonymous LDAP bind via dsHeuristics
-# Value '0000002' — position 7 (index 6) = 2 enables anonymous LDAP operations.
-# Check current value before writing to keep idempotency.
-# ------------------------------------------------------------------------------
-- name: IA-003 - Check current dsHeuristics value
-  ansible.windows.win_shell: |
-    $dn = "CN=Directory Service,CN=Windows NT,CN=Services,CN=Configuration,{{ ia_domain_dn }}"
-    try {
-      $obj = Get-ADObject -Identity $dn -Properties dSHeuristics -ErrorAction Stop
-      if ($null -ne $obj.dSHeuristics) {
-        Write-Output $obj.dSHeuristics
-      } else {
-        Write-Output "not_set"
-      }
-    } catch {
-      Write-Output "not_set"
-    }
-  register: result_dsheuristics_check
-  changed_when: false
-  failed_when: result_dsheuristics_check.rc != 0
-  # Only corp.local DCs have the corp.local Configuration NC
-  when: inventory_hostname == 'dc01.corp.local'
-
-- name: IA-003 - Set dsHeuristics to allow anonymous LDAP reads
-  ansible.windows.win_shell: |
-    $dn = "CN=Directory Service,CN=Windows NT,CN=Services,CN=Configuration,{{ ia_domain_dn }}"
-    Set-ADObject -Identity $dn -Replace @{dSHeuristics='0000002'} -ErrorAction Stop
-    Write-Output "changed: dsHeuristics set to 0000002"
-  register: result_dsheuristics_set
-  changed_when: "'changed:' in result_dsheuristics_set.stdout"
-  failed_when: result_dsheuristics_set.rc != 0
-  when:
-    - inventory_hostname == 'dc01.corp.local'
-    - result_dsheuristics_check.stdout | trim != '0000002'
-
-# ------------------------------------------------------------------------------
-# IA-004 / IA-041: DNS AXFR — allow zone transfers to any server.
-# SecureSecondaries=TransferAnyServer removes the IP whitelist restriction.
-# The ad_domain var is set per-DC in inventory.yml; fall back to ia_domain.
-# ------------------------------------------------------------------------------
-- name: IA-004/IA-041 - Check DNS zone SecureSecondaries setting
-  ansible.windows.win_shell: |
-    $zone = "{{ ad_domain | default(ia_domain) }}"
-    try {
-      Import-Module DnsServer -ErrorAction Stop
-      $z = Get-DnsServerPrimaryZone -Name $zone -ErrorAction Stop
-      Write-Output $z.SecureSecondaries
-    } catch {
-      Write-Output "zone_not_found"
-    }
-  register: result_dns_axfr_check
-  changed_when: false
-  failed_when: >
-    result_dns_axfr_check.rc != 0 and
-    'zone_not_found' not in (result_dns_axfr_check.stdout | default(''))
-
-- name: IA-004/IA-041 - Allow unrestricted DNS AXFR (TransferAnyServer)
-  ansible.windows.win_shell: |
-    $zone = "{{ ad_domain | default(ia_domain) }}"
-    Import-Module DnsServer -ErrorAction SilentlyContinue
-    Set-DnsServerPrimaryZone -Name $zone `
-      -SecureSecondaries TransferAnyServer -ErrorAction Stop
-    Write-Output "changed: AXFR unrestricted on $zone"
-  register: result_dns_axfr_set
-  changed_when: "'changed:' in result_dns_axfr_set.stdout"
-  failed_when: >
-    result_dns_axfr_set.rc != 0 and
-    'zone_not_found' not in (result_dns_axfr_set.stderr | default('') | lower)
-  when: >
-    'TransferAnyServer' not in (result_dns_axfr_check.stdout | default('')) and
-    'zone_not_found' not in (result_dns_axfr_check.stdout | default(''))
-
-# ------------------------------------------------------------------------------
-# IA-005 / IA-046: ADWS (Active Directory Web Services) — ensure auto-start.
-# ADWS is the backend for Get-ADUser, BloodHound ADWS mode, SOAPHound, etc.
-# KDC (port 88) is inseparable from DC promotion; no separate config needed.
-# ------------------------------------------------------------------------------
-- name: IA-046 - Check ADWS service state
-  ansible.windows.win_shell: |
-    $svc = Get-Service -Name ADWS -ErrorAction SilentlyContinue
-    if ($null -eq $svc) {
-      Write-Output "not_found"
-    } else {
-      Write-Output "starttype=$($svc.StartType) status=$($svc.Status)"
-    }
-  register: result_adws_check
-  changed_when: false
-  failed_when: result_adws_check.rc != 0
-
-- name: IA-046 - Set ADWS to Automatic and ensure running
-  ansible.windows.win_shell: |
-    Set-Service ADWS -StartupType Automatic -ErrorAction Stop
-    $svc = Get-Service ADWS
-    if ($svc.Status -ne 'Running') {
-      Start-Service ADWS -ErrorAction Stop
-      Write-Output "changed: ADWS started"
-    } else {
-      Write-Output "ok: ADWS already running"
-    }
-  register: result_adws_set
-  changed_when: "'changed:' in result_adws_set.stdout"
-  failed_when: result_adws_set.rc != 0
-  when: >
-    'not_found' not in (result_adws_check.stdout | default('')) and
-    ('Automatic' not in (result_adws_check.stdout | default('')) or
-     'Running' not in (result_adws_check.stdout | default('')))
-
-# ------------------------------------------------------------------------------
-# IA-014: ZeroLogon surface — FullSecureChannelProtection=0
-# Without this the August 2020 patch enforces secure channel by default,
-# blocking the CVE-2020-1472 exploit. Setting to 0 re-enables the
-# vulnerable behaviour.
-# ------------------------------------------------------------------------------
-- name: IA-014 - Check FullSecureChannelProtection registry value
-  ansible.windows.win_shell: |
-    $val = (Get-ItemProperty `
-              -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters" `
-              -Name "FullSecureChannelProtection" `
-              -ErrorAction SilentlyContinue).FullSecureChannelProtection
-    if ($null -eq $val) { Write-Output "not_set" } else { Write-Output $val }
-  register: result_zerologon_check
-  changed_when: false
-  failed_when: result_zerologon_check.rc != 0
-
-- name: IA-014 - Disable FullSecureChannelProtection (ZeroLogon surface)
-  ansible.windows.win_regedit:
-    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters'
-    name: FullSecureChannelProtection
-    data: 0
-    type: dword
-  when: result_zerologon_check.stdout | trim != '0'
-
-# ------------------------------------------------------------------------------
-# IA-040: WinRM-HTTPS self-signed listener on TCP 5986.
-# Allows remote management enumeration; self-signed cert is intentionally
-# unvalidated (attacker can connect with -SkipCertificateCheck / evil-winrm).
-# Check whether the HTTPS listener already exists before creating.
-# ------------------------------------------------------------------------------
-- name: IA-040 - Check if WinRM HTTPS listener exists on port 5986
-  ansible.windows.win_shell: |
-    $listener = winrm enumerate winrm/config/Listener 2>&1 |
-                  Select-String "Transport = HTTPS"
-    if ($listener) { Write-Output "exists" } else { Write-Output "missing" }
-  register: result_winrm_https_check
-  changed_when: false
-  failed_when: result_winrm_https_check.rc != 0
-
-- name: IA-040 - Create self-signed cert and WinRM HTTPS listener
-  ansible.windows.win_shell: |
-    # Generate a self-signed certificate valid 10 years
-    $cert = New-SelfSignedCertificate `
-              -DnsName $env:COMPUTERNAME `
-              -CertStoreLocation "Cert:\LocalMachine\My" `
-              -NotAfter (Get-Date).AddYears(10) `
-              -ErrorAction Stop
-    $thumb = $cert.Thumbprint
-
-    # Create the HTTPS WinRM listener
-    winrm create winrm/config/Listener?Address=*+Transport=HTTPS `
-      "@{Hostname=`"*`";CertificateThumbprint=`"$thumb`"}" | Out-Null
-
-    # Open firewall port 5986
-    $fwRule = Get-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -ErrorAction SilentlyContinue
-    if (-not $fwRule) {
-      New-NetFirewallRule -DisplayName "WinRM HTTPS 5986" `
-        -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow | Out-Null
-    }
-    Write-Output "changed: WinRM HTTPS listener created with thumbprint $thumb"
-  register: result_winrm_https_create
-  changed_when: "'changed:' in result_winrm_https_create.stdout"
-  failed_when: result_winrm_https_create.rc != 0
-  when: "'missing' in result_winrm_https_check.stdout"
-
-# ------------------------------------------------------------------------------
-# REC-015: Sensitive credentials in SYSVOL logon script.
-# Authenticated Users can read SYSVOL; plaintext passwords in scripts are a
-# classic misconfiguration. Only created on corp.local (dc01.corp.local) since
-# that DC owns the corp.local SYSVOL.
-# ------------------------------------------------------------------------------
-- name: REC-015 - Check if SYSVOL credential script already exists
-  ansible.windows.win_shell: |
-    if (Test-Path '{{ ia_sysvol_script_path }}') {
-      Write-Output "exists"
-    } else {
-      Write-Output "missing"
-    }
-  register: result_sysvol_check
-  changed_when: false
-  failed_when: result_sysvol_check.rc != 0
-  when: inventory_hostname == 'dc01.corp.local'
-
-- name: REC-015 - Ensure SYSVOL scripts directory exists
+- name: IA-dc - Ensure DunderLab dir exists
   ansible.windows.win_file:
-    path: 'C:\Windows\SYSVOL\sysvol\corp.local\scripts'
+    path: C:\DunderLab
     state: directory
-  when:
-    - inventory_hostname == 'dc01.corp.local'
-    - "'missing' in result_sysvol_check.stdout"
 
-- name: REC-015 - Drop plaintext credential script in SYSVOL (REC-015)
-  ansible.windows.win_copy:
-    dest: "{{ ia_sysvol_script_path }}"
-    content: "{{ ia_sysvol_script_content }}"
-  when:
-    - inventory_hostname == 'dc01.corp.local'
-    - "'missing' in result_sysvol_check.stdout"
+- name: IA-dc - Render batched DC surface script
+  ansible.windows.win_template:
+    src: dc_surface.ps1.j2
+    dest: C:\DunderLab\dc_surface.ps1
+
+- name: IA-dc - Run batched DC surface script (IA-003/004/014/040/046 + REC-015)
+  ansible.windows.win_shell: powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\DunderLab\dc_surface.ps1
+  register: ia_dc_run
+  changed_when: "'CHANGED:' in ia_dc_run.stdout"
+  failed_when: "'ERROR:' in ia_dc_run.stdout"

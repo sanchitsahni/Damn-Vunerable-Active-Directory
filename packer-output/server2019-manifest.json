@@ -3,17 +3,31 @@
     {
       "name": "server2019",
       "builder_type": "qemu",
-      "build_time": 1781146195,
+      "build_time": 1781166695,
       "files": [
         {
           "name": "windows-server-2019-base.qcow2",
-          "size": 6703939584
+          "size": 6753746944
         }
       ],
       "artifact_id": "VM",
-      "packer_run_uuid": "f57506ec-6d47-be08-d179-a4401edf3243",
+      "packer_run_uuid": "8b30578c-f37a-f284-8353-7a1b2cc73e3d",
+      "custom_data": null
+    },
+    {
+      "name": "server2019",
+      "builder_type": "qemu",
+      "build_time": 1781233599,
+      "files": [
+        {
+          "name": "windows-server-2019-base.qcow2",
+          "size": 6744113152
+        }
+      ],
+      "artifact_id": "VM",
+      "packer_run_uuid": "cfcae39e-c557-5143-8151-5282eea4c79c",
       "custom_data": null
     }
   ],
-  "last_run_uuid": "f57506ec-6d47-be08-d179-a4401edf3243"
+  "last_run_uuid": "cfcae39e-c557-5143-8151-5282eea4c79c"
 }

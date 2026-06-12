@@ -3,17 +3,45 @@
     {
       "name": "server2022",
       "builder_type": "qemu",
-      "build_time": 1781146124,
+      "build_time": 1781166358,
       "files": [
         {
           "name": "windows-server-2022-base.qcow2",
-          "size": 5808455680
+          "size": 6226116608
         }
       ],
       "artifact_id": "VM",
-      "packer_run_uuid": "5eab1f5b-9a33-de62-aee8-6806b5546794",
+      "packer_run_uuid": "bbc71641-2691-26d2-6cf7-6ff11282396e",
+      "custom_data": null
+    },
+    {
+      "name": "server2022",
+      "builder_type": "qemu",
+      "build_time": 1781231504,
+      "files": [
+        {
+          "name": "windows-server-2022-base.qcow2",
+          "size": 6225723392
+        }
+      ],
+      "artifact_id": "VM",
+      "packer_run_uuid": "14229c7a-e331-b435-5e5f-bf7b7a231bc4",
+      "custom_data": null
+    },
+    {
+      "name": "server2022",
+      "builder_type": "qemu",
+      "build_time": 1781233254,
+      "files": [
+        {
+          "name": "windows-server-2022-base.qcow2",
+          "size": 6229655552
+        }
+      ],
+      "artifact_id": "VM",
+      "packer_run_uuid": "06afbd22-79cd-c747-712a-ee38c0d1e8aa",
       "custom_data": null
     }
   ],
-  "last_run_uuid": "5eab1f5b-9a33-de62-aee8-6806b5546794"
+  "last_run_uuid": "06afbd22-79cd-c747-712a-ee38c0d1e8aa"
 }

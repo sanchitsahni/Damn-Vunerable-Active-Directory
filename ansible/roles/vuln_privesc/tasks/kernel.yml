@@ -1,59 +1,22 @@
 ---
 # ==============================================================================
-# vuln_pe_extended/tasks/kernel.yml — PE-101..120
-# Target: all hosts (note files + config surfaces)
+# vuln_privesc/tasks/kernel.yml  —  all Windows hosts
+# BATCHED: one templated run instead of 3 win_copy calls. Drops the kernel/BYOVD
+# technique-reference notes (PE-101/110/115). Logic in templates/kernel.ps1.j2.
 # ==============================================================================
 
-- name: PE-101..120 - Drop kernel PE surface notes
-  ansible.windows.win_copy:
-    dest: "{{ item.path }}"
-    content: "{{ item.content }}"
-  loop:
-    - path: 'C:\Flags\FLAG-PE-101-KernelDrivers.txt'
-      content: |
-        PE-101: Vulnerable Kernel Driver Loading
-        ==========================================
-        SeLoadDriverPrivilege (PE-085) allows loading arbitrary kernel drivers.
-        Vulnerable drivers (BYOVD — Bring Your Own Vulnerable Driver):
-          - RTCore64.sys (MSI AfterBurner) — arbitrary kernel R/W
-          - dbutil_2_3.sys (Dell BIOS Update) — arbitrary kernel R/W
-          - mhyprot2.sys (Genshin Impact) — arbitrary process termination
+- name: PE-kernel - Ensure DunderLab dir exists
+  ansible.windows.win_file:
+    path: C:\DunderLab
+    state: directory
 
-        BYOVD attack:
-          1. Drop vulnerable driver to disk (D:\vulnerable.sys)
-          2. Load via NtLoadDriver (SeLoadDriverPrivilege)
-          3. Use driver IOCTL to disable PPL on AV process
-          4. Dump LSASS / load unsigned driver
+- name: PE-kernel - Render batched kernel-PE notes script
+  ansible.windows.win_template:
+    src: kernel.ps1.j2
+    dest: C:\DunderLab\kernel.ps1
 
-        Tool: PPLKiller, KDMapper, DriverLoader
-
-    - path: 'C:\Flags\FLAG-PE-110-HypervisorPE.txt'
-      content: |
-        PE-110: Hypervisor / Virtual Firmware PE
-        ==========================================
-        Lab VMs run under QEMU/KVM or VirtualBox.
-        Hypervisor escape is theoretical in this lab context; see:
-          - CVE-2024-38080 (Hyper-V LPE — FLAG-PE-CVE-2024-38080.txt)
-          - VENOM CVE-2015-3456 (QEMU floppy buffer overflow — historical)
-          - VBoxHardenedLoader research for VirtualBox escape
-
-        Host escape from QEMU:
-          Prereq: exploit qemu-system-x86_64 process running as root on host
-          Tool: QEMU escape PoCs (research context only)
-
-    - path: 'C:\Flags\FLAG-PE-115-VulnDriverList.txt'
-      content: |
-        PE-115: BYOVD Vulnerable Driver Reference
-        ===========================================
-        Commonly abused vulnerable drivers (all available without code signing bypass):
-          RTCore64.sys    — MSI AfterBurner (Micro-Star International)
-          dbutil_2_3.sys  — Dell BIOS Update Utility (CVE-2021-21551)
-          mhyprot2.sys    — Genshin Impact anti-cheat
-          gdrv.sys        — Gigabyte driver
-          AsrDrv104.sys   — ASRock driver
-          atillk64.sys    — ATI Technologies
-
-        LOLDrivers database: https://www.loldrivers.io/
-        Sigma detection rule: process_creation_suspicious_driver_load.yml
-
-        Use with: github.com/wavestone-cdt/EDRSandblast (EDR kernel disable via BYOVD)
+- name: PE-kernel - Run batched kernel-PE notes script (PE-101/110/115)
+  ansible.windows.win_shell: powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\DunderLab\kernel.ps1
+  register: pe_kernel_run
+  changed_when: "'CHANGED:' in pe_kernel_run.stdout"
+  failed_when: "'ERROR:' in pe_kernel_run.stdout"

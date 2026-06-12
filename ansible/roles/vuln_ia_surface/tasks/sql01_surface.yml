@@ -1,136 +1,24 @@
 ---
 # ==============================================================================
-# vuln_ia_surface/tasks/sql01_surface.yml
-# Target: sql01.corp.local
-#
-# IA-011   MSSQL: sa login enabled, weak password, xp_cmdshell enabled
-# IA-048   SQL Browser service — UDP 1434 broadcast instance discovery
-# IA-040   WinRM-HTTPS 5986 self-signed listener
+# vuln_ia_surface/tasks/sql01_surface.yml  —  sql01.corp.local
+# BATCHED: one templated PowerShell run instead of 6 WinRM round-trips.
+# The per-vuln logic (IA-011 sa/xp_cmdshell, IA-048 SQL Browser, IA-040
+# WinRM-HTTPS) lives in templates/sql01_surface.ps1.j2, each block self-
+# idempotent and emitting CHANGED:/OK:/ERROR: markers.
 # ==============================================================================
 
-# ------------------------------------------------------------------------------
-# IA-011: MSSQL sa account — enable login, set weak password, enable xp_cmdshell.
-# Uses sqlcmd.exe (always present when SQL Server is installed).
-# Check whether sa is already enabled before running configuration.
-# ------------------------------------------------------------------------------
-- name: IA-011 - Check if sa login is enabled in MSSQL
-  ansible.windows.win_shell: |
-    $result = sqlcmd.exe -S localhost -E -Q `
-      "SET NOCOUNT ON; SELECT is_disabled FROM sys.server_principals WHERE name='sa'" `
-      -h -1 -W 2>&1
-    if ($LASTEXITCODE -ne 0) {
-      # Try with named instance
-      $result = sqlcmd.exe -S "localhost\SQLEXPRESS" -E -Q `
-        "SET NOCOUNT ON; SELECT is_disabled FROM sys.server_principals WHERE name='sa'" `
-        -h -1 -W 2>&1
-    }
-    $trimmed = ($result | Where-Object { $_ -match '^\s*[01]\s*$' } | Select-Object -First 1).Trim()
-    if ($trimmed -eq '1') { Write-Output "disabled" }
-    elseif ($trimmed -eq '0') { Write-Output "enabled" }
-    else { Write-Output "unknown: $result" }
-  register: result_sa_check
-  changed_when: false
-  failed_when: >
-    result_sa_check.rc != 0 and
-    'unknown' not in (result_sa_check.stdout | default(''))
+- name: IA-sql01 - Ensure DunderLab dir exists
+  ansible.windows.win_file:
+    path: C:\DunderLab
+    state: directory
 
-- name: IA-011 - Enable sa login, set weak password, and enable xp_cmdshell
-  ansible.windows.win_shell: |
-    # Determine correct instance name
-    $instances = @('localhost', 'localhost\SQLEXPRESS', 'localhost\MSSQLSERVER')
-    $connStr = $null
-    foreach ($inst in $instances) {
-      $test = sqlcmd.exe -S $inst -E -Q "SELECT 1" -h -1 2>&1
-      if ($LASTEXITCODE -eq 0) { $connStr = $inst; break }
-    }
-    if (-not $connStr) { Write-Error "No reachable SQL instance found"; exit 1 }
+- name: IA-sql01 - Render batched surface script
+  ansible.windows.win_template:
+    src: sql01_surface.ps1.j2
+    dest: C:\DunderLab\sql01_surface.ps1
 
-    $sql = @"
-    -- IA-011: Enable sa with weak password
-    ALTER LOGIN [sa] WITH PASSWORD = N'DVADlab2024!', CHECK_POLICY = OFF, CHECK_EXPIRATION = OFF;
-    ALTER LOGIN [sa] ENABLE;
-    -- Enable mixed mode authentication
-    EXEC xp_instance_regwrite N'HKEY_LOCAL_MACHINE',
-         N'Software\Microsoft\MSSQLServer\MSSQLServer',
-         N'LoginMode', REG_DWORD, 2;
-    -- Enable xp_cmdshell (surface for remote OS command execution)
-    EXEC sp_configure 'show advanced options', 1; RECONFIGURE WITH OVERRIDE;
-    EXEC sp_configure 'xp_cmdshell', 1;          RECONFIGURE WITH OVERRIDE;
-    "@
-    $sql | sqlcmd.exe -S $connStr -E -b 2>&1
-    if ($LASTEXITCODE -ne 0) { Write-Error "sqlcmd configuration failed"; exit 1 }
-
-    # Restart SQL service to apply LoginMode registry change
-    $svcName = (Get-Service | Where-Object { $_.Name -like 'MSSQL*' } | Select-Object -First 1).Name
-    if ($svcName) {
-      Restart-Service $svcName -Force -ErrorAction SilentlyContinue
-    }
-    Write-Output "changed: sa enabled, xp_cmdshell on"
-  register: result_sa_configure
-  changed_when: "'changed:' in result_sa_configure.stdout"
-  failed_when: result_sa_configure.rc != 0
-  when: "'enabled' not in result_sa_check.stdout"
-
-# ------------------------------------------------------------------------------
-# IA-048: SQL Browser service — broadcasts SQL Server instances on UDP 1434.
-# Allows attackers to discover instance names without knowing them in advance.
-# ------------------------------------------------------------------------------
-- name: IA-048 - Check SQL Browser service state
-  ansible.windows.win_shell: |
-    $svc = Get-Service -Name SQLBrowser -ErrorAction SilentlyContinue
-    if ($null -eq $svc) { Write-Output "not_found" }
-    else { Write-Output "starttype=$($svc.StartType) status=$($svc.Status)" }
-  register: result_sqlbrowser_check
-  changed_when: false
-  failed_when: result_sqlbrowser_check.rc != 0
-
-- name: IA-048 - Set SQL Browser to Automatic and start
-  ansible.windows.win_shell: |
-    Set-Service SQLBrowser -StartupType Automatic -ErrorAction Stop
-    $svc = Get-Service SQLBrowser
-    if ($svc.Status -ne 'Running') {
-      Start-Service SQLBrowser -ErrorAction Stop
-      Write-Output "changed: SQLBrowser started"
-    } else {
-      Write-Output "ok: SQLBrowser running"
-    }
-  register: result_sqlbrowser_start
-  changed_when: "'changed:' in result_sqlbrowser_start.stdout"
-  failed_when: result_sqlbrowser_start.rc != 0
-  when: >
-    'not_found' not in (result_sqlbrowser_check.stdout | default('')) and
-    ('Automatic' not in (result_sqlbrowser_check.stdout | default('')) or
-     'Running' not in (result_sqlbrowser_check.stdout | default('')))
-
-# ------------------------------------------------------------------------------
-# IA-040: WinRM-HTTPS 5986 self-signed listener on sql01.
-# ------------------------------------------------------------------------------
-- name: IA-040 (sql01) - Check if WinRM HTTPS listener exists
-  ansible.windows.win_shell: |
-    $listener = winrm enumerate winrm/config/Listener 2>&1 |
-                  Select-String "Transport = HTTPS"
-    if ($listener) { Write-Output "exists" } else { Write-Output "missing" }
-  register: result_sql01_winrm_https_check
-  changed_when: false
-  failed_when: result_sql01_winrm_https_check.rc != 0
-
-- name: IA-040 (sql01) - Create self-signed cert and WinRM HTTPS listener
-  ansible.windows.win_shell: |
-    $cert = New-SelfSignedCertificate `
-              -DnsName $env:COMPUTERNAME `
-              -CertStoreLocation "Cert:\LocalMachine\My" `
-              -NotAfter (Get-Date).AddYears(10) `
-              -ErrorAction Stop
-    $thumb = $cert.Thumbprint
-    winrm create winrm/config/Listener?Address=*+Transport=HTTPS `
-      "@{Hostname=`"*`";CertificateThumbprint=`"$thumb`"}" | Out-Null
-    $fwRule = Get-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -ErrorAction SilentlyContinue
-    if (-not $fwRule) {
-      New-NetFirewallRule -DisplayName "WinRM HTTPS 5986" `
-        -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow | Out-Null
-    }
-    Write-Output "changed: WinRM HTTPS listener created on sql01"
-  register: result_sql01_winrm_https_create
-  changed_when: "'changed:' in result_sql01_winrm_https_create.stdout"
-  failed_when: result_sql01_winrm_https_create.rc != 0
-  when: "'missing' in result_sql01_winrm_https_check.stdout"
+- name: IA-sql01 - Run batched surface script (sa/xp_cmdshell, SQLBrowser, WinRM-HTTPS)
+  ansible.windows.win_shell: powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\DunderLab\sql01_surface.ps1
+  register: ia_sql01_run
+  changed_when: "'CHANGED:' in ia_sql01_run.stdout"
+  failed_when: "'ERROR:' in ia_sql01_run.stdout"

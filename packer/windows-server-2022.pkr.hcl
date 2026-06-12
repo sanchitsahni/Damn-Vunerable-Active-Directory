@@ -171,6 +171,17 @@ build {
     inline = ["echo WinRM OK"]
   }
 
+  # Pre-bake Windows features so Ansible doesn't install them per-deploy.
+  # The big win: AD-Domain-Services baked here means the ad_domain role's
+  # feature-install reboot is skipped (its reboot is conditional on
+  # reboot_required, which becomes false). Tolerant 'exit 0' — any sub-feature
+  # not available on Server Core just falls back to the role's runtime install.
+  provisioner "windows-shell" {
+    inline = [
+      "powershell -NoProfile -Command \"Install-WindowsFeature -Name AD-Domain-Services,DNS,RSAT-AD-PowerShell,RSAT-ADDS-Tools,RSAT-DNS-Server,SNMP-Service,FS-DFS-Namespace,FS-DFS-Replication,Web-Server,Web-Mgmt-Console,Print-Server -IncludeManagementTools -ErrorAction SilentlyContinue | Out-Null; exit 0\"",
+    ]
+  }
+
   # Sysprep-friendly cleanup — remove event logs, temp files
   provisioner "windows-shell" {
     inline = [
@@ -182,6 +193,12 @@ build {
       // script -> "The batch file cannot be found" -> build fails. Leave temp be.
     ]
   }
+
+  # NOTE: SID uniqueness is NOT handled here. Generalizing in Packer severs WinRM
+  # mid-build, so Packer cannot capture or shut the box down. Instead the eu child
+  # DC regenerates its own machine SID via sysprep at deploy time in the
+  # child_domain Ansible role, where reboot+reconnect (wait_for_connection) is
+  # robust. See roles/child_domain/tasks/main.yml.
 
   post-processor "manifest" {
     output     = "${var.output_dir}/server2022-manifest.json"

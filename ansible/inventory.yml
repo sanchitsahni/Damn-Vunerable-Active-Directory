@@ -15,6 +15,10 @@ all:
     ansible_winrm_server_cert_validation: ignore
     ansible_winrm_operation_timeout_sec: 120
     ansible_winrm_read_timeout_sec: 180
+    # Long-running async tasks (DC promotion / Install-ADDSForest) on a busy or
+    # low-RAM Server Core box can take >5 s just to signal the async job started.
+    # The default win_async_startup_timeout (5 s) then fails the task. Bump it.
+    ansible_win_async_startup_timeout: 180
 
   children:
     # =========================================================================
@@ -34,6 +38,12 @@ all:
 
         dc01.eu.corp.local:
           ansible_host: 10.10.0.11
+          # After child-domain promotion this box has no usable local admin and
+          # eu's own Administrator pw is unreliable — authenticate as the forest
+          # Enterprise Admin (CORP\Administrator), which has rights on the child DC
+          # for every play (promotion reconnect, trusts, vuln roles).
+          ansible_user: "CORP\\Administrator"
+          ansible_password: "DVADlab2024!"
           # child_domain role vars
           child_domain: eu.corp.local
           child_domain_shortname: eu

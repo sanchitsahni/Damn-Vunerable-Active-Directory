@@ -1,126 +1,25 @@
 ---
 # ==============================================================================
-# vuln_ia_extended/tasks/misconfig.yml — IA-111..150
-# Target: all_dcs group
-#
-# IA-111  Kerberos pre-auth optional users (AS-REP spray via LDAP)
-# IA-112  Password policy: max age unlimited for svc accounts
-# IA-113  Default domain password policy: min length 1 (no complexity)
-# IA-114  Fine-grained PSO: all svc accounts in weak-pso group
-# IA-115  AdminCount=1 on non-admin accounts (SDProp bypass)
-# IA-116  Expired passwords still authenticate (AllowExpiredPasswordAuth=1)
-# IA-117  Trust account MAQ=100 (unlimited machine adds)
-# IA-118  LDAP paging control allows full directory dump
-# IA-119  GPO with plaintext password in comment
-# IA-120  AD recycle bin disabled (easy tombstone recovery)
+# vuln_ia_surface/tasks/ext_misconfig.yml  —  dc01.corp.local (domain misconfigs)
+# BATCHED: one templated PowerShell run instead of ~8 WinRM round-trips.
+# Logic in templates/ext_misconfig.ps1.j2 (IA-113/114/115/117/119).
 # ==============================================================================
 
-# IA-113: Weak domain password policy (min length 1, no complexity)
-- name: IA-113 - Set weak default domain password policy
-  ansible.windows.win_shell: |
-    Import-Module ActiveDirectory
-    Set-ADDefaultDomainPasswordPolicy `
-      -ComplexityEnabled $false `
-      -MinPasswordLength 1 `
-      -MaxPasswordAge ([TimeSpan]::Zero) `
-      -MinPasswordAge ([TimeSpan]::Zero) `
-      -PasswordHistoryCount 0 `
-      -LockoutThreshold 0 `
-      -Identity "{{ ad_domain }}" `
-      -ErrorAction SilentlyContinue
-    Write-Output "changed: weak password policy set"
-  register: ia113_set
-  changed_when: "'changed:' in ia113_set.stdout"
-  failed_when: ia113_set.rc != 0
+- name: IA-misconfig - Ensure DunderLab dir exists
+  ansible.windows.win_file:
+    path: C:\DunderLab
+    state: directory
   when: inventory_hostname == 'dc01.corp.local'
 
-# IA-114: Fine-grained PSO with no complexity for svc accounts
-- name: IA-114 - Check if Weak-PSO exists
-  ansible.windows.win_shell: |
-    Import-Module ActiveDirectory
-    $pso = Get-ADFineGrainedPasswordPolicy -Filter "Name -eq 'Weak-PSO'" -ErrorAction SilentlyContinue
-    if ($pso) { Write-Output "present" } else { Write-Output "absent" }
-  register: ia114_check
-  changed_when: false
-  failed_when: ia114_check.rc != 0
+- name: IA-misconfig - Render batched domain-misconfig script
+  ansible.windows.win_template:
+    src: ext_misconfig.ps1.j2
+    dest: C:\DunderLab\ext_misconfig.ps1
   when: inventory_hostname == 'dc01.corp.local'
 
-- name: IA-114 - Create Weak-PSO for service accounts
-  ansible.windows.win_shell: |
-    Import-Module ActiveDirectory
-    New-ADFineGrainedPasswordPolicy -Name 'Weak-PSO' `
-      -ComplexityEnabled $false `
-      -MinPasswordLength 1 `
-      -MaxPasswordAge ([TimeSpan]::Zero) `
-      -MinPasswordAge ([TimeSpan]::Zero) `
-      -PasswordHistoryCount 0 `
-      -LockoutThreshold 0 `
-      -Precedence 10 `
-      -ProtectedFromAccidentalDeletion $false `
-      -Description "IA-114: Weak PSO for service accounts — no complexity"
-    Write-Output "changed: Weak-PSO created"
-  register: ia114_set
-  changed_when: "'changed:' in ia114_set.stdout"
-  failed_when: ia114_set.rc != 0
-  when:
-    - inventory_hostname == 'dc01.corp.local'
-    - "'absent' in ia114_check.stdout"
-
-# IA-115: AdminCount=1 on non-admin accounts (breaks SDProp, allows ACL inheritance)
-- name: IA-115 - Set AdminCount=1 on svc_web and jim.halpert
-  ansible.windows.win_shell: |
-    Import-Module ActiveDirectory
-    foreach ($user in @('svc_web', 'jim.halpert')) {
-      $u = Get-ADUser -Filter "SamAccountName -eq '$user'" -Properties AdminCount -ErrorAction SilentlyContinue
-      if ($u -and $u.AdminCount -ne 1) {
-        Set-ADUser -Identity $u -Replace @{adminCount=1} -ErrorAction SilentlyContinue
-        Write-Output "changed: AdminCount=1 set on $user"
-      }
-    }
-  register: ia115_set
-  changed_when: "'changed:' in ia115_set.stdout"
-  failed_when: ia115_set.rc != 0
-  when: inventory_hostname == 'dc01.corp.local'
-
-# IA-117: MAQ=100 (unlimited machine additions for all domain users)
-- name: IA-117 - Check MachineAccountQuota
-  ansible.windows.win_shell: |
-    Import-Module ActiveDirectory
-    $v = (Get-ADDomain -ErrorAction Stop).MachineAccountQuota
-    Write-Output "value=$v"
-  register: ia117_check
-  changed_when: false
-  failed_when: ia117_check.rc != 0
-  when: inventory_hostname == 'dc01.corp.local'
-
-- name: IA-117 - Set MachineAccountQuota=100
-  ansible.windows.win_shell: |
-    Import-Module ActiveDirectory
-    Set-ADDomain -Identity "{{ ad_domain }}" `
-      -Replace @{'ms-DS-MachineAccountQuota'=100} -ErrorAction Stop
-    Write-Output "changed: MAQ set to 100"
-  register: ia117_set
-  changed_when: "'changed:' in ia117_set.stdout"
-  failed_when: ia117_set.rc != 0
-  when:
-    - inventory_hostname == 'dc01.corp.local'
-    - "'value=100' not in ia117_check.stdout"
-
-# IA-119: GPO with plaintext password in comment/description
-- name: IA-119 - Drop GPO comment with credentials
-  ansible.windows.win_shell: |
-    Import-Module GroupPolicy
-    $gpo = Get-GPO -Name "Default Domain Policy" -ErrorAction SilentlyContinue
-    if ($gpo) {
-      Set-GPRegistryValue -Name "Default Domain Policy" `
-        -Key "HKLM\Software\DVADLab" `
-        -ValueName "setup_password" `
-        -Type String `
-        -Value "Darryl2024! -- svc_darryl account credential" `
-        -ErrorAction SilentlyContinue
-      Write-Output "changed: credential in GPO registry key"
-    }
-  register: ia119_set
-  changed_when: "'changed:' in ia119_set.stdout"
-  failed_when: ia119_set.rc != 0
+- name: IA-misconfig - Run batched domain-misconfig script (IA-113/114/115/117/119)
+  ansible.windows.win_shell: powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\DunderLab\ext_misconfig.ps1
+  register: ia_misconfig_run
+  changed_when: "'CHANGED:' in ia_misconfig_run.stdout"
+  failed_when: "'ERROR:' in ia_misconfig_run.stdout"
   when: inventory_hostname == 'dc01.corp.local'

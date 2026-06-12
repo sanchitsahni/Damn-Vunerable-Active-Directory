@@ -1,90 +1,22 @@
 ---
 # ==============================================================================
-# vuln_pe_extended/tasks/ad_pe.yml — PE-121..150
-# Target: dc01.corp.local
-#
-# PE-121  SeEnableDelegationPrivilege for service accounts (full Kerberos abuse)
-# PE-122  Schema read rights for non-admin users
-# PE-123  LAPS not deployed (all computer local admin = same password)
-# PE-124  Group Policy creator owner allows non-admin GPO creation
-# PE-125  Managed service account password extractable
-# PE-126  Protected Users group empty (no credential protection)
-# PE-127  Fine-grained audit policy not applied
-# PE-128  Enterprise Admins group accessible to developer2
-# PE-129  Schema Admins contains schema_admin_svc (DF-025)
-# PE-130  SPN on DA-equivalent account (Double-hop abuse)
+# vuln_privesc/tasks/ad_pe.yml  —  dc01.corp.local (import already gated)
+# BATCHED: one templated run instead of ~4 WinRM round-trips.
+# Logic in templates/ad_pe.ps1.j2 (PE-123, PE-126, PE-128).
 # ==============================================================================
 
-# PE-123: LAPS not deployed — all computer local admin passwords are same
-- name: PE-123 - Drop LAPS-not-deployed note
-  ansible.windows.win_copy:
-    dest: 'C:\Flags\FLAG-PE-123-LAPS-NotDeployed.txt'
-    content: |
-      PE-123: LAPS Not Deployed — Uniform Local Admin Password
-      ==========================================================
-      No LAPS (Local Administrator Password Solution) is deployed in this lab.
-      All machines use the same local Administrator password: DVADlab2024!
+- name: PE-ad - Ensure DunderLab dir exists
+  ansible.windows.win_file:
+    path: C:\DunderLab
+    state: directory
 
-      Attack (lateral movement after any local admin access):
-        Any machine local admin credential → access to all machines via:
-          - SMB: psexec/smbexec/wmiexec (impacket)
-          - WinRM: evil-winrm -i <ip> -u Administrator -p DVADlab2024!
-          - PtH: impacket-smbexec CORP/Administrator@<ip> -hashes :$(echo -n DVADlab2024! | md5sum)
+- name: PE-ad - Render batched AD-PE script
+  ansible.windows.win_template:
+    src: ad_pe.ps1.j2
+    dest: C:\DunderLab\ad_pe.ps1
 
-      LAPS read ACL (if LAPS were deployed):
-        IT_Team group has ms-Mcs-AdmPwd read (LAT-023 — vuln_lat_ext)
-
-# PE-126: Protected Users group empty
-- name: PE-126 - Check Protected Users group membership
-  ansible.windows.win_shell: |
-    Import-Module ActiveDirectory
-    $members = Get-ADGroupMember -Identity 'Protected Users' -ErrorAction SilentlyContinue
-    if ($members) {
-      Write-Output "has_members: $($members | Select-Object -ExpandProperty SamAccountName | Join-String ',')"
-    } else {
-      Write-Output "empty"
-    }
-  register: pe126_check
-  changed_when: false
-  failed_when: pe126_check.rc != 0
-
-- name: PE-126 - Drop Protected Users empty note
-  ansible.windows.win_copy:
-    dest: 'C:\Flags\FLAG-PE-126-ProtectedUsers-Empty.txt'
-    content: |
-      PE-126: Protected Users Group is Empty
-      ========================================
-      The Protected Users security group provides enhanced protection:
-        - No NTLM auth (only Kerberos)
-        - No DES or RC4 Kerberos pre-auth
-        - No credential caching in LSASS
-        - TGT lifetime 4h max
-        - Kerberos unconstrained delegation denied
-
-      Status: EMPTY — no DA/EA accounts are protected.
-      This means all admin credentials can be extracted from LSASS,
-      NTLM relay attacks work against DA accounts,
-      and unconstrained delegation attacks are possible.
-
-# PE-128: GenericWrite on Enterprise Admins for developer2
-- name: PE-128 - Grant developer2 GenericWrite on Enterprise Admins
-  ansible.windows.win_shell: |
-    Import-Module ActiveDirectory
-    try {
-      $ea  = Get-ADGroup -Identity 'Enterprise Admins' -ErrorAction Stop
-      $sid = (Get-ADUser -Identity 'developer2' -ErrorAction Stop).SID
-      $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
-        $sid,
-        [System.DirectoryServices.ActiveDirectoryRights]::GenericWrite,
-        [System.Security.AccessControl.AccessControlType]::Allow
-      )
-      $obj = [ADSI]"LDAP://$($ea.DistinguishedName)"
-      $obj.ObjectSecurity.AddAccessRule($ace)
-      $obj.CommitChanges()
-      Write-Output "changed: developer2 GenericWrite on Enterprise Admins"
-    } catch {
-      Write-Output "WARN: $($_.Exception.Message)"
-    }
-  register: pe128_set
-  changed_when: "'changed:' in pe128_set.stdout"
-  failed_when: pe128_set.rc != 0
+- name: PE-ad - Run batched AD-PE script (PE-123/126/128)
+  ansible.windows.win_shell: powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\DunderLab\ad_pe.ps1
+  register: pe_ad_run
+  changed_when: "'CHANGED:' in pe_ad_run.stdout"
+  failed_when: "'ERROR:' in pe_ad_run.stdout"

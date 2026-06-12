@@ -43,11 +43,14 @@ install_fedora_rhel(){
 
 install_arch(){
     log "Detected Arch Linux"
+    # Arch python is externally-managed (PEP 668) — `pip install` fails/refuses,
+    # so install ansible + pywinrm via pacman, not pip. Also packer + cloud-init
+    # tools (cloud-image-utils provides cloud-localds) for the Linux member.
     pacman -Sy --noconfirm --needed \
         qemu-full dnsmasq bridge-utils iptables-nft openresolv \
-        cdrtools aria2 curl wget python-pip \
-        samba jq libvirt
-    pip install ansible pywinrm --quiet
+        cdrtools aria2 curl wget \
+        samba jq libvirt \
+        ansible python-pywinrm packer cloud-image-utils
     systemctl enable --now libvirtd 2>/dev/null || true
 }
 

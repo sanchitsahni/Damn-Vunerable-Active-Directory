@@ -1,105 +1,25 @@
 ---
 # ==============================================================================
-# vuln_privesc/tasks/groups.yml
-# Target: dc01.corp.local
-#
-# PE-005/006  Warehouse populated with svc_darryl (SeBackup/SeRestore)
-# PE-057      Server Operators populated with developer1 (service binPath on DC)
-# PE-059      svc_darryl in Warehouse on DC (NTDS.dit theft path)
-# PE-018      SYSVOL GPO scripts folder writable by Authenticated Users
+# vuln_privesc/tasks/groups.yml  —  dc01.corp.local
+# BATCHED: one templated run instead of ~8 WinRM round-trips.
+# Logic in templates/groups.ps1.j2 (PE-005/006/059, PE-057, PE-018, PE-019).
 # ==============================================================================
 
-# ------------------------------------------------------------------------------
-# PE-005/006/059: svc_darryl in Warehouse
-# SeBackupPrivilege + SeRestorePrivilege -> NTDS.dit theft via robocopy /B
-# ------------------------------------------------------------------------------
-- name: PE-005/059 - Check svc_darryl membership in Warehouse
-  ansible.windows.win_shell: |
-    Import-Module ActiveDirectory
-    $members = Get-ADGroupMember -Identity "Warehouse" |
-                 Select-Object -ExpandProperty SamAccountName
-    if ($members -contains "svc_darryl") { Write-Output "present" } else { Write-Output "absent" }
-  register: result_backup_ops_check
-  changed_when: false
-  failed_when: result_backup_ops_check.rc != 0
-  when: inventory_hostname == 'dc01.corp.local'
-
-- name: PE-005/059 - Add svc_darryl to Warehouse
-  ansible.windows.win_shell: |
-    Import-Module ActiveDirectory
-    Add-ADGroupMember -Identity "Warehouse" -Members "svc_darryl" -ErrorAction Stop
-  when:
-    - inventory_hostname == 'dc01.corp.local'
-    - "'absent' in result_backup_ops_check.stdout"
-  register: result_backup_ops_set
-  failed_when: result_backup_ops_set.rc != 0
-
-# ------------------------------------------------------------------------------
-# PE-057: developer1 in Server Operators (SC.exe service binPath change on DC)
-# ------------------------------------------------------------------------------
-- name: PE-057 - Check developer1 membership in Server Operators
-  ansible.windows.win_shell: |
-    Import-Module ActiveDirectory
-    $members = Get-ADGroupMember -Identity "Server Operators" |
-                 Select-Object -ExpandProperty SamAccountName
-    if ($members -contains "developer1") { Write-Output "present" } else { Write-Output "absent" }
-  register: result_server_ops_check
-  changed_when: false
-  failed_when: result_server_ops_check.rc != 0
-  when: inventory_hostname == 'dc01.corp.local'
-
-- name: PE-057 - Add developer1 to Server Operators
-  ansible.windows.win_shell: |
-    Import-Module ActiveDirectory
-    Add-ADGroupMember -Identity "Server Operators" -Members "developer1" -ErrorAction Stop
-  when:
-    - inventory_hostname == 'dc01.corp.local'
-    - "'absent' in result_server_ops_check.stdout"
-  register: result_server_ops_set
-  failed_when: result_server_ops_set.rc != 0
-
-# ------------------------------------------------------------------------------
-# PE-018: SYSVOL GPO scripts folder writable by Authenticated Users
-# Lets a Backup Operator / domain user drop logon scripts that run as SYSTEM.
-# ------------------------------------------------------------------------------
-- name: PE-018 - Loosen SYSVOL Machine\Scripts DACL for Authenticated Users
-  ansible.windows.win_shell: |
-    $domain  = (Get-ADDomain).DNSRoot
-    $gpoRoot = "C:\Windows\SYSVOL\sysvol\$domain\Policies"
-    if (-not (Test-Path $gpoRoot)) {
-      Write-Error "SYSVOL path not found: $gpoRoot"; exit 1
-    }
-    Get-ChildItem $gpoRoot -Directory | ForEach-Object {
-      $scripts = Join-Path $_.FullName "Machine\Scripts\Startup"
-      if (-not (Test-Path $scripts)) {
-        New-Item -ItemType Directory -Path $scripts -Force | Out-Null
-      }
-      icacls $scripts /grant "CORP\Authenticated Users:(OI)(CI)M" 2>$null | Out-Null
-    }
-  when: inventory_hostname == 'dc01.corp.local'
-  register: result_sysvol_acl
-  failed_when: result_sysvol_acl.rc != 0
-  changed_when: false
-
-# ------------------------------------------------------------------------------
-# PE-019: SYSTEM-only flag in C:\Flags for SeBackup read-path demonstration
-# ------------------------------------------------------------------------------
-- name: PE-019 - Ensure C:\Flags exists on dc01
+- name: PE-groups - Ensure DunderLab dir exists
   ansible.windows.win_file:
-    path: 'C:\Flags'
+    path: C:\DunderLab
     state: directory
   when: inventory_hostname == 'dc01.corp.local'
 
-- name: PE-019 - Drop SYSTEM-only flag (readable via SeBackupPrivilege)
-  ansible.windows.win_copy:
-    dest: 'C:\Flags\dc-system-only.txt'
-    content: "DUNDER{PE-019_BACKUP_OPERATORS_READ_PATH}\r\nNothing stresses me out. Except having to seek the approval of my inferiors. — Dwight Schrute\r\n"
+- name: PE-groups - Render batched group-PE script
+  ansible.windows.win_template:
+    src: groups.ps1.j2
+    dest: C:\DunderLab\groups_pe.ps1
   when: inventory_hostname == 'dc01.corp.local'
 
-- name: PE-019 - Lock flag to SYSTEM and Admins only
-  ansible.windows.win_shell: |
-    icacls "C:\Flags\dc-system-only.txt" /inheritance:r 2>$null | Out-Null
-    icacls "C:\Flags\dc-system-only.txt" /grant "NT AUTHORITY\SYSTEM:F" 2>$null | Out-Null
-    icacls "C:\Flags\dc-system-only.txt" /grant "BUILTIN\Administrators:F" 2>$null | Out-Null
+- name: PE-groups - Run batched group-PE script (PE-005/057/018/019)
+  ansible.windows.win_shell: powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\DunderLab\groups_pe.ps1
+  register: pe_groups_run
+  changed_when: "'CHANGED:' in pe_groups_run.stdout"
+  failed_when: "'ERROR:' in pe_groups_run.stdout"
   when: inventory_hostname == 'dc01.corp.local'
-  changed_when: false

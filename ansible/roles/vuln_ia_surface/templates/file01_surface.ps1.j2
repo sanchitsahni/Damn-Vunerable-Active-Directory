@@ -1,0 +1,126 @@
+#Requires -Version 5
+# ==============================================================================
+# vuln_ia_surface — file01 initial-access surface (BATCHED, file01 only).
+# Replaces ~28 WinRM round-trips with 1. IA-034/050 SNMP, IA-035 anon FTP,
+# IA-036 Telnet, IA-037 anon NFS, IA-038 SMB1/EternalBlue, IA-044/015 Spooler +
+# shared printer, IA-047 WSD/SSDP, IA-040 WinRM-HTTPS. Feature installs are
+# idempotent fallbacks (most are pre-baked in the packer image). Spec, not bugs.
+# ==============================================================================
+$ErrorActionPreference = 'Continue'
+$log = 'C:\DunderLab\vuln_ia_file01.log'
+New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
+function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
+function Ensure-Feature($name) {
+  $f = Get-WindowsFeature -Name $name -ErrorAction SilentlyContinue
+  if ($f -and $f.InstallState -eq 'Installed') { return $false }
+  Install-WindowsFeature -Name $name -IncludeManagementTools -ErrorAction SilentlyContinue | Out-Null
+  return $true
+}
+
+# ── IA-034 / IA-050: SNMP feature + community strings (public RO, private RW) ─
+try {
+  if (Ensure-Feature 'SNMP-Service') { Log "CHANGED: IA-034 SNMP-Service installed" } else { Log "OK: IA-034 SNMP already installed" }
+  $ck = 'HKLM:\SYSTEM\CurrentControlSet\Services\SNMP\Parameters\ValidCommunities'
+  if (-not (Test-Path $ck)) { New-Item -Path $ck -Force | Out-Null }
+{% for c in ia_snmp_communities %}
+  Set-ItemProperty -Path $ck -Name '{{ c.name }}' -Value {{ c.access }} -Type DWord -ErrorAction SilentlyContinue
+{% endfor %}
+  Log "CHANGED: IA-050 SNMP community strings set"
+  $svc = Get-Service -Name SNMP -ErrorAction SilentlyContinue
+  if ($svc -and $svc.Status -ne 'Running') { Set-Service SNMP -StartupType Automatic; Start-Service SNMP -ErrorAction SilentlyContinue; Log "CHANGED: IA-034 SNMP started" }
+} catch { Log "ERROR: IA-034 $($_.Exception.Message)" }
+
+# ── IA-035: anonymous IIS FTP site ───────────────────────────────────────────
+try {
+  if (Ensure-Feature 'Web-Ftp-Server') { Log "CHANGED: IA-035 Web-Ftp-Server installed" } else { Log "OK: IA-035 FTP feature already installed" }
+  New-Item -ItemType Directory -Force -Path 'C:\FTPRoot' | Out-Null
+  Import-Module WebAdministration -ErrorAction SilentlyContinue
+  if (Get-WebSite -Name "{{ ia_ftp_site_name }}" -ErrorAction SilentlyContinue) {
+    Log "OK: IA-035 FTP site already exists"
+  } else {
+    New-WebFtpSite -Name "{{ ia_ftp_site_name }}" -Port {{ ia_ftp_site_port }} -PhysicalPath "C:\FTPRoot" -Force -ErrorAction Stop
+    Set-ItemProperty "IIS:\Sites\{{ ia_ftp_site_name }}" -Name ftpServer.security.authentication.anonymousAuthentication.enabled -Value $true
+    Add-WebConfiguration -Filter system.ftpServer/security/authorization -Value @{accessType='Allow'; users='?'; permissions='Read,Write'} -PSPath "IIS:\Sites\{{ ia_ftp_site_name }}" -ErrorAction SilentlyContinue
+    if (-not (Get-NetFirewallRule -DisplayName "FTP 21" -ErrorAction SilentlyContinue)) {
+      New-NetFirewallRule -DisplayName "FTP 21" -Direction Inbound -Protocol TCP -LocalPort 21 -Action Allow | Out-Null
+    }
+    Log "CHANGED: IA-035 anonymous FTP site created"
+  }
+} catch { Log "ERROR: IA-035 $($_.Exception.Message)" }
+
+# ── IA-036: Telnet server ────────────────────────────────────────────────────
+try {
+  if (Ensure-Feature 'TelnetServer') { Log "CHANGED: IA-036 TelnetServer installed" } else { Log "OK: IA-036 Telnet feature already installed" }
+  $svc = Get-Service -Name TlntSvr -ErrorAction SilentlyContinue
+  if ($null -eq $svc) { Log "OK: IA-036 TlntSvr not present yet" }
+  else {
+    Set-Service TlntSvr -StartupType Automatic -ErrorAction Stop
+    if ((Get-Service TlntSvr).Status -ne 'Running') { Start-Service TlntSvr -ErrorAction Stop; Log "CHANGED: IA-036 TlntSvr started" }
+    else { Log "OK: IA-036 TlntSvr already running" }
+  }
+} catch { Log "ERROR: IA-036 $($_.Exception.Message)" }
+
+# ── IA-037: anonymous NFS share ──────────────────────────────────────────────
+try {
+  if (Ensure-Feature 'FS-NFS-Service') { Log "CHANGED: IA-037 NFS feature installed" } else { Log "OK: IA-037 NFS feature already installed" }
+  New-Item -ItemType Directory -Force -Path "{{ ia_nfs_share_path }}" | Out-Null
+  if (Get-NfsShare -Name "{{ ia_nfs_share_name }}" -ErrorAction SilentlyContinue) {
+    Log "OK: IA-037 NFS share already present"
+  } else {
+    New-NfsShare -Name "{{ ia_nfs_share_name }}" -Path "{{ ia_nfs_share_path }}" -Authentication None -EnableAnonymousAccess $true -AnonymousUid 65534 -AnonymousGid 65534 -ErrorAction Stop
+    Log "CHANGED: IA-037 anonymous NFS share created"
+  }
+} catch { Log "ERROR: IA-037 $($_.Exception.Message)" }
+
+# ── IA-038: SMB1 / EternalBlue surface ───────────────────────────────────────
+try {
+  if (Ensure-Feature 'FS-SMB1') { Log "CHANGED: IA-038 FS-SMB1 installed" } else { Log "OK: IA-038 SMB1 feature already installed" }
+  Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters' -Name SMB1 -Value 1 -Type DWord
+  Log "CHANGED: IA-038 SMB1 enabled via registry"
+} catch { Log "ERROR: IA-038 $($_.Exception.Message)" }
+
+# ── IA-044 / IA-015: Print Spooler + shared printer (PrinterBug) ─────────────
+try {
+  $svc = Get-Service -Name Spooler -ErrorAction SilentlyContinue
+  if ($svc) {
+    Set-Service Spooler -StartupType Automatic -ErrorAction Stop
+    if ((Get-Service Spooler).Status -ne 'Running') { Start-Service Spooler -ErrorAction Stop; Log "CHANGED: IA-044 Spooler started" }
+    else { Log "OK: IA-044 Spooler already running" }
+  }
+  if (Get-Printer -Name "{{ ia_printer_share_name }}" -ErrorAction SilentlyContinue) {
+    Log "OK: IA-044 printer already shared"
+  } else {
+    Add-PrinterDriver -Name "Generic / Text Only" -ErrorAction SilentlyContinue
+    Add-Printer -Name "{{ ia_printer_share_name }}" -DriverName "Generic / Text Only" -PortName "FILE:" -Shared -ShareName "{{ ia_printer_share_name }}" -ErrorAction Stop
+    Log "CHANGED: IA-044 shared printer created"
+  }
+} catch { Log "ERROR: IA-044 $($_.Exception.Message)" }
+
+# ── IA-047: WSD / SSDP discovery services ────────────────────────────────────
+try {
+  $changed = $false
+  foreach ($name in @('FDResPub', 'SSDPSRV', 'fdPHost')) {
+    $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
+    if ($null -eq $svc) { continue }
+    if ($svc.StartType -ne 'Automatic') { Set-Service $name -StartupType Automatic -ErrorAction SilentlyContinue; $changed = $true }
+    $svc.Refresh()
+    if ($svc.Status -ne 'Running') { Start-Service $name -ErrorAction SilentlyContinue; $changed = $true }
+  }
+  if ($changed) { Log "CHANGED: IA-047 WSD/SSDP services configured" } else { Log "OK: IA-047 WSD/SSDP already running" }
+} catch { Log "ERROR: IA-047 $($_.Exception.Message)" }
+
+# ── IA-040: WinRM-HTTPS 5986 self-signed listener ────────────────────────────
+try {
+  $exists = winrm enumerate winrm/config/Listener 2>&1 | Select-String "Transport = HTTPS"
+  if ($exists) { Log "OK: IA-040 WinRM HTTPS already present" }
+  else {
+    $cert = New-SelfSignedCertificate -DnsName $env:COMPUTERNAME -CertStoreLocation "Cert:\LocalMachine\My" -NotAfter (Get-Date).AddYears(10) -ErrorAction Stop
+    winrm create winrm/config/Listener?Address=*+Transport=HTTPS "@{Hostname=`"*`";CertificateThumbprint=`"$($cert.Thumbprint)`"}" | Out-Null
+    if (-not (Get-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -ErrorAction SilentlyContinue)) {
+      New-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow | Out-Null
+    }
+    Log "CHANGED: IA-040 WinRM HTTPS listener created on file01"
+  }
+} catch { Log "ERROR: IA-040 $($_.Exception.Message)" }
+
+Write-Output "DONE"

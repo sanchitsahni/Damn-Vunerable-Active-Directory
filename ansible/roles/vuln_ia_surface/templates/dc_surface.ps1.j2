@@ -1,0 +1,94 @@
+#Requires -Version 5
+# ==============================================================================
+# vuln_ia_surface — DC initial-access surface (BATCHED, all_dcs).
+# Replaces ~13 WinRM round-trips with 1. Rendered per-DC by Jinja so the
+# corp-only blocks (IA-003 dsHeuristics, REC-015 SYSVOL creds) are emitted only
+# on dc01.corp.local. IA-004/041 AXFR, IA-046 ADWS, IA-014 ZeroLogon, IA-040
+# WinRM-HTTPS run on every DC. Deliberately vulnerable lab.
+# ==============================================================================
+$ErrorActionPreference = 'Continue'
+$log = 'C:\DunderLab\vuln_ia_dc.log'
+New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
+function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
+Import-Module ActiveDirectory -ErrorAction SilentlyContinue
+
+{% if inventory_hostname == 'dc01.corp.local' %}
+# ── IA-003: anonymous LDAP bind via dsHeuristics (corp.local only) ───────────
+try {
+  $dn = "CN=Directory Service,CN=Windows NT,CN=Services,CN=Configuration,{{ ia_domain_dn }}"
+  $cur = (Get-ADObject -Identity $dn -Properties dSHeuristics -ErrorAction SilentlyContinue).dSHeuristics
+  if ($cur -eq '0000002') { Log "OK: IA-003 dsHeuristics already set" }
+  else {
+    Set-ADObject -Identity $dn -Replace @{dSHeuristics='0000002'} -ErrorAction Stop
+    Log "CHANGED: IA-003 dsHeuristics set to 0000002"
+  }
+} catch { Log "ERROR: IA-003 $($_.Exception.Message)" }
+{% endif %}
+
+# ── IA-004 / IA-041: unrestricted DNS AXFR (this DC's own zone) ───────────────
+try {
+  $zone = "{{ ad_domain | default(ia_domain) }}"
+  Import-Module DnsServer -ErrorAction SilentlyContinue
+  $z = Get-DnsServerPrimaryZone -Name $zone -ErrorAction SilentlyContinue
+  if (-not $z) { Log "OK: IA-004 zone $zone not found here (skipped)" }
+  elseif ($z.SecureSecondaries -eq 'TransferAnyServer') { Log "OK: IA-004 AXFR already unrestricted on $zone" }
+  else {
+    Set-DnsServerPrimaryZone -Name $zone -SecureSecondaries TransferAnyServer -ErrorAction Stop
+    Log "CHANGED: IA-004 AXFR unrestricted on $zone"
+  }
+} catch { Log "ERROR: IA-004 $($_.Exception.Message)" }
+
+# ── IA-046: ADWS Automatic + running ─────────────────────────────────────────
+try {
+  $svc = Get-Service -Name ADWS -ErrorAction SilentlyContinue
+  if ($null -eq $svc) { Log "OK: IA-046 ADWS not present (skipped)" }
+  else {
+    Set-Service ADWS -StartupType Automatic -ErrorAction Stop
+    if ((Get-Service ADWS).Status -ne 'Running') { Start-Service ADWS -ErrorAction Stop; Log "CHANGED: IA-046 ADWS started" }
+    else { Log "OK: IA-046 ADWS already running" }
+  }
+} catch { Log "ERROR: IA-046 $($_.Exception.Message)" }
+
+# ── IA-014: ZeroLogon surface — FullSecureChannelProtection=0 ────────────────
+try {
+  $k = 'HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters'
+  $v = (Get-ItemProperty -Path $k -Name FullSecureChannelProtection -ErrorAction SilentlyContinue).FullSecureChannelProtection
+  if ($v -eq 0) { Log "OK: IA-014 already 0" }
+  else {
+    if (-not (Test-Path $k)) { New-Item -Path $k -Force | Out-Null }
+    Set-ItemProperty -Path $k -Name FullSecureChannelProtection -Value 0 -Type DWord
+    Log "CHANGED: IA-014 FullSecureChannelProtection=0 (ZeroLogon surface)"
+  }
+} catch { Log "ERROR: IA-014 $($_.Exception.Message)" }
+
+# ── IA-040: WinRM-HTTPS 5986 self-signed listener ────────────────────────────
+try {
+  $exists = winrm enumerate winrm/config/Listener 2>&1 | Select-String "Transport = HTTPS"
+  if ($exists) { Log "OK: IA-040 WinRM HTTPS already present" }
+  else {
+    $cert = New-SelfSignedCertificate -DnsName $env:COMPUTERNAME -CertStoreLocation "Cert:\LocalMachine\My" -NotAfter (Get-Date).AddYears(10) -ErrorAction Stop
+    winrm create winrm/config/Listener?Address=*+Transport=HTTPS "@{Hostname=`"*`";CertificateThumbprint=`"$($cert.Thumbprint)`"}" | Out-Null
+    if (-not (Get-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -ErrorAction SilentlyContinue)) {
+      New-NetFirewallRule -DisplayName "WinRM HTTPS 5986" -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow | Out-Null
+    }
+    Log "CHANGED: IA-040 WinRM HTTPS listener created"
+  }
+} catch { Log "ERROR: IA-040 $($_.Exception.Message)" }
+
+{% if inventory_hostname == 'dc01.corp.local' %}
+# ── REC-015: plaintext credentials in a SYSVOL logon script (corp.local only) ─
+try {
+  $sysvolScript = '{{ ia_sysvol_script_path }}'
+  if (Test-Path $sysvolScript) { Log "OK: REC-015 SYSVOL script already present" }
+  else {
+    New-Item -ItemType Directory -Force -Path (Split-Path $sysvolScript) | Out-Null
+    $content = @'
+{{ ia_sysvol_script_content }}
+'@
+    Set-Content -Path $sysvolScript -Value $content -Encoding ASCII
+    Log "CHANGED: REC-015 SYSVOL credential script dropped"
+  }
+} catch { Log "ERROR: REC-015 $($_.Exception.Message)" }
+{% endif %}
+
+Write-Output "DONE"

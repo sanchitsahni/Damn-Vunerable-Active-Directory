@@ -1,0 +1,67 @@
+#Requires -Version 5
+# ==============================================================================
+# vuln_privesc — kernel/BYOVD PE notes (BATCHED, all Windows hosts).
+# Drops 3 technique-reference note files in one run instead of 3 win_copy calls.
+# ==============================================================================
+$ErrorActionPreference = 'Continue'
+$log = 'C:\DunderLab\vuln_pe_kernel.log'
+New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
+New-Item -ItemType Directory -Force -Path 'C:\Flags' | Out-Null
+function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
+
+try {
+  $n101 = @'
+PE-101: Vulnerable Kernel Driver Loading
+==========================================
+SeLoadDriverPrivilege (PE-085) allows loading arbitrary kernel drivers.
+Vulnerable drivers (BYOVD — Bring Your Own Vulnerable Driver):
+  - RTCore64.sys (MSI AfterBurner) — arbitrary kernel R/W
+  - dbutil_2_3.sys (Dell BIOS Update) — arbitrary kernel R/W
+  - mhyprot2.sys (Genshin Impact) — arbitrary process termination
+
+BYOVD attack:
+  1. Drop vulnerable driver to disk (D:\vulnerable.sys)
+  2. Load via NtLoadDriver (SeLoadDriverPrivilege)
+  3. Use driver IOCTL to disable PPL on AV process
+  4. Dump LSASS / load unsigned driver
+
+Tool: PPLKiller, KDMapper, DriverLoader
+'@
+  Set-Content -Path 'C:\Flags\FLAG-PE-101-KernelDrivers.txt' -Value $n101
+
+  $n110 = @'
+PE-110: Hypervisor / Virtual Firmware PE
+==========================================
+Lab VMs run under QEMU/KVM or VirtualBox.
+Hypervisor escape is theoretical in this lab context; see:
+  - CVE-2024-38080 (Hyper-V LPE — FLAG-PE-CVE-2024-38080.txt)
+  - VENOM CVE-2015-3456 (QEMU floppy buffer overflow — historical)
+  - VBoxHardenedLoader research for VirtualBox escape
+
+Host escape from QEMU:
+  Prereq: exploit qemu-system-x86_64 process running as root on host
+  Tool: QEMU escape PoCs (research context only)
+'@
+  Set-Content -Path 'C:\Flags\FLAG-PE-110-HypervisorPE.txt' -Value $n110
+
+  $n115 = @'
+PE-115: BYOVD Vulnerable Driver Reference
+===========================================
+Commonly abused vulnerable drivers (all available without code signing bypass):
+  RTCore64.sys    — MSI AfterBurner (Micro-Star International)
+  dbutil_2_3.sys  — Dell BIOS Update Utility (CVE-2021-21551)
+  mhyprot2.sys    — Genshin Impact anti-cheat
+  gdrv.sys        — Gigabyte driver
+  AsrDrv104.sys   — ASRock driver
+  atillk64.sys    — ATI Technologies
+
+LOLDrivers database: https://www.loldrivers.io/
+Sigma detection rule: process_creation_suspicious_driver_load.yml
+
+Use with: github.com/wavestone-cdt/EDRSandblast (EDR kernel disable via BYOVD)
+'@
+  Set-Content -Path 'C:\Flags\FLAG-PE-115-VulnDriverList.txt' -Value $n115
+  Log "CHANGED: PE-101/110/115 kernel PE notes dropped"
+} catch { Log "ERROR: PE-kernel $($_.Exception.Message)" }
+
+Write-Output "DONE"

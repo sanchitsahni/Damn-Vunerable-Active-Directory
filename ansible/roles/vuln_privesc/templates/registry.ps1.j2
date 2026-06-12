@@ -1,0 +1,41 @@
+#Requires -Version 5
+# ==============================================================================
+# vuln_privesc — registry PE surfaces (BATCHED). Jinja-gated per host:
+#   PE-011 AlwaysInstallElevated (HKLM+HKCU)  -> ws01, file01
+#   PE-012 ConsentPromptBehaviorAdmin=0       -> ws01
+#   PE-024 HiveNightmare hive-file read ACL   -> ws01
+# ==============================================================================
+$ErrorActionPreference = 'Continue'
+$log = 'C:\DunderLab\vuln_pe_registry.log'
+New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
+function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
+
+{% if inventory_hostname in ['ws01.corp.local', 'file01.corp.local'] %}
+# ── PE-011: AlwaysInstallElevated (both hives → MSI escalation) ───────────────
+try {
+  foreach ($hive in @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer', 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Installer')) {
+    if (-not (Test-Path $hive)) { New-Item -Path $hive -Force | Out-Null }
+    Set-ItemProperty -Path $hive -Name AlwaysInstallElevated -Value 1 -Type DWord
+  }
+  Log "CHANGED: PE-011 AlwaysInstallElevated set (HKLM+HKCU)"
+} catch { Log "ERROR: PE-011 $($_.Exception.Message)" }
+{% endif %}
+
+{% if inventory_hostname == 'ws01.corp.local' %}
+# ── PE-012: auto-elevate UAC for admins (no consent prompt) ──────────────────
+try {
+  Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -Name ConsentPromptBehaviorAdmin -Value 0 -Type DWord
+  Log "CHANGED: PE-012 ConsentPromptBehaviorAdmin=0"
+} catch { Log "ERROR: PE-012 $($_.Exception.Message)" }
+
+# ── PE-024: HiveNightmare — BUILTIN\Users read on SAM/SYSTEM/SECURITY ─────────
+try {
+  foreach ($h in @('SAM', 'SYSTEM', 'SECURITY')) {
+    $path = "$env:windir\System32\config\$h"
+    if (Test-Path $path) { icacls $path /grant "BUILTIN\Users:(R)" 2>$null | Out-Null }
+  }
+  Log "CHANGED: PE-024 hive files granted BUILTIN\Users read"
+} catch { Log "ERROR: PE-024 $($_.Exception.Message)" }
+{% endif %}
+
+Write-Output "DONE"
