@@ -149,6 +149,6 @@
 
 - name: Verify all trusts are present
   ansible.windows.win_shell: |
-    nltest /domain_trusts /all
+    nltest /domain_trusts /all_trusts
   register: trust_verify
   changed_when: false
