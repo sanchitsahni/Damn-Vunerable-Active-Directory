@@ -14,7 +14,7 @@
     state: present
     update_cache: true
   register: docker_pkg
-  failed_when: false
+  ignore_errors: true
 
 - name: Heavy/Docker — expose unauthenticated daemon on 0.0.0.0:2375
   ansible.builtin.copy:
@@ -44,7 +44,7 @@
     name: elasticsearch
     state: present
   register: es_pkg
-  failed_when: false
+  ignore_errors: true
 
 - name: Heavy/Elasticsearch — bind 0.0.0.0, security off
   ansible.builtin.copy:
@@ -73,7 +73,7 @@
     name: jenkins
     state: present
   register: jenkins_pkg
-  failed_when: false
+  ignore_errors: true
 
 - name: Heavy/Jenkins — disable setup wizard + auth (anonymous full control)
   ansible.builtin.copy:

@@ -12,7 +12,7 @@
     state: present
     update_cache: true
   register: redis_pkg
-  failed_when: false
+  ignore_errors: true
   when: vuln_linux_enable_redis | bool
 
 - name: Redis — report if not installable (offline)
@@ -32,6 +32,8 @@
       dir /var/lib/redis
       # no requirepass — anonymous CONFIG SET → RCE (SSH key / cron write)
   notify: restart redis
+  # Only write the config if redis-server actually installed (it creates /etc/redis).
+  # Install uses ignore_errors so .failed is real here (failed_when:false would mask it).
   when: vuln_linux_enable_redis | bool and redis_pkg is not failed
 
 # ── Memcached (I35-19) — unauth, exposed on all interfaces ────────────────────
@@ -40,7 +42,7 @@
     name: memcached
     state: present
   register: memc_pkg
-  failed_when: false
+  ignore_errors: true
   when: vuln_linux_enable_memcached | bool
 
 - name: Memcached — report if not installable
@@ -105,7 +107,7 @@
       - python3-pymysql
     state: present
   register: mysql_pkg
-  failed_when: false
+  ignore_errors: true
   when: vuln_linux_enable_mysql | bool
 
 - name: MySQL — report if not installable
@@ -159,7 +161,7 @@
     name: nfs-kernel-server
     state: present
   register: nfs_pkg
-  failed_when: false
+  ignore_errors: true
   when: vuln_linux_enable_nfs | bool
 
 - name: NFS — report if not installable

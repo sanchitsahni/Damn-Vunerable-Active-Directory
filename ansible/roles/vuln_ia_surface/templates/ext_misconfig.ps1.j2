@@ -14,9 +14,7 @@ Import-Module GroupPolicy -ErrorAction SilentlyContinue
 
 # ── IA-113: weak default domain password policy ──────────────────────────────
 try {
-  Set-ADDefaultDomainPasswordPolicy -ComplexityEnabled $false -MinPasswordLength 1 `
-    -MaxPasswordAge ([TimeSpan]::Zero) -MinPasswordAge ([TimeSpan]::Zero) `
-    -PasswordHistoryCount 0 -LockoutThreshold 0 -Identity "{{ ad_domain }}" -ErrorAction SilentlyContinue
+  Set-ADDefaultDomainPasswordPolicy -ComplexityEnabled $false -MinPasswordLength 1 -MaxPasswordAge ([TimeSpan]::Zero) -MinPasswordAge ([TimeSpan]::Zero) -PasswordHistoryCount 0 -LockoutThreshold 0 -Identity "{{ ad_domain }}" -ErrorAction SilentlyContinue
   Log "CHANGED: IA-113 weak password policy set"
 } catch { Log "ERROR: IA-113 $($_.Exception.Message)" }
 
@@ -25,10 +23,7 @@ try {
   if (Get-ADFineGrainedPasswordPolicy -Filter "Name -eq 'Weak-PSO'" -ErrorAction SilentlyContinue) {
     Log "OK: IA-114 Weak-PSO already present"
   } else {
-    New-ADFineGrainedPasswordPolicy -Name 'Weak-PSO' -ComplexityEnabled $false -MinPasswordLength 1 `
-      -MaxPasswordAge ([TimeSpan]::Zero) -MinPasswordAge ([TimeSpan]::Zero) -PasswordHistoryCount 0 `
-      -LockoutThreshold 0 -Precedence 10 -ProtectedFromAccidentalDeletion $false `
-      -Description "IA-114: Weak PSO for service accounts — no complexity"
+    New-ADFineGrainedPasswordPolicy -Name 'Weak-PSO' -ComplexityEnabled $false -MinPasswordLength 1 -MaxPasswordAge ([TimeSpan]::Zero) -MinPasswordAge ([TimeSpan]::Zero) -PasswordHistoryCount 0 -LockoutThreshold 0 -Precedence 10 -ProtectedFromAccidentalDeletion $false -Description "IA-114: Weak PSO for service accounts — no complexity"
     Log "CHANGED: IA-114 Weak-PSO created"
   }
 } catch { Log "ERROR: IA-114 $($_.Exception.Message)" }
@@ -57,9 +52,7 @@ try {
 # ── IA-119: plaintext credential planted in a GPO registry value ─────────────
 try {
   if (Get-GPO -Name "Default Domain Policy" -ErrorAction SilentlyContinue) {
-    Set-GPRegistryValue -Name "Default Domain Policy" -Key "HKLM\Software\EMPIRELab" `
-      -ValueName "setup_password" -Type String `
-      -Value "Darryl2024! -- svc_darryl account credential" -ErrorAction SilentlyContinue | Out-Null
+    Set-GPRegistryValue -Name "Default Domain Policy" -Key "HKLM\Software\EMPIRELab" -ValueName "setup_password" -Type String -Value "Darryl2024! -- svc_darryl account credential" -ErrorAction SilentlyContinue | Out-Null
     Log "CHANGED: IA-119 credential planted in GPO registry key"
   } else { Log "OK: IA-119 Default Domain Policy GPO not found (skipped)" }
 } catch { Log "ERROR: IA-119 $($_.Exception.Message)" }

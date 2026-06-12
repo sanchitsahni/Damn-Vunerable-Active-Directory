@@ -29,6 +29,9 @@
   register: result_adminsdholder_check
   changed_when: false
   failed_when: result_adminsdholder_check.rc != 0
+  # stanley.hudson + AdminSDHolder live in empire.local root — only coruscant has
+  # the user + ADWS. On members/foreign DCs this throws (no module / no object).
+  when: inventory_hostname == 'coruscant.empire.local'
 
 - name: PER-015/033 - Grant stanley.hudson GenericAll on AdminSDHolder
   ansible.windows.win_shell: |
@@ -42,7 +45,9 @@
                $sid, "GenericAll", "Allow")
     $acl.AddAccessRule($rule)
     Set-Acl -Path "AD:\$dn" -AclObject $acl
-  when: "'absent' in result_adminsdholder_check.stdout"
+  when:
+    - inventory_hostname == 'coruscant.empire.local'
+    - "'absent' in result_adminsdholder_check.stdout"
   register: result_adminsdholder_set
   failed_when: result_adminsdholder_set.rc != 0
 
@@ -66,6 +71,8 @@
   register: result_kcl_check
   changed_when: false
   failed_when: result_kcl_check.rc != 0
+  # svc_trooper is an empire.local root object — coruscant only (ADWS + object).
+  when: inventory_hostname == 'coruscant.empire.local'
 
 - name: PER-027 - Grant svc_trooper GenericWrite on own object (KeyCredentialLink surface)
   ansible.windows.win_shell: |
@@ -77,6 +84,8 @@
               $sid, "GenericWrite", "Allow")
     $acl.AddAccessRule($rule)
     Set-Acl -Path "AD:\$($u.DistinguishedName)" -AclObject $acl
-  when: "'absent' in result_kcl_check.stdout"
+  when:
+    - inventory_hostname == 'coruscant.empire.local'
+    - "'absent' in result_kcl_check.stdout"
   register: result_kcl_set
   failed_when: result_kcl_set.rc != 0
