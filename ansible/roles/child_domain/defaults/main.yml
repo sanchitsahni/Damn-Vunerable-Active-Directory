@@ -17,8 +17,14 @@ child_dns: "10.10.0.10"
 # Parent DC IP — used for LDAP readiness polling
 parent_dc_ip: "10.10.0.10"
 
-# Credentials of a parent domain admin to authorize child domain creation
+# Credentials of a parent domain admin to authorize child domain creation.
+# parent_admin_user (NetBIOS form) is used for WinRM/NTLM auth.
+# parent_admin_upn (UPN form) is used for the Install-ADDSDomain Credential:
+# DCPromo's Kerberos credential check needs a DNS-RESOLVABLE domain. NetBIOS
+# "CORP\" is not DNS-resolvable, so it fails with 0xC000005E / "You must supply
+# a DNS resolvable domain name to which this user account belongs."
 parent_admin_user: "CORP\\Administrator"
+parent_admin_upn: "Administrator@corp.local"
 parent_admin_password: "DVADlab2024!"
 
 ad_safe_mode_password: "DVADlab2024!"

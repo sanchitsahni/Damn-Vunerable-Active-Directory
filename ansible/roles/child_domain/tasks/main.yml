@@ -102,6 +102,78 @@
   changed_when: false
 
 # --------------------------------------------------------------------------
+# Machine-SID uniqueness. All lab VMs are CoW clones of one Packer base, so
+# dc01.eu shares the parent DC's machine SID and DCPromo rejects the child join
+# with "the SID for this computer is already in use in the Forest". Generalizing
+# in Packer severs WinRM mid-build (Packer cannot then capture/shutdown), so we
+# regenerate the SID HERE via sysprep: the box reboots through OOBE (auto-completed
+# by files/sysprep-unattend.xml) and wait_for_connection reconnects. Skipped on
+# re-runs once the DC role is held (4/5) and when the SID is already unique.
+# --------------------------------------------------------------------------
+
+- name: Read this child DC machine SID
+  ansible.windows.win_shell: |
+    ((Get-LocalUser -Name Administrator).SID.Value) -replace '-\d+$',''
+  register: child_machine_sid
+  changed_when: false
+  when: domain_role.stdout | trim not in ['4', '5']
+
+- name: Read parent DC machine SID
+  ansible.windows.win_shell: |
+    ((Get-LocalUser -Name Administrator).SID.Value) -replace '-\d+$',''
+  register: parent_machine_sid
+  delegate_to: dc01.corp.local
+  changed_when: false
+  when: domain_role.stdout | trim not in ['4', '5']
+
+- name: Regenerate machine SID via sysprep when it collides with the parent
+  when:
+    - domain_role.stdout | trim not in ['4', '5']
+    - (child_machine_sid.stdout | trim) == (parent_machine_sid.stdout | trim)
+  block:
+    - name: Stage WinRM re-enable script (run by sysprep OOBE FirstLogonCommand)
+      ansible.windows.win_copy:
+        src: "{{ role_path }}/../../../packer/scripts/setup-winrm.ps1"
+        dest: C:\setup-winrm.ps1
+
+    - name: Stage sysprep answer file
+      ansible.windows.win_copy:
+        src: sysprep-unattend.xml
+        dest: C:\Windows\System32\Sysprep\unattend.xml
+
+    - name: Launch sysprep generalize (detached; box reboots and gets a new SID)
+      # Detached via Start-Process so sysprep survives the WinRM teardown that
+      # generalize triggers and runs to completion. /reboot (not /shutdown): we
+      # WANT it to come back. OOBE is auto-completed by the staged unattend.
+      ansible.windows.win_shell: |
+        Start-Process -FilePath C:\Windows\System32\Sysprep\Sysprep.exe -ArgumentList `
+          '/generalize','/oobe','/reboot','/quiet','/unattend:C:\Windows\System32\Sysprep\unattend.xml'
+      async: 15
+      poll: 0
+
+    - name: Wait for eu to generalize, reboot, OOBE-complete and WinRM to return
+      ansible.builtin.wait_for_connection:
+        delay: 120
+        timeout: 1200
+
+    - name: Reset connection after sysprep reboot
+      ansible.builtin.meta: reset_connection
+
+    - name: Re-read eu machine SID after sysprep
+      ansible.windows.win_shell: |
+        ((Get-LocalUser -Name Administrator).SID.Value) -replace '-\d+$',''
+      register: child_sid_after
+      changed_when: false
+
+    - name: Assert eu now has a unique machine SID
+      ansible.builtin.assert:
+        that: (child_sid_after.stdout | trim) != (parent_machine_sid.stdout | trim)
+        fail_msg: >-
+          sysprep did not change eu machine SID (still {{ child_sid_after.stdout | trim }});
+          DCPromo will reject the child join. Check C:\Windows\System32\Sysprep\Panther\setuperr.log.
+        success_msg: "eu machine SID regenerated -> {{ child_sid_after.stdout | trim }}"
+
+# --------------------------------------------------------------------------
 # Child domain promotion (async — server reboots mid-execution)
 # --------------------------------------------------------------------------
 
@@ -115,8 +187,10 @@
       InstallDns                    = $true
       # CreateDnsDelegation=$true registers NS/glue records in parent zone automatically
       CreateDnsDelegation           = $true
+      # UPN form (not NetBIOS) — the DCPromo Kerberos check needs a DNS-resolvable
+      # domain or it fails with 0xC000005E / DNS-resolvable-domain-name error.
       Credential                    = (New-Object System.Management.Automation.PSCredential(
-                                          "{{ parent_admin_user }}",
+                                          "{{ parent_admin_upn }}",
                                           (ConvertTo-SecureString "{{ parent_admin_password }}" -AsPlainText -Force)))
       SafeModeAdministratorPassword = (ConvertTo-SecureString "{{ ad_safe_mode_password }}" -AsPlainText -Force)
       DatabasePath                  = "{{ ad_db_path }}"
@@ -131,33 +205,79 @@
   poll: 0
   when: domain_role.stdout | trim not in ['4', '5']
 
-- name: Switch Ansible credentials to child domain Administrator
+- name: Switch Ansible credentials to forest enterprise admin (rights on child DC)
+  # A freshly-promoted child domain's built-in Administrator does NOT reliably
+  # carry DVADlab2024!, so 'Administrator@eu.corp.local' gets rejected. The
+  # parent/forest-root admin (CORP\Administrator = Enterprise Admin) can always
+  # authenticate to the child DC over WinRM.
   ansible.builtin.set_fact:
-    ansible_user: "Administrator@{{ child_domain }}"
+    ansible_user: "{{ parent_admin_user }}"
+    ansible_password: "{{ parent_admin_password }}"
   when: domain_role.stdout | trim not in ['4', '5']
 
-- name: Wait for child DC to reboot and WinRM to return (up to 15 min)
+- name: Wait for child DC to reboot and WinRM to return (up to 20 min)
   ansible.builtin.wait_for_connection:
-    delay: 60
-    timeout: 900
+    delay: 90
+    timeout: 1200
   when: domain_role.stdout | trim not in ['4', '5']
+
+# --------------------------------------------------------------------------
+# DNS self-reference — a freshly-promoted child DC hosts eu.corp.local itself,
+# but its NIC DNS still points only at the parent (used during the join). It
+# must resolve its OWN SRV records to advertise; otherwise Netlogon/NTDS never
+# go "advertising" and ADWS refuses (1355). Point DNS at self first, parent
+# second, then re-register SRV records. Changing the DNS server (not the IP)
+# does not drop the WinRM session — Ansible connects by IP (10.10.0.11).
+# --------------------------------------------------------------------------
+
+- name: Point child DC DNS at itself first, parent second, and re-register SRV
+  ansible.windows.win_shell: |
+    $adapter = Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
+    netsh interface ip set dns "$($adapter.Name)" static {{ child_dc_ip }} primary
+    netsh interface ip add dns "$($adapter.Name)" {{ parent_dc_ip }} index=2
+    Restart-Service Netlogon -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 5
+    ipconfig /registerdns | Out-Null
+    nltest /dsregdns 2>$null
+    Write-Output "DNS set: {{ child_dc_ip }},{{ parent_dc_ip }}"
+  changed_when: false
+  # No promotion gate: idempotent remediation that must also run on re-runs,
+  # when the DC is already role 5 but stuck unable to resolve its own SRVs.
 
 # --------------------------------------------------------------------------
 # Verify AD is responding before site.yml continues to trust/DNS roles
 # --------------------------------------------------------------------------
 
-- name: Verify child domain AD is up
+- name: Verify child domain AD is up (NTDS + ADWS + port 9389)
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory -ErrorAction Stop
+    # ADWS (127.0.0.1:9389, the endpoint the AD module talks to) only answers
+    # once NTDS/AD DS is running. On a fresh CHILD DC, NTDS lags WinRM longer
+    # than on a forest root — it must locate the parent and do initial
+    # replication. Force the NTDS->ADWS service chain, wait for the port to
+    # actually listen, then query. On failure, emit service state so a genuine
+    # promotion/replication problem is visible instead of a bare timeout.
+    foreach ($svc in 'NTDS','ADWS') {
+      try { Start-Service $svc -ErrorAction Stop } catch {}
+    }
+    $listening = $false
+    $deadline  = (Get-Date).AddSeconds(120)
+    do {
+      $listening = (Test-NetConnection -ComputerName 127.0.0.1 -Port 9389 -WarningAction SilentlyContinue).TcpTestSucceeded
+      if ($listening) { break }
+      Start-Sleep -Seconds 5
+    } while ((Get-Date) -lt $deadline)
     try {
-      $d = Get-ADDomain -ErrorAction Stop
+      $d = Get-ADDomain -Server localhost -ErrorAction Stop
       Write-Output "DOMAIN_OK: $($d.DNSRoot)"
     } catch {
-      Write-Output "DOMAIN_FAIL: $($_.Exception.Message)"
+      $ntds = (Get-Service NTDS -ErrorAction SilentlyContinue).Status
+      $adws = (Get-Service ADWS -ErrorAction SilentlyContinue).Status
+      Write-Output "DOMAIN_FAIL: NTDS=$ntds ADWS=$adws port9389=$listening :: $($_.Exception.Message)"
       exit 1
     }
   register: child_verify
   changed_when: false
-  retries: 5
+  retries: 20
   delay: 30
   until: "'DOMAIN_OK' in child_verify.stdout"
