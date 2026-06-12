@@ -53,18 +53,37 @@
 # Feature installation
 # --------------------------------------------------------------------------
 
-- name: Install AD DS features
-  ansible.windows.win_feature:
-    name:
-      - AD-Domain-Services
-      - DNS
-      - GPMC
-      - RSAT-ADDS
-      - RSAT-DNS-Server
-      - RSAT-AD-PowerShell
-    state: present
-    include_management_tools: yes
-  register: ad_ds_install
+# Features are already baked by the autounattend, so this is normally a quick
+# state check. But on a busy DC (3 promoting in parallel) WinRM can get severed
+# mid-command ("Bad HTTP response Code 400"). Catch that, reconnect, and retry —
+# the retry is a no-op confirm once the box settles.
+- name: Install AD DS features (resilient to mid-command WinRM drop)
+  block:
+    - name: Install AD DS features
+      ansible.windows.win_feature:
+        name: &ad_ds_features
+          - AD-Domain-Services
+          - DNS
+          - GPMC
+          - RSAT-ADDS
+          - RSAT-DNS-Server
+          - RSAT-AD-PowerShell
+        state: present
+        include_management_tools: yes
+      register: ad_ds_install
+  rescue:
+    - name: Reconnect after the feature-install WinRM disruption
+      ansible.builtin.wait_for_connection:
+        delay: 15
+        timeout: 300
+    - name: Reset stale WinRM connection
+      ansible.builtin.meta: reset_connection
+    - name: Install AD DS features (retry — confirms baked features)
+      ansible.windows.win_feature:
+        name: *ad_ds_features
+        state: present
+        include_management_tools: yes
+      register: ad_ds_install
 
 - name: Reboot if feature install or hostname change requires it
   ansible.windows.win_reboot:
