@@ -15,28 +15,30 @@
 # ==============================================================================
 
 # ============================================================================
-# Phase 1: Promote dc01.corp.local (corp.local forest root DC)
+# Phase 1: Promote the 3 INDEPENDENT forest-root DCs IN PARALLEL.
+# corp.local, finance.local and root.corp are separate forests with no
+# dependency on each other, so they promote simultaneously (strategy: free)
+# instead of one-at-a-time — ~3x faster than separate sequential plays.
+# Per-host vars (ad_domain/netbios/hostname/static_ip/subnet/gateway) come from
+# inventory.yml host_vars; the rest from the ad_domain role defaults.
 # ============================================================================
-- name: Phase 1 — Promote corp.local DC
-  hosts: dc01.corp.local
+- name: Phase 1 — Promote forest-root DCs (corp + finance + root, parallel)
+  hosts:
+    - dc01.corp.local
+    - dc01.finance.local
+    - dc01.root.corp
+  strategy: free
   gather_facts: false
   tags:
     - ad_domain
-    - corp_dc
+    - forest_roots
     - phase1
   roles:
     - role: ad_domain
-      vars:
-        ad_domain: corp.local
-        ad_netbios: CORP
-        ad_hostname: dc01
-        ad_static_ip: 10.10.0.10
-        ad_subnet_mask: 255.255.248.0
-        ad_gateway: 10.10.0.1
 
 # ============================================================================
-# Phase 2: Promote dc01.eu.corp.local (child domain)
-# Must run after Phase 1 — corp.local LDAP must be up.
+# Phase 2: Promote dc01.eu.corp.local (child domain).
+# Must run AFTER Phase 1 — corp.local LDAP must be up first.
 # ============================================================================
 - name: Phase 2 — Promote eu.corp.local child DC
   hosts: dc01.eu.corp.local
@@ -47,46 +49,6 @@
     - phase2
   roles:
     - role: child_domain
-
-# ============================================================================
-# Phase 3: Promote dc01.finance.local (finance.local forest, separate)
-# ============================================================================
-- name: Phase 3 — Promote finance.local DC
-  hosts: dc01.finance.local
-  gather_facts: false
-  tags:
-    - ad_domain
-    - finance_dc
-    - phase3
-  roles:
-    - role: ad_domain
-      vars:
-        ad_domain: finance.local
-        ad_netbios: FINANCE
-        ad_hostname: DC01-FIN
-        ad_static_ip: 10.10.20.10
-        ad_subnet_mask: 255.255.0.0
-        ad_gateway: 10.10.0.1
-
-# ============================================================================
-# Phase 4: Promote dc01.root.corp (root.corp forest, separate)
-# ============================================================================
-- name: Phase 4 — Promote root.corp DC
-  hosts: dc01.root.corp
-  gather_facts: false
-  tags:
-    - ad_domain
-    - root_dc
-    - phase4
-  roles:
-    - role: ad_domain
-      vars:
-        ad_domain: root.corp
-        ad_netbios: ROOT
-        ad_hostname: DC01-ROOT
-        ad_static_ip: 10.10.30.10
-        ad_subnet_mask: 255.255.0.0
-        ad_gateway: 10.10.0.1
 
 # ============================================================================
 # Phase 5: Join member servers to corp.local
@@ -151,7 +113,11 @@
     - phase8
   roles:
     - role: vuln_cred_access
+    # Kerberoast/AS-REP/delegation targets (svc_printer/svc_dwight/svc_creed,
+    # FILE01/WS01) exist only in corp.local — the role header says "Target:
+    # dc01.corp.local". Scope it so it does not fail on the finance/root/eu DCs.
     - role: vuln_kerberos
+      when: inventory_hostname == 'dc01.corp.local'
     - role: vuln_forest
 
 - name: Phase 8b — ADCS vulnerability injection (ca01)

@@ -436,6 +436,22 @@
   changed_when: false
   failed_when: result_gmsa_check.rc != 0
 
+# 'Regional Managers' is the principal allowed to retrieve the gMSA password.
+# It is referenced but never created elsewhere, so New-ADServiceAccount fails to
+# resolve it. Ensure it exists first.
+- name: CRED-034 - Ensure 'Regional Managers' group exists (gMSA retrieval principals)
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    if (-not (Get-ADGroup -Filter "Name -eq 'Regional Managers'" -ErrorAction SilentlyContinue)) {
+      New-ADGroup -Name "Regional Managers" -SamAccountName "Regional Managers" `
+        -GroupCategory Security -GroupScope Global `
+        -Path "CN=Users,DC={{ ad_domain.split('.') | join(',DC=') }}"
+      Write-Output "created"
+    } else { Write-Output "present" }
+  register: result_regmgr
+  changed_when: "'created' in result_regmgr.stdout"
+  failed_when: result_regmgr.rc != 0
+
 - name: CRED-034 - Create gmsa_web$ gMSA with Regional_Managers retrieval rights
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
