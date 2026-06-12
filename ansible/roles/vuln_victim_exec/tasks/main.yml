@@ -113,7 +113,7 @@
     run_level: limited              # no elevation — a normal user clicks things
     multiple_instances: ignore_new  # only one instance at a time
     restart_count: 99
-    restart_interval: PT30S        # restart 30 s after crash
+    restart_interval: PT1M         # restart 1 min after crash (Win Task Scheduler floor)
     execution_time_limit: PT0S     # no time limit (runs forever)
     enabled: true
     state: present

@@ -33,6 +33,13 @@
     enabled: true
   failed_when: false
 
+- name: restart mariadb
+  ansible.builtin.systemd:
+    name: mariadb
+    state: restarted
+    enabled: true
+  failed_when: false
+
 - name: restart nfs
   ansible.builtin.systemd:
     name: nfs-kernel-server
