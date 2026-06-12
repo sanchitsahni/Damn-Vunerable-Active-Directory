@@ -69,14 +69,17 @@
     state: started
     start_mode: auto
 
-- name: Ensure IIS web enrollment services are running
-  ansible.windows.win_service:
-    name: "{{ item }}"
-    state: started
-    start_mode: auto
-  loop:
-    - IISADMIN
-    - W3SVC
+- name: Ensure IIS web enrollment services are running (skip any not present)
+  # IISADMIN (legacy IIS Admin Service) is usually absent on Server 2022; only
+  # start services that actually exist so win_service doesn't fail on it.
+  ansible.windows.win_shell: |
+    foreach ($s in 'W3SVC','IISADMIN') {
+      if (Get-Service $s -ErrorAction SilentlyContinue) {
+        Set-Service $s -StartupType Automatic
+        Start-Service $s -ErrorAction SilentlyContinue
+      }
+    }
+  changed_when: false
 
 - name: Import ADCS template tasks (ESC1-5, ESC13, ESC15)
   ansible.builtin.import_tasks: templates.yml
