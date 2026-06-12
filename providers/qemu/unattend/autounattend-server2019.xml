@@ -84,23 +84,26 @@
         <LogonCount>5</LogonCount>
         <Username>Administrator</Username>
       </AutoLogon>
+      <!-- ORDER MATTERS: features FIRST, WinRM LAST. WinRM :5985 answering is the
+           readiness signal that starts Ansible; if it opened mid Install-WindowsFeature
+           Ansible would collide with the servicing op and time out (180s). -->
       <FirstLogonCommands>
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>
-          <Description>Enable WinRM + base hardening removal (setup-winrm.ps1 on the UNATTEND CD)</Description>
-          <CommandLine>cmd /c "for %d in (D E F G H I) do if exist %d:\setup-winrm.ps1 powershell.exe -ExecutionPolicy Bypass -File %d:\setup-winrm.ps1"</CommandLine>
-          <RequiresUserInput>false</RequiresUserInput>
-        </SynchronousCommand>
-        <SynchronousCommand wcm:action="add">
-          <Order>2</Order>
           <Description>Bake Windows features (IIS/file surface for file01)</Description>
           <CommandLine>powershell.exe -NoProfile -Command "Install-WindowsFeature -Name Web-Server,Web-DAV-Publishing,Web-Dir-Browsing,Web-CGI,Web-ISAPI-Ext,Web-ISAPI-Filter,Web-Asp-Net45,Web-Http-Logging,Web-Mgmt-Console,FS-FileServer -IncludeManagementTools -ErrorAction SilentlyContinue; exit 0"</CommandLine>
           <RequiresUserInput>false</RequiresUserInput>
         </SynchronousCommand>
         <SynchronousCommand wcm:action="add">
-          <Order>3</Order>
+          <Order>2</Order>
           <Description>Create lab directories</Description>
           <CommandLine>cmd /c "mkdir C:\Setup &amp; mkdir C:\Flags &amp; mkdir C:\CTF &amp; mkdir C:\Tools"</CommandLine>
+          <RequiresUserInput>false</RequiresUserInput>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>3</Order>
+          <Description>Enable WinRM LAST (readiness signal) — setup-winrm.ps1 on the UNATTEND CD</Description>
+          <CommandLine>cmd /c "for %d in (D E F G H I) do if exist %d:\setup-winrm.ps1 powershell.exe -ExecutionPolicy Bypass -File %d:\setup-winrm.ps1"</CommandLine>
           <RequiresUserInput>false</RequiresUserInput>
         </SynchronousCommand>
       </FirstLogonCommands>

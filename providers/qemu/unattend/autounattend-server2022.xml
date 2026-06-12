@@ -87,23 +87,28 @@
         <LogonCount>5</LogonCount>
         <Username>Administrator</Username>
       </AutoLogon>
+      <!-- ORDER MATTERS: install features FIRST, enable WinRM LAST. WinRM is the
+           readiness signal (deploy.py phase 4 starts Ansible when :5985 answers).
+           If WinRM opened before the ~5-min Install-WindowsFeature finished, Ansible
+           would collide with the in-progress servicing operation and its feature
+           task would hang (180s WinRM read timeout). WinRM last => up means done. -->
       <FirstLogonCommands>
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>
-          <Description>Enable WinRM + base hardening removal (setup-winrm.ps1 on the UNATTEND CD)</Description>
-          <CommandLine>cmd /c "for %d in (D E F G H I) do if exist %d:\setup-winrm.ps1 powershell.exe -ExecutionPolicy Bypass -File %d:\setup-winrm.ps1"</CommandLine>
-          <RequiresUserInput>false</RequiresUserInput>
-        </SynchronousCommand>
-        <SynchronousCommand wcm:action="add">
-          <Order>2</Order>
           <Description>Bake Windows features (skips per-deploy Ansible installs)</Description>
           <CommandLine>powershell.exe -NoProfile -Command "Install-WindowsFeature -Name AD-Domain-Services,DNS,RSAT-AD-PowerShell,RSAT-ADDS-Tools,RSAT-DNS-Server,SNMP-Service,FS-DFS-Namespace,FS-DFS-Replication,Web-Server,Web-Mgmt-Console,Print-Server -IncludeManagementTools -ErrorAction SilentlyContinue; exit 0"</CommandLine>
           <RequiresUserInput>false</RequiresUserInput>
         </SynchronousCommand>
         <SynchronousCommand wcm:action="add">
-          <Order>3</Order>
+          <Order>2</Order>
           <Description>Create lab directories</Description>
           <CommandLine>cmd /c "mkdir C:\Setup &amp; mkdir C:\Flags &amp; mkdir C:\CTF &amp; mkdir C:\Tools"</CommandLine>
+          <RequiresUserInput>false</RequiresUserInput>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>3</Order>
+          <Description>Enable WinRM LAST (readiness signal) — setup-winrm.ps1 on the UNATTEND CD</Description>
+          <CommandLine>cmd /c "for %d in (D E F G H I) do if exist %d:\setup-winrm.ps1 powershell.exe -ExecutionPolicy Bypass -File %d:\setup-winrm.ps1"</CommandLine>
           <RequiresUserInput>false</RequiresUserInput>
         </SynchronousCommand>
       </FirstLogonCommands>
