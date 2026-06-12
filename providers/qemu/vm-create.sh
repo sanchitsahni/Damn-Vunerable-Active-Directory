@@ -45,26 +45,40 @@ fi
 # ==============================================================================
 declare -A VM_DEFS
 
+# RAM right-sized BY LOAD to keep the full 9-VM lab under ~16 GB real usage.
+# Sum = 12.25 GB alloc -> ~15 GB real with qemu overhead. The workhorses get
+# more; the near-idle lone trust DCs (dc01fin/dc01root) and the child DC get
+# the floor. All guests have Windows pagefile on, so transient spikes swap
+# rather than OOM. If a low-RAM DC's promotion still struggles, bump it +256.
+#   dc01    1792  forest root: AD+DNS+both trusts + bulk of vuln injection
+#   sql01   1792  MSSQL engine (memory-hungry)
+#   ca01    1536  ADCS / CA role
+#   dc01eu  1280  child DC (light)
+#   file01  1280  2019 file/IIS/SMB/services
+#   dc01fin 1280  lone DC — only holds the finance trust (near-idle)
+#   dc01root1280  lone DC — only holds the root trust (near-idle)
+#   linux01 1280  Ubuntu + lightweight services
+#   ws01    1024  Server Core victim member (no roles, just sim tasks)
 VM_DEFS=(
     # corp.local / eu.corp.local segment — bridge dvad-ctf
-    ["dc01"]="52:54:00:01:01:01|2048|40|2|5901|dvad-ctf|server2022"
-    ["dc01eu"]="52:54:00:01:01:02|1536|25|2|5902|dvad-ctf|server2022"
+    ["dc01"]="52:54:00:01:01:01|1792|40|2|5901|dvad-ctf|server2022"
+    ["dc01eu"]="52:54:00:01:01:02|1280|25|2|5902|dvad-ctf|server2022"
     ["ca01"]="52:54:00:01:01:03|1536|25|2|5903|dvad-ctf|server2022"
-    ["file01"]="52:54:00:01:01:04|1536|20|2|5904|dvad-ctf|server2019"
-    ["sql01"]="52:54:00:01:01:05|2048|25|2|5905|dvad-ctf|server2022"
+    ["file01"]="52:54:00:01:01:04|1280|20|2|5904|dvad-ctf|server2019"
+    ["sql01"]="52:54:00:01:01:05|1792|25|2|5905|dvad-ctf|server2022"
     # ws01 — Server Core member acting as the victim "workstation" (headless,
     # no GUI). Was Win10 Desktop; converted to reuse the server2022 base so the
     # whole lab is GUI-less and lower-RAM. All AD/network/coercion attacks still
     # apply via vuln_victim_exec + vuln_traffic_sim. GUI-only CVEs were removed.
-    ["ws01"]="52:54:00:01:01:06|1536|30|2|5906|dvad-ctf|server2022"
+    ["ws01"]="52:54:00:01:01:06|1024|30|2|5906|dvad-ctf|server2022"
     # finance.local segment — single bridge dvad-ctf (10.10.20.x)
-    ["dc01fin"]="52:54:00:02:01:01|1536|25|2|5907|dvad-ctf|server2022"
+    ["dc01fin"]="52:54:00:02:01:01|1280|25|2|5907|dvad-ctf|server2022"
     # root.corp segment — single bridge dvad-ctf (10.10.30.x)
-    ["dc01root"]="52:54:00:03:01:01|1536|25|2|5908|dvad-ctf|server2022"
+    ["dc01root"]="52:54:00:03:01:01|1280|25|2|5908|dvad-ctf|server2022"
     # linux01 — Ubuntu 22.04 cloud member (Linux-in-AD). NOT a packer build:
     # base_image "ubuntu" resolves to media/ubuntu-22.04-cloud.img and the
     # launch branch boots it COW + a cloud-init NoCloud seed ISO (no install).
-    ["linux01"]="52:54:00:01:01:07|2048|20|2|5909|dvad-ctf|ubuntu"
+    ["linux01"]="52:54:00:01:01:07|1280|20|2|5909|dvad-ctf|ubuntu"
 )
 
 # Ordered name → FQDN mapping (associative arrays are unordered in Bash)
@@ -162,44 +176,187 @@ destroy_tap() {
 }
 
 # ==============================================================================
+# ALL-FRESH Windows install (no CoW cloning -> every VM gets a UNIQUE machine
+# SID, which is what a child DC needs to join an existing forest). Each Windows
+# VM installs from the ISO via an unattended answer file; the Linux member still
+# boots the Ubuntu cloud image CoW (machine identity handled by cloud-init).
+# ==============================================================================
+
+# resolve_win_iso <base_image_key> -> path to the Windows install ISO
+resolve_win_iso() {
+    case "$1" in
+        server2022) echo "${DUNDER_HOME}/media/windows-server-2022.iso" ;;
+        server2019) echo "${DUNDER_HOME}/media/windows-server-2019.iso" ;;
+        win10)      echo "${DUNDER_HOME}/media/windows-10.iso" ;;
+        *) err "No Windows ISO mapping for base image: $1"; return 1 ;;
+    esac
+}
+
+# build_unattend_iso <vm_name> <os_key>
+# Packs Autounattend.xml (per-OS) + setup-winrm.ps1 onto a small ISO labelled
+# UNATTEND. Windows Setup auto-detects Autounattend.xml at the CD root; the
+# FirstLogonCommand finds setup-winrm.ps1 by scanning drive letters.
+build_unattend_iso() {
+    local vm_name="$1" os="$2"
+    local ua_src="${SCRIPT_DIR}/unattend/autounattend-${os}.xml"
+    local winrm_src="${DUNDER_HOME}/packer/scripts/setup-winrm.ps1"
+    [[ -f "${ua_src}" ]]    || { err "No autounattend for ${os}: ${ua_src}"; return 1; }
+    [[ -f "${winrm_src}" ]] || { err "setup-winrm.ps1 missing: ${winrm_src}"; return 1; }
+
+    local stage="${VM_STATE_DIR}/${vm_name}-unattend"
+    local iso="${VM_STATE_DIR}/${vm_name}-unattend.iso"
+    rm -rf "${stage}"; mkdir -p "${stage}"
+    cp "${ua_src}"    "${stage}/Autounattend.xml"
+    cp "${winrm_src}" "${stage}/setup-winrm.ps1"
+
+    if command -v genisoimage &>/dev/null; then
+        genisoimage -quiet -output "${iso}" -volid UNATTEND -joliet -rock "${stage}"
+    elif command -v mkisofs &>/dev/null; then
+        mkisofs -quiet -output "${iso}" -volid UNATTEND -joliet -rock "${stage}"
+    elif command -v xorriso &>/dev/null; then
+        xorriso -as mkisofs -output "${iso}" -volid UNATTEND -joliet -rock "${stage}" >/dev/null 2>&1
+    else
+        err "Need genisoimage, mkisofs, or xorriso to build the unattend ISO."
+        return 1
+    fi
+    [[ -f "${iso}" ]] || { err "Unattend ISO not produced: ${iso}"; return 1; }
+}
+
+# _send_boot_keys <monitor_socket>
+# Background: nudges 'Enter' into the QEMU HMP monitor for ~30 s so the first
+# "Press any key to boot from CD or DVD" prompt starts Windows Setup. Later
+# reboots get no key, so the prompt times out and boots the (now-installed) disk.
+_send_boot_keys() {
+    local mon="$1"
+    ( python3 - "${mon}" <<'PY' 2>/dev/null || true
+import socket, sys, time
+sock = sys.argv[1]
+try:
+    s = socket.socket(socket.AF_UNIX); s.settimeout(3); s.connect(sock)
+    try: s.recv(8192)
+    except Exception: pass
+    for _ in range(30):
+        try: s.sendall(b"sendkey ret\n")
+        except Exception: break
+        time.sleep(1)
+except Exception:
+    pass
+PY
+    ) &
+}
+
+# install_windows_vm <vm_name> — blank disk + unattended install from ISO.
+install_windows_vm() {
+    local vm_name="$1"
+    parse_vm_def "${vm_name}"
+
+    local fqdn="${VM_FQDN[$vm_name]:-$vm_name}"
+    local disk_path="${VM_STATE_DIR}/${vm_name}.qcow2"
+    local pid_file="${VM_STATE_DIR}/${vm_name}.pid"
+    local mon_file="${VM_STATE_DIR}/${vm_name}.mon"
+    local log_file="${VM_STATE_DIR}/${vm_name}.log"
+
+    local win_iso; win_iso="$(resolve_win_iso "${vm_base_image}")" || return 1
+    [[ -f "${win_iso}" ]] || { err "Windows ISO not found: ${win_iso} (run deploy.py phase 0)"; return 1; }
+
+    mkdir -p "${VM_STATE_DIR}"
+    rm -f "${disk_path}" "${pid_file}"
+    log "Creating blank ${vm_disk}G disk for ${vm_name}"
+    qemu-img create -f qcow2 "${disk_path}" "${vm_disk}G" >/dev/null
+
+    build_unattend_iso "${vm_name}" "${vm_base_image}" || return 1
+    local ua_iso="${VM_STATE_DIR}/${vm_name}-unattend.iso"
+
+    ensure_tap "${vm_name}" "${vm_bridge}"
+    local tap="dvad-${vm_name}"
+    local vnc_display="${VNC_BIND}:$((vm_vnc_port - 5900))"
+
+    log "Installing ${vm_name} (${fqdn}) FRESH from ${win_iso##*/} — VNC ${vnc_display}"
+
+    # Disk bootindex=1 (empty -> falls through), Windows ISO bootindex=2 (the
+    # installer). Post-install the disk is bootable and boots first directly.
+    qemu-system-x86_64 \
+        -name          "${vm_name}" \
+        -machine       "q35,accel=${ACCEL}" \
+        ${KVM_OPT} \
+        -cpu           host \
+        -smp           "cpus=${vm_cpu}" \
+        -m             "${vm_ram}M" \
+        -drive         "file=${disk_path},if=none,id=drive0,format=qcow2,cache=writeback" \
+        -device        "ahci,id=ahci0" \
+        -device        "ide-hd,drive=drive0,bus=ahci0.0,bootindex=1" \
+        -drive         "file=${win_iso},if=none,id=wincd,media=cdrom,readonly=on" \
+        -device        "ide-cd,drive=wincd,bus=ahci0.1,bootindex=2" \
+        -drive         "file=${ua_iso},if=none,id=uacd,media=cdrom,readonly=on" \
+        -device        "ide-cd,drive=uacd,bus=ahci0.2" \
+        -netdev        "tap,id=net0,ifname=${tap},script=no,downscript=no" \
+        -device        "e1000e,netdev=net0,mac=${vm_mac}" \
+        -display       none \
+        -vnc           "${vnc_display}" \
+        -vga           std \
+        -rtc           "base=localtime" \
+        -daemonize \
+        -pidfile       "${pid_file}" \
+        -monitor       "unix:${mon_file},server,nowait" \
+        2>"${log_file}" || {
+            err "${vm_name} install launch failed. Last log:"
+            tail -10 "${log_file}" | sed 's/^/    /' >&2 || true
+            return 1
+        }
+
+    # Wait for the monitor socket, then nudge past "Press any key to boot from CD".
+    local w=0
+    while [[ ! -S "${mon_file}" && "${w}" -lt 10 ]]; do sleep 1; w=$(( w + 1 )); done
+    _send_boot_keys "${mon_file}"
+
+    if [[ -f "${pid_file}" ]]; then
+        log "${vm_name} installing (unattended). WinRM expected up in ~15-20 min; phase 4 waits for it."
+    else
+        err "${vm_name} failed to start install — no PID file."
+        [[ -f "${log_file}" ]] && tail -5 "${log_file}" | sed 's/^/    /' >&2 || true
+        return 1
+    fi
+}
+
+# ==============================================================================
 # create_vm <vm_name>
-# Clones the base QCOW2 with a backing file (copy-on-write) then launches.
+# Windows: fresh unattended install from ISO (unique SID). Linux: CoW clone of
+# the Ubuntu cloud image + cloud-init seed. Idempotent: a VM that already has a
+# '.installed' marker (written by scripts/wait-vms.sh once WinRM answered) just
+# boots from its disk.
 # ==============================================================================
 create_vm() {
     local vm_name="$1"
-
     parse_vm_def "${vm_name}"
-
-    local base_img
-    base_img="$(resolve_base_image "${vm_base_image}")"
-
-    if [[ ! -f "${base_img}" ]]; then
-        err "Base image not found: ${base_img}"
-        err "Run packer build first, or set --packer-output to the correct directory."
-        return 1
-    fi
-
-    local disk_path="${VM_STATE_DIR}/${vm_name}.qcow2"
     mkdir -p "${VM_STATE_DIR}"
 
-    if [[ -f "${disk_path}" ]]; then
-        local sz
-        sz="$(stat -c%s "${disk_path}" 2>/dev/null || echo 0)"
-        if [[ "${sz}" -gt 1048576 ]]; then
-            info "Disk for ${vm_name} already exists ($(du -h "${disk_path}" | cut -f1)). Skipping clone."
-        else
-            warn "Existing disk for ${vm_name} is too small (${sz} B) — removing and re-cloning."
-            rm -f "${disk_path}"
-            qemu-img create -f qcow2 -b "${base_img}" -F qcow2 "${disk_path}"
-            log "Cloned ${base_img} → ${disk_path}"
+    local disk_path="${VM_STATE_DIR}/${vm_name}.qcow2"
+    local marker="${VM_STATE_DIR}/${vm_name}.installed"
+
+    # Linux member — CoW clone the cloud image, then boot (cloud-init handles id).
+    if [[ "${vm_base_image}" == "ubuntu" ]]; then
+        local base_img
+        base_img="$(resolve_base_image "${vm_base_image}")"
+        if [[ ! -f "${base_img}" ]]; then
+            err "Cloud image not found: ${base_img} (run deploy.py phase 0)"; return 1
         fi
-    else
-        log "Cloning base image for ${vm_name}: ${base_img} → ${disk_path}"
-        qemu-img create -f qcow2 -b "${base_img}" -F qcow2 "${disk_path}"
-        log "Clone complete for ${vm_name}."
+        if [[ ! -f "${disk_path}" ]]; then
+            log "Cloning cloud image for ${vm_name}: ${base_img} → ${disk_path}"
+            qemu-img create -f qcow2 -b "${base_img}" -F qcow2 "${disk_path}"
+        fi
+        launch_vm "${vm_name}"
+        return $?
     fi
 
-    launch_vm "${vm_name}"
+    # Windows — already installed and reachable once -> just boot from disk.
+    if [[ -f "${marker}" && -f "${disk_path}" ]]; then
+        info "${vm_name} already installed — booting from disk."
+        launch_vm "${vm_name}"
+        return $?
+    fi
+
+    # Windows — fresh unattended install from ISO.
+    install_windows_vm "${vm_name}"
 }
 
 # ==============================================================================
@@ -715,6 +872,66 @@ stop_all() {
 }
 
 # ==============================================================================
+# snapshot_all [profile] [name] — internal qcow2 snapshot of every VM disk.
+# Run AFTER a successful provision. VMs are stopped first (qemu-img can't safely
+# snapshot a running image). Internal snapshots are instant + space-efficient.
+# ==============================================================================
+SNAP_NAME_DEFAULT="dunder-provisioned"
+snapshot_all() {
+    local profile="${1:-full}"
+    local snap="${2:-${SNAP_NAME_DEFAULT}}"
+    local vm_list
+    IFS=' ' read -ra vm_list <<< "$(profile_vms "${profile}")" || true
+    if [[ "${#vm_list[@]}" -eq 0 ]]; then err "No VMs for profile '${profile}'."; return 1; fi
+
+    log "Stopping VMs before snapshot..."
+    stop_all "${profile}"
+    sleep 2
+    for vm_name in "${vm_list[@]}"; do
+        local disk="${VM_STATE_DIR}/${vm_name}.qcow2"
+        [[ -f "${disk}" ]] || { warn "${vm_name}: no disk, skipping."; continue; }
+        # replace an existing snapshot of the same name, then create fresh
+        qemu-img snapshot -d "${snap}" "${disk}" 2>/dev/null || true
+        if qemu-img snapshot -c "${snap}" "${disk}"; then
+            log "${vm_name}: snapshot '${snap}' created."
+        else
+            err "${vm_name}: snapshot failed."
+        fi
+    done
+    log "Snapshot '${snap}' complete. Use 'reset' to restore in seconds."
+}
+
+# ==============================================================================
+# reset_all [profile] [name] — restore every VM to a snapshot, then start.
+# Turns a fresh-lab reset from ~40 min (re-provision) into seconds.
+# ==============================================================================
+reset_all() {
+    local profile="${1:-full}"
+    local snap="${2:-${SNAP_NAME_DEFAULT}}"
+    local vm_list
+    IFS=' ' read -ra vm_list <<< "$(profile_vms "${profile}")" || true
+    if [[ "${#vm_list[@]}" -eq 0 ]]; then err "No VMs for profile '${profile}'."; return 1; fi
+
+    log "Stopping VMs before reset..."
+    stop_all "${profile}"
+    sleep 2
+    local missing=0
+    for vm_name in "${vm_list[@]}"; do
+        local disk="${VM_STATE_DIR}/${vm_name}.qcow2"
+        [[ -f "${disk}" ]] || { warn "${vm_name}: no disk, skipping."; continue; }
+        if qemu-img snapshot -a "${snap}" "${disk}" 2>/dev/null; then
+            log "${vm_name}: restored to '${snap}'."
+        else
+            warn "${vm_name}: no snapshot '${snap}' — run 'snapshot' after a good provision first."
+            missing=1
+        fi
+    done
+    [[ "${missing}" -eq 1 ]] && warn "Some VMs had no snapshot; they keep their current disk."
+    log "Restarting VMs..."
+    start_all "${profile}"
+}
+
+# ==============================================================================
 # usage
 # ==============================================================================
 usage() {
@@ -783,6 +1000,12 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             ;;
         stop)
             stop_all "${1:-${DEFAULT_PROFILE}}"
+            ;;
+        snapshot)
+            snapshot_all "${1:-${DEFAULT_PROFILE}}" "${2:-${SNAP_NAME_DEFAULT}}"
+            ;;
+        reset)
+            reset_all "${1:-${DEFAULT_PROFILE}}" "${2:-${SNAP_NAME_DEFAULT}}"
             ;;
         launch)
             vm="${1:?launch requires a VM name}"

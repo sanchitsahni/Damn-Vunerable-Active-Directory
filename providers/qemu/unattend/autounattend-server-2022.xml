@@ -90,8 +90,8 @@
       <FirstLogonCommands>
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>
-          <Description>Enable WinRM + base hardening removal</Description>
-          <CommandLine>powershell.exe -ExecutionPolicy Bypass -File A:\setup-winrm.ps1</CommandLine>
+          <Description>Enable WinRM + base hardening removal (setup-winrm.ps1 on the UNATTEND CD)</Description>
+          <CommandLine>cmd /c "for %d in (D E F G H I) do if exist %d:\setup-winrm.ps1 powershell.exe -ExecutionPolicy Bypass -File %d:\setup-winrm.ps1"</CommandLine>
           <RequiresUserInput>false</RequiresUserInput>
         </SynchronousCommand>
         <SynchronousCommand wcm:action="add">
