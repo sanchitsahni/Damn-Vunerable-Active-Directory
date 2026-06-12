@@ -19,15 +19,13 @@
     $out = certutil -getreg policy\EditFlags 2>&1
     # certutil output contains a line like: EditFlags REG_DWORD = 0x11006e (1114222)
     $line = $out | Select-String "EditFlags"
-    if ($line) {
-      # Extract hex value
-      if ($line -match "0x([0-9a-fA-F]+)") {
-        Write-Output "0x$($Matches[1])"
-      } else {
-        Write-Output "unknown"
-      }
+    # Bit-test EDITF_ATTRIBUTESUBJECTALTNAME2 (0x40000) here in PowerShell (-band)
+    # rather than in Jinja (no bitwise_and filter in core Ansible).
+    if ($line -and $line -match "0x([0-9a-fA-F]+)") {
+      $val = [Convert]::ToInt64($Matches[1], 16)
+      if ($val -band 0x40000) { Write-Output "present" } else { Write-Output "absent" }
     } else {
-      Write-Output "not_found"
+      Write-Output "absent"
     }
   register: result_esc6_editflags
   changed_when: false
@@ -37,11 +35,8 @@
   ansible.windows.win_shell: |
     # 0x00040000 = EDITF_ATTRIBUTESUBJECTALTNAME2
     certutil -setreg policy\EditFlags +EDITF_ATTRIBUTESUBJECTALTNAME2
-  # Only set if the flag is not already present (bit check)
-  when: >
-    result_esc6_editflags.stdout | trim == "not_found" or
-    result_esc6_editflags.stdout | trim == "unknown" or
-    (result_esc6_editflags.stdout | trim | regex_replace('^0x', '') | int(base=16) | bitwise_and(262144)) == 0
+  # Set only if the SAN2 bit isn't already present (bit-test done in PowerShell above)
+  when: result_esc6_editflags.stdout | trim == "absent"
   register: result_esc6_set
   failed_when: result_esc6_set.rc != 0
   notify: "restart certsvc"
