@@ -88,9 +88,9 @@
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     try {
-      # Resolve SID of finance.local Administrator via the trust
-      $finAdmin = New-Object System.Security.Principal.NTAccount('FINANCE', 'Administrator')
-      $sid = $finAdmin.Translate([System.Security.Principal.SecurityIdentifier]).Value
+      # Resolve SID of finance.local Administrator directly from its ADWS — the
+      # NTAccount.Translate (LSA) path fails right after trust creation.
+      $sid = (Get-ADUser -Server finance.local -Identity Administrator -ErrorAction Stop).SID.Value
       $domDn = (Get-ADDomain).DistinguishedName
       $fspDn = "CN=$sid,CN=ForeignSecurityPrincipals,$domDn"
 
