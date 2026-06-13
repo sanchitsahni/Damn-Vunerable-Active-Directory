@@ -443,47 +443,51 @@ See [`docs/09-vps-deploy.md`](docs/09-vps-deploy.md) for the threat-model caveat
 
 ## Documentation map
 
-The repo ships three parallel layers of documentation. Pick the one that matches your starting point:
-
-**Spec (what exists and why):**
-
 | Doc | Purpose |
 |---|---|
+| `README.md` | This file — setup, lifecycle, repo layout |
 | `PLAN.md` | Authoritative attack-matrix spec — every flag ID, precondition, and intended technique |
-| `WALKTHROUGH.md` | End-to-end deploy → 25 attack paths → domain admin (canonical + cross-forest) |
-| `AGENTS.md` / `CLAUDE.md` | Orientation docs for AI coding agents working on this repo |
 
-**Operator walkthrough (how to actually do it) — `docs/`:**
+## Scripts reference
 
-| Doc | Purpose |
+`deploy.py` is the entry point; everything below is either invoked by it or run by hand.
+
+**Pipeline — invoked automatically by `deploy.py`:**
+
+| Script | Role |
 |---|---|
-| [`docs/00-index.md`](docs/00-index.md) | Master index — start here |
-| [`docs/01-setup.md`](docs/01-setup.md) | Deployment + attacker-box prep (your own Kali) |
-| [`docs/02-recon.md`](docs/02-recon.md) | **REC-001..015** — Phase 1 recon |
-| [`docs/02a-initial-access.md`](docs/02a-initial-access.md) | **IA-001..050** — zero-cred initial-access vectors |
-| [`docs/02b-enumeration.md`](docs/02b-enumeration.md) | **ENUM-001..080** — full Windows / AD enumeration catalog |
-| [`docs/03-credential-access.md`](docs/03-credential-access.md) | **CRED-001..065** — hashes, tickets, secrets |
-| [`docs/04-lateral-movement.md`](docs/04-lateral-movement.md) | **LAT-001..035** — host-to-host and cross-forest movement |
-| [`docs/05-privilege-escalation.md`](docs/05-privilege-escalation.md) | **PE-001..060** — local + AD privilege escalation |
-| [`docs/06-persistence.md`](docs/06-persistence.md) | **PER-001..037** — durable footholds |
-| [`docs/07-forest-compromise.md`](docs/07-forest-compromise.md) | **DF-001..040** — full forest / cross-forest takeover |
-| [`docs/08-solve-path.md`](docs/08-solve-path.md) | End-to-end solve patterns (A–N) with wireframes |
-| [`docs/09-vps-deploy.md`](docs/09-vps-deploy.md) | VPS + WireGuard gateway threat model |
-| [`docs/hosts/`](docs/hosts/) | Per-host crib sheets (8 files: ports, RPC pipes, shares, vulns) |
+| `providers/qemu/vm-create.sh` | Generate per-VM autounattend + post-install, create and boot each QEMU/KVM VM |
+| `providers/qemu/network-setup.sh` | Create the `empire-ctf` bridge + project-local dnsmasq static leases |
+| `providers/virtualbox/vm-create.sh` | VirtualBox provider equivalent (when `--provider virtualbox`) |
+| `scripts/verify_vulns.py` | Layer-1 passive config verification (also the `verify` console command) |
+| `ansible/roles/vuln_linux/files/empire_app.py` | Vulnerable web app deployed to `mandalore` by Ansible |
 
-**Curriculum (zero to domain admin) — `STUDY/`:**
+**Manual / optional tools:**
 
-| Chapter | Topic |
+| Script | Role |
 |---|---|
-| [`STUDY/00-index.md`](STUDY/00-index.md) | Reading paths, time budget, prerequisites |
-| 01 – 03 | Foundations: networking, Windows internals, PowerShell |
-| 04 – 06 | Active Directory, authentication protocols, PKI / ADCS |
-| 07 | Attacker toolkit (impacket, BloodHound, certipy, Rubeus, mimikatz, …) |
-| 08 – 09 | Recon, enumeration, initial access |
-| 10 – 12 | Credential access, lateral movement, privesc, persistence, forest |
-| 13 – 14 | Defense + detection, capstone exercises |
+| `scripts/setup-deps.sh` | Install host packages per distro — run once before `deploy.py` |
+| `scripts/run-from.sh` | Re-run the Ansible `site.yml` from a given phase to the end |
+| `scripts/verify_exploits.sh` | Layer-2 attacker-side exploit verification |
+| `scripts/vps-wg-gateway.sh` | Optional WireGuard gateway for remote VPS access |
+| `scripts/activate-windows.sh` | Massgrave Windows activation helper |
+| `scripts/finalize.sh` | Post-deploy lab finalization / verification |
+| `chains/attack_graph.py` + `chains/validator.py` | Static attack-path graph + reachability report |
 
-Each STUDY chapter ends with exercises that map to specific EMPIRE flag IDs, so you can read theory and immediately practice on the lab.
+**Standalone fallbacks — `deploy.py` already does these in-process, kept for manual use:**
+
+| Script | Role |
+|---|---|
+| `scripts/wait-vms.sh`, `scripts/wait-for-install.sh` | Poll VMs for WinRM / write `.installed` markers (deploy.py: `phase_wait_winrm`) |
+| `scripts/setup-sudoers.sh` | Write NOPASSWD sudoers (deploy.py: `--install-cron`) |
+| `scripts/download-windows.sh` | Download Windows + virtio ISOs (deploy.py: in-process downloader) |
+
+**Legacy / utilities:**
+
+| Script | Role |
+|---|---|
+| `scripts/exploit_graph.py` | Superseded compatibility shim → `chains/validator.py` |
+| `scripts/check_docs.py`, `scripts/check_study_flags.py`, `scripts/generate_missing.py` | Doc/flag consistency helpers |
 
 ## Vulnerability Coverage and Mock Injection
 
