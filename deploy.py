@@ -4,6 +4,7 @@ import sys
 assert sys.version_info >= (3, 8), "Python 3.8+ required"
 
 import os
+import re
 import cmd as _cmd
 import argparse
 import fcntl
@@ -90,6 +91,15 @@ M   = "\033[0;35m"
 BLD = "\033[1m"
 DIM = "\033[2m"
 NC  = "\033[0m"
+
+# readline (used by cmd.Cmd) counts every byte of the prompt as a visible
+# column unless non-printing runs are bracketed by \001 (RL_PROMPT_START_IGNORE)
+# and \002 (RL_PROMPT_END_IGNORE). Without these guards the cursor wraps back to
+# column 0 after a few keystrokes. Wrap each ANSI escape before using a coloured
+# string as an interactive prompt.
+_ANSI_RE = re.compile(r"(\033\[[0-9;]*m)")
+def rl_safe(prompt: str) -> str:
+    return _ANSI_RE.sub("\001\\1\002", prompt)
 
 def log(msg):  print(f"{G}[+]{NC} {msg}")
 def warn(msg): print(f"{Y}[!]{NC} {msg}")
@@ -828,7 +838,7 @@ def print_pipeline_report(cfg: dict, phase_results: dict):
         print(f"  {G}{BLD}All phases completed successfully.{NC}")
         print()
         print("  Next steps:")
-        print("    1. Check AGENTS.md for topology and attack paths.")
+        print("    1. Check PLAN.md for topology and attack paths.")
         print(f"    2. python3 {EMPIRE_HOME}/chains/validator.py \\")
         print(f"         --dc-ip 10.10.0.10 --domain empire.local \\")
         print(f"         --attacker-ip {cfg['attacker_ip']}")
@@ -1234,50 +1244,63 @@ def print_logo():
     print(f"\n{DIM}  management console — type {NC}{BLD}help{NC}{DIM} or {NC}{BLD}?{NC}{DIM} to list commands{NC}")
 
 
-def _menu_title(title):
+# Two-column grid menu. Each band is (left_panel, right_panel); a panel is
+# (title, ncols, [commands]); commands fill top-to-bottom within their columns.
+_SIDEW = 36  # printable width of one panel (half the grid)
+
+_MENU_BANDS = [
+    (("LAB", 2, ["check", "build", "vms", "resume <n>",
+                 "install", "network", "provision"]),
+     ("VMS", 2, ["status", "destroy", "reset",
+                 "start", "stop", "snapshot", "vnc"])),
+    (("PROVISION", 1, ["provision_tags <t>", "verify"]),
+     ("CONFIG", 2, ["settings", "set_profile <p>", "set_provider <p>", "set_disk <path>",
+                    "set_ram <gb>", "set_attacker <ip>", "set_flag_mode <m>"])),
+]
+
+
+def _seg(title: str, width: int) -> str:
+    """A box-rule segment: ' TITLE ' then ─ fill to width."""
+    head = f" {C}{BLD}{title}{NC} "
+    pad = width - (len(title) + 2)  # visible length, colour codes are zero-width
+    return f"{DIM}{head}{'─' * max(pad, 0)}{NC}"
+
+
+def _panel_body(cmds, ncols) -> list:
+    """Lay cmds into ncols columns (column-major); return SIDEW-wide body lines."""
+    if not cmds:
+        return []
+    rows = -(-len(cmds) // ncols)          # ceil
+    cellw = _SIDEW // ncols
+    lines = []
+    for r in range(rows):
+        cells = []
+        for col in range(ncols):
+            idx = col * rows + r
+            cmd = cmds[idx] if idx < len(cmds) else ""
+            cells.append(f"{BLD}{cmd}{NC}".ljust(cellw + len(BLD) + len(NC)))
+        lines.append("".join(cells))
+    return lines
+
+
+def _menu_title(title):  # retained for callers outside print_menu
     print(f"\n{C}{BLD}*** {title} ***{NC}")
 
 
-def _menu_entry(command, description):
-    line = f"  {command} ".ljust(40, ".")
-    print(f"{BLD}{line}{NC} {DIM}{description}{NC}")
-
-
 def print_menu():
-    _menu_title("Lab lifecycle")
-    _menu_entry("check",            "preflight — verify host deps before deploy")
-    _menu_entry("install",          "full pipeline: media → packer → net → VMs → ansible → verify")
-    _menu_entry("build",            "packer base images only (phases 0–1)")
-    _menu_entry("network",          "create bridges + dnsmasq (phase 2)")
-    _menu_entry("vms",              "create + boot all VMs (phase 3)")
-    _menu_entry("provision",        "run all Ansible (phase 5 — VMs must be up)")
-    _menu_entry("resume <n>",       "run full pipeline from phase n (0–6)")
-
-    _menu_title("VM control")
-    _menu_entry("status",           "show VM / network / media state")
-    _menu_entry("start",            "start existing stopped VMs")
-    _menu_entry("stop",             "gracefully stop all running VMs")
-    _menu_entry("destroy",          "delete VMs + tear down networks")
-    _menu_entry("snapshot",         "snapshot all VM disks after a good provision")
-    _menu_entry("reset",            "restore VMs to snapshot in SECONDS (vs re-provision)")
-    _menu_entry("vnc",              "show VNC endpoint for each running VM")
-
-    _menu_title("Provisioning / validation")
-    _menu_entry("provision_tags <t>", "run Ansible with specific tag(s), e.g. kerberos,adcs")
-    _menu_entry("verify",           "run vulnerability reachability checks")
-
-    _menu_title("Configuration")
-    _menu_entry("settings",         "interactive — change all settings at once")
-    _menu_entry("set_profile <p>",  "full | minimal | single-dc")
-    _menu_entry("set_provider <p>", "qemu | virtualbox")
-    _menu_entry("set_ram <gb>",     "RAM budget in GB")
-    _menu_entry("set_attacker <ip>","attacker / listener IP")
-    _menu_entry("set_flag_mode <m>","ctf | training")
-    _menu_entry("set_disk <path>",  "VM disk path")
-
-    _menu_title("Shell")
-    _menu_entry("help / ?",         "show this menu")
-    _menu_entry("exit / quit",      "leave the console")
+    corners = [("┌", "┬", "┐"), ("├", "┼", "┤")]
+    print()
+    for i, ((lt, ln, lc), (rt, rn, rc)) in enumerate(_MENU_BANDS):
+        lead, mid, end = corners[i]
+        print(f"  {lead}{_seg(lt, _SIDEW)}{mid}{_seg(rt, _SIDEW)}{end}")
+        lbody, rbody = _panel_body(lc, ln), _panel_body(rc, rn)
+        for r in range(max(len(lbody), len(rbody))):
+            left = lbody[r] if r < len(lbody) else " " * _SIDEW
+            right = rbody[r] if r < len(rbody) else ""
+            print(f"    {left}  {right}".rstrip())
+    print(f"  {DIM}└{'─' * _SIDEW}┴{'─' * _SIDEW}┘{NC}")
+    print(f"    {DIM}help · ?{NC}  show this menu     "
+          f"{DIM}settings{NC}  edit all     {DIM}exit · quit{NC}  leave")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1294,7 +1317,7 @@ class DunderShell(_cmd.Cmd):
     # ---- prompt + intro ----
     def _refresh_prompt(self):
         c = self.cfg
-        self.prompt = (
+        self.prompt = rl_safe(
             f"\n{C}empire{NC} "
             f"[{BLD}{c['profile']}{NC}·{BLD}{c['provider']}{NC}·{BLD}{c['flag_mode']}{NC}] "
             f"{DIM}{vm_status_quick(c)}{NC} > "
