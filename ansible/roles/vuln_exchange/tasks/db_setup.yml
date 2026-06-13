@@ -1,10 +1,10 @@
 ---
 # ==============================================================================
-# vuln_exchange/tasks/db_setup.yml — DunderMifflin database creation
+# vuln_exchange/tasks/db_setup.yml — ImperialArchive database creation
 # Target: kamino.empire.local
 #
 # Must run AFTER sql.yml (which enables sa + sqlcmd).
-# Creates DunderMifflin database with:
+# Creates ImperialArchive database with:
 #   - users / employees / credentials / products / orders tables
 #   - empire_web SQL login (low-priv, for web app)
 #   - Vulnerable stored procedures (SQLi, exec, impersonation)
@@ -19,14 +19,14 @@
   changed_when: false
   failed_when: db_sqlcmd_check.rc != 0
 
-- name: DB-SETUP - Create DunderMifflin database and schema
+- name: DB-SETUP - Create ImperialArchive database and schema
   ansible.windows.win_shell: |
     sqlcmd -S localhost -U sa -P "{{ sql_sa_password }}" -Q "
-      -- Drop and recreate DunderMifflin
-      IF DB_ID('DunderMifflin') IS NOT NULL DROP DATABASE DunderMifflin;
-      CREATE DATABASE DunderMifflin;
+      -- Drop and recreate ImperialArchive
+      IF DB_ID('ImperialArchive') IS NOT NULL DROP DATABASE ImperialArchive;
+      CREATE DATABASE ImperialArchive;
     " 2>&1
-    Write-Output "changed: DunderMifflin database created"
+    Write-Output "changed: ImperialArchive database created"
   register: db_create
   changed_when: "'changed:' in db_create.stdout"
   failed_when: db_create.rc != 0 and 'already exists' not in db_create.stderr
@@ -34,7 +34,7 @@
 
 - name: DB-SETUP - Create tables and populate with fake data
   ansible.windows.win_shell: |
-    sqlcmd -S localhost -U sa -P "{{ sql_sa_password }}" -d DunderMifflin -Q "
+    sqlcmd -S localhost -U sa -P "{{ sql_sa_password }}" -d ImperialArchive -Q "
       -- ================================================================
       -- users table (login credentials — SQLi target)
       -- ================================================================
@@ -55,7 +55,7 @@
         ('luke.skywalker',        'SithLord123!',   'luke.skywalker@empire.local',       'user'),
         ('svc_c3po',     'WebService2024!','svc_c3po@empire.local',    'service'),
         ('finance_mgr', 'Finance2024!',   'fin@rebel.local',     'manager'),
-        ('sa_backup',   'Darryl2024!',    'backup@empire.local',     'user');
+        ('sa_backup',   'Bossk2024!',    'backup@empire.local',     'user');
 
       -- ================================================================
       -- employees table
@@ -72,9 +72,9 @@
 
       DELETE FROM dbo.employees;
       INSERT INTO dbo.employees (name, dept, salary, ssn, manager) VALUES
-        ('Luke Skywalker',        'IT',       85000.00, '123-45-6789', 'Kelly Kapoor'),
+        ('Luke Skywalker',        'IT',       85000.00, '123-45-6789', 'Ahsoka Tano'),
         ('Jane Smith',      'Finance',  92000.00, '987-65-4321', 'Bob Jones'),
-        ('Mike Johnson',    'HR',       78000.00, '456-78-9012', 'Kelly Kapoor'),
+        ('Mike Johnson',    'HR',       78000.00, '456-78-9012', 'Ahsoka Tano'),
         ('Sarah Connor',    'IT',      110000.00, '321-54-9876', NULL),
         ('David Brown',     'Finance',  88000.00, '654-32-1098', 'Bob Jones'),
         ('Emily Davis',     'IT',       95000.00, '789-01-2345', 'Sarah Connor');
@@ -95,7 +95,7 @@
       INSERT INTO dbo.credentials (service, username, password, notes) VALUES
         ('Active Directory',  'Administrator',   'SithLord123!',   'Domain Admin -- do not change'),
         ('MSSQL',             'sa',              'DeathStar2025!', 'SQL SA account'),
-        ('WinRM',             'svc_bobafett',      'Darryl2024!',    'Backup service account'),
+        ('WinRM',             'svc_bobafett',      'Bossk2024!',    'Backup service account'),
         ('IIS AppPool',       'svc_iis',         'IIS2024!',       'Web app pool'),
         ('Monitoring',        'svc_monitoring',  'Monitor2024!',   'Grafana/monitoring');
 
@@ -125,7 +125,7 @@
 
 - name: DB-SETUP - Create empire_web SQL login and user
   ansible.windows.win_shell: |
-    sqlcmd -S localhost -U sa -P "{{ sql_sa_password }}" -d DunderMifflin -Q "
+    sqlcmd -S localhost -U sa -P "{{ sql_sa_password }}" -d ImperialArchive -Q "
       -- Create low-priv web app login
       IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = 'empire_web')
         CREATE LOGIN empire_web WITH PASSWORD = 'WebUser2024!', CHECK_POLICY = OFF;
@@ -148,14 +148,14 @@
 
 - name: DB-SETUP - Create vulnerable stored procedures
   ansible.windows.win_shell: |
-    sqlcmd -S localhost -U sa -P "{{ sql_sa_password }}" -d DunderMifflin -Q "
+    sqlcmd -S localhost -U sa -P "{{ sql_sa_password }}" -d ImperialArchive -Q "
       -- ================================================================
       -- sp_login: Vulnerable login proc (string concatenation = SQLi)
       -- ================================================================
       IF OBJECT_ID('dbo.sp_login', 'P') IS NOT NULL DROP PROC dbo.sp_login;
     " 2>&1
 
-    sqlcmd -S localhost -U sa -P "{{ sql_sa_password }}" -d DunderMifflin -Q "
+    sqlcmd -S localhost -U sa -P "{{ sql_sa_password }}" -d ImperialArchive -Q "
       CREATE PROC dbo.sp_login
         @username VARCHAR(50),
         @password VARCHAR(100)
@@ -176,14 +176,14 @@
 
 - name: DB-SETUP - Create EXECUTE AS OWNER impersonation proc (SRV-019)
   ansible.windows.win_shell: |
-    sqlcmd -S localhost -U sa -P "{{ sql_sa_password }}" -d DunderMifflin -Q "
-      -- Make DunderMifflin TRUSTWORTHY for cross-DB escalation
-      ALTER DATABASE DunderMifflin SET TRUSTWORTHY ON;
+    sqlcmd -S localhost -U sa -P "{{ sql_sa_password }}" -d ImperialArchive -Q "
+      -- Make ImperialArchive TRUSTWORTHY for cross-DB escalation
+      ALTER DATABASE ImperialArchive SET TRUSTWORTHY ON;
 
       IF OBJECT_ID('dbo.sp_escalate', 'P') IS NOT NULL DROP PROC dbo.sp_escalate;
     " 2>&1
 
-    sqlcmd -S localhost -U sa -P "{{ sql_sa_password }}" -d DunderMifflin -Q "
+    sqlcmd -S localhost -U sa -P "{{ sql_sa_password }}" -d ImperialArchive -Q "
       CREATE PROC dbo.sp_escalate
       WITH EXECUTE AS OWNER
       AS
@@ -203,14 +203,14 @@
   ansible.windows.win_shell: |
     sqlcmd -S localhost -U sa -P "{{ sql_sa_password }}" -Q "
       USE msdb;
-      IF NOT EXISTS (SELECT 1 FROM msdb.dbo.sysjobs WHERE name = 'Dunder_Backdoor_Job')
+      IF NOT EXISTS (SELECT 1 FROM msdb.dbo.sysjobs WHERE name = 'Empire_Backdoor_Job')
       BEGIN
         EXEC msdb.dbo.sp_add_job
-          @job_name = 'Dunder_Backdoor_Job',
+          @job_name = 'Empire_Backdoor_Job',
           @description = 'SRV-009: SQL Agent job with OS command execution';
 
         EXEC msdb.dbo.sp_add_jobstep
-          @job_name = 'Dunder_Backdoor_Job',
+          @job_name = 'Empire_Backdoor_Job',
           @step_name = 'RunCmd',
           @subsystem = 'CmdExec',
           @command = 'cmd /c echo EMPIRE-SRV-009 > C:\Flags\sqlagent_ran.txt';
@@ -220,11 +220,11 @@
           @freq_type = 1;
 
         EXEC msdb.dbo.sp_attach_schedule
-          @job_name = 'Dunder_Backdoor_Job',
+          @job_name = 'Empire_Backdoor_Job',
           @schedule_name = 'Never';
 
         EXEC msdb.dbo.sp_add_jobserver
-          @job_name = 'Dunder_Backdoor_Job',
+          @job_name = 'Empire_Backdoor_Job',
           @server_name = @@SERVERNAME;
       END
     " 2>&1
@@ -238,9 +238,9 @@
   ansible.windows.win_copy:
     dest: 'C:\Flags\FLAG-DB-SETUP.txt'
     content: |
-      DunderMifflin Database — Attack Surfaces
+      ImperialArchive Database — Attack Surfaces
       ======================================
-      Database:     DunderMifflin on kamino.empire.local:1433
+      Database:     ImperialArchive on kamino.empire.local:1433
       Web app user: empire_web / WebUser2024!    (SELECT + EXEC only)
       Admin:        sa / DeathStar2025!        (full sysadmin)
 
@@ -255,7 +255,7 @@
         dbo.sp_escalate()         — EXECUTE AS OWNER + xp_cmdshell (SRV-019)
 
       SQL Agent:
-        Dunder_Backdoor_Job — CmdExec step, trigger manually to execute OS commands
+        Empire_Backdoor_Job — CmdExec step, trigger manually to execute OS commands
 
       Attack chain (web → OS):
         1. sqli.aspx?id=1' UNION SELECT username,password,role FROM credentials--

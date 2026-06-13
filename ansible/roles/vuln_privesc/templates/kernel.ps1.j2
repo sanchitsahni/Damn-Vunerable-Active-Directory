@@ -4,7 +4,7 @@
 # Drops 3 technique-reference note files in one run instead of 3 win_copy calls.
 # ==============================================================================
 $ErrorActionPreference = 'Continue'
-$log = 'C:\DunderLab\vuln_pe_kernel.log'
+$log = 'C:\EmpireLab\vuln_pe_kernel.log'
 New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 New-Item -ItemType Directory -Force -Path 'C:\Flags' | Out-Null
 function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }

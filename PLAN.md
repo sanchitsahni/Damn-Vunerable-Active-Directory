@@ -241,7 +241,7 @@ Trusts:
 | CRED-011 | Pass-the-Hash (NTLM relay / Mimikatz pth) | N/A | NTLM hash | LM/NTLMv1 enabled on some accounts |
 | CRED-012 | Pass-the-Ticket (Rubeus ptt) | N/A | Valid TGT/TGS | None - standard Kerberos |
 | CRED-013 | DCSync (lsadump::dcsync) | N/A | Replicate Directory Changes | Backup Operators have Replicate Directory Changes |
-| CRED-014 | DCSync w/ Replication-Get-Changes-All | N/A | Same as above, higher tier | Account: doctor.strange has GetChangesAll |
+| CRED-014 | DCSync w/ Replication-Get-Changes-All | N/A | Same as above, higher tier | Account: count.dooku has GetChangesAll |
 | CRED-015 | DCShadow (rogue DC push) | N/A | Write to Domain Controllers OU | Schema Admin delegated loosely |
 | CRED-016 | Constrained Delegation Abuse (S4U2Self/S4U2Proxy) | N/A | Service account delegation set | svc_vision has TRUSTED_TO_AUTH_FOR_DELEGATION |
 | CRED-017 | Resource-Based Constrained Delegation (RBCD) | N/A | Write to msDS-AllowedToActOnBehalfOfOtherIdentity | tatooine$ allows svc_vision$ |
@@ -318,7 +318,7 @@ Trusts:
 | LAT-018 | ACL Abuse: Add Members on Group | N/A | GenericWrite on group | Avengers Admins writable by SHIELD Agents (qa_user has AddSelf) |
 | LAT-019 | ACL Abuse: Add KeyCredentialLink | N/A | GenericWrite on target | msDS-KeyCredentialLink writable |
 | LAT-020 | ACL Abuse: Owner Change | N/A | WriteOwner on target | nick.fury has WriteOwner on Domain Admins |
-| LAT-021 | ACL Abuse: DCSync via GenericAll on domain | N/A | GenericAll/WriteDACL on domain object | doctor.strange delegated GenericAll on domain |
+| LAT-021 | ACL Abuse: DCSync via GenericAll on domain | N/A | GenericAll/WriteDACL on domain object | count.dooku delegated GenericAll on domain |
 | LAT-021b | ACL Abuse: GenericAll on User | N/A | GenericAll | peter.parker has GenericAll on tony.stark |
 | LAT-022 | ACL Abuse: WriteSPN -> Kerberoast | N/A | Validated-SPN write | nick.fury has Validated-SPN write on svc_vision |
 | LAT-023 | Cross-Forest TGT Delegation Abuse | N/A | Trust with TGT delegation | External trust allows TGT delegation |

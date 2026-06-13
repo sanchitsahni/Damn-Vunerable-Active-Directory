@@ -23,7 +23,7 @@
     }
 
     $users = @(
-      # ---- Regular lab users (Office / empire Mifflin theme) ----
+      # ---- Regular lab users (Office / Galactic Empire theme) ----
       @{
         Sam  = "leia.organa"
         Name = "Leia Organa"
@@ -33,9 +33,9 @@
         Opts = @{}
       },
       @{
-        Sam  = "oscar.martinez"
-        Name = "Oscar Martinez"
-        UPN  = "oscar.martinez@empire.local"
+        Sam  = "biggs.darklighter"
+        Name = "Biggs Darklighter"
+        UPN  = "biggs.darklighter@empire.local"
         Pwd  = "Bob12345!"
         Path = "OU=Users,OU=Corp,$base"
         Opts = @{}
@@ -44,7 +44,7 @@
         Sam  = "sheev.palpatine"
         Name = "Sheev Palpatine"
         UPN  = "sheev.palpatine@empire.local"
-        Pwd  = "WorldsBestBoss1!"
+        Pwd  = "DarkLord1!"
         Path = "OU=Users,OU=Corp,$base"
         Opts = @{}
       },
@@ -52,30 +52,30 @@
         Sam  = "darth.maul"
         Name = "Darth Maul"
         UPN  = "darth.maul@empire.local"
-        Pwd  = "BeetFarm2024!"
+        Pwd  = "DeathStar2024!"
         Path = "OU=Users,OU=Corp,$base"
         Opts = @{}
       },
       @{
-        Sam  = "ryan.howard"
-        Name = "Ryan Howard"
-        UPN  = "ryan.howard@empire.local"
+        Sam  = "poe.dameron"
+        Name = "Poe Dameron"
+        UPN  = "poe.dameron@empire.local"
         Pwd  = "TempWorker1!"
         Path = "OU=Users,OU=Corp,$base"
         Opts = @{}
       },
       @{
-        Sam  = "andy.bernard"
-        Name = "Andy Bernard"
-        UPN  = "andy.bernard@empire.local"
+        Sam  = "wedge.antilles"
+        Name = "Wedge Antilles"
+        UPN  = "wedge.antilles@empire.local"
         Pwd  = "AndrewB2024!"
         Path = "OU=Users,OU=Corp,$base"
         Opts = @{}
       },
       @{
-        Sam  = "stanley.hudson"
-        Name = "Stanley Hudson"
-        UPN  = "stanley.hudson@empire.local"
+        Sam  = "mace.windu"
+        Name = "Mace Windu"
+        UPN  = "mace.windu@empire.local"
         Pwd  = "Stanley2024!"
         Path = "OU=Users,OU=Corp,$base"
         Opts = @{}
@@ -90,33 +90,33 @@
         Opts = @{}
       },
       @{
-        Sam  = "kelly.kapoor"
-        Name = "Kelly Kapoor"
-        UPN  = "kelly.kapoor@empire.local"
+        Sam  = "ahsoka.tano"
+        Name = "Ahsoka Tano"
+        UPN  = "ahsoka.tano@empire.local"
         Pwd  = "User1234!"
         Path = "OU=Users,OU=Corp,$base"
         Opts = @{}
       },
       @{
-        Sam  = "meredith.palmer"
-        Name = "Meredith Palmer"
-        UPN  = "meredith.palmer@empire.local"
+        Sam  = "jyn.erso"
+        Name = "Jyn Erso"
+        UPN  = "jyn.erso@empire.local"
         Pwd  = "User1234!"
         Path = "OU=Users,OU=Corp,$base"
         Opts = @{}
       },
       @{
-        Sam  = "toby.flenderson"
-        Name = "Toby Flenderson"
-        UPN  = "toby.flenderson@empire.local"
+        Sam  = "kylo.ren"
+        Name = "Kylo Ren"
+        UPN  = "kylo.ren@empire.local"
         Pwd  = "User1234!"
         Path = "OU=Users,OU=Corp,$base"
         Opts = @{}
       },
       @{
-        Sam  = "creed.bratton"
-        Name = "Creed Bratton"
-        UPN  = "creed.bratton@empire.local"
+        Sam  = "wilhuff.tarkin"
+        Name = "Wilhuff Tarkin"
+        UPN  = "wilhuff.tarkin@empire.local"
         Pwd  = "User1234!"
         Path = "OU=Users,OU=Corp,$base"
         Opts = @{}
@@ -130,9 +130,9 @@
         Opts = @{}
       },
       @{
-        Sam  = "angela.martin"
-        Name = "Angela Martin"
-        UPN  = "angela.martin@empire.local"
+        Sam  = "mon.mothma"
+        Name = "Mon Mothma"
+        UPN  = "mon.mothma@empire.local"
         Pwd  = "User1234!"
         Path = "OU=Users,OU=Corp,$base"
         Opts = @{}
@@ -150,7 +150,7 @@
         Sam  = "svc_maul"
         Name = "svc_maul"
         UPN  = "svc_maul@empire.local"
-        Pwd  = "BeetFarm1!"
+        Pwd  = "DeathStar1!"
         Path = "OU=ServiceAccounts,OU=Corp,$base"
         Opts = @{ PasswordNeverExpires = $true }
       },
@@ -158,7 +158,7 @@
         Sam  = "svc_sidious"
         Name = "svc_sidious"
         UPN  = "svc_sidious@empire.local"
-        Pwd  = "Creed123"
+        Pwd  = "Tarkin123"
         Path = "OU=ServiceAccounts,OU=Corp,$base"
         Opts = @{ PasswordNeverExpires = $true }
       },
@@ -179,7 +179,7 @@
         Sam  = "svc_bobafett"
         Name = "svc_bobafett"
         UPN  = "svc_bobafett@empire.local"
-        Pwd  = "Darryl2024!"
+        Pwd  = "Bossk2024!"
         Path = "OU=ServiceAccounts,OU=Corp,$base"
         Opts = @{ PasswordNeverExpires = $true }
       },
@@ -201,7 +201,7 @@
         Path = "OU=ServiceAccounts,OU=Corp,$base"
         Opts = @{ PasswordNeverExpires = $true }
       },
-      # Linux pivot account — creds are leaked on mandalore (/home/michael/.creds_backup.txt
+      # Linux pivot account — creds are leaked on mandalore (/home/obiwan/.creds_backup.txt
       # and the readable keytab path). Rooting mandalore yields these, giving a valid
       # empire.local foothold that feeds the existing chain to Domain Admin.
       @{
@@ -253,11 +253,11 @@
     $spns = @{
       "svc_jabba"   = "HTTP/legacy.empire.local"
       "svc_greedo"     = "MSSQLSvc/kamino.empire.local:1433"
-      "svc_maul"    = "HTTP/dwight.empire.local"
+      "svc_maul"    = "HTTP/vader.empire.local"
       "svc_c3po"       = "HTTP/web.empire.local"
       # sheev.palpatine holds GenericAll-on-domain (LAT-021), Schema Admins/DCShadow
       # (CRED-015) and ExtraSID (DF-007). Give it an SPN so a sprayed domain user
-      # can Kerberoast it and crack "WorldsBestBoss1!" (in wordlists) — otherwise
+      # can Kerberoast it and crack "DarkLord1!" (in wordlists) — otherwise
       # those three high-value techniques have no acquisition path = unexploitable.
       "sheev.palpatine" = "HTTP/mgmt.empire.local"
     }

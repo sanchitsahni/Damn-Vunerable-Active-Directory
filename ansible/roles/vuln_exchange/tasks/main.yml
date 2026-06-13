@@ -13,7 +13,7 @@
   ansible.builtin.import_tasks: sql.yml
   when: inventory_hostname == 'kamino.empire.local'
 
-- name: Import DunderMifflin database creation (web app target DB)
+- name: Import ImperialArchive database creation (web app target DB)
   ansible.builtin.import_tasks: db_setup.yml
   when: inventory_hostname == 'kamino.empire.local'
 

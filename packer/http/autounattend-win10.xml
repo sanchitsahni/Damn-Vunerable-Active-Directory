@@ -51,7 +51,7 @@
       <UserData>
         <AcceptEula>true</AcceptEula>
         <FullName>User</FullName>
-        <Organization>DVAD-Lab</Organization>
+        <Organization>EMPIRE-Lab</Organization>
         <!-- No ProductKey: Win10 Enterprise Eval ISO is pre-keyed; a mismatched
              edition key makes Setup prompt/fail. Eval edition auto-selects. -->
       </UserData>

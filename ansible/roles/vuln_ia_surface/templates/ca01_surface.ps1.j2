@@ -6,7 +6,7 @@
 # IIS features are pre-baked in packer; install here is an idempotent fallback.
 # ==============================================================================
 $ErrorActionPreference = 'Continue'
-$log = 'C:\DunderLab\vuln_ia_ca01.log'
+$log = 'C:\EmpireLab\vuln_ia_ca01.log'
 New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
 

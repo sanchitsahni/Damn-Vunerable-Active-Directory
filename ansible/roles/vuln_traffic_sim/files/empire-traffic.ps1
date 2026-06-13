@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    empire Mifflin victim traffic simulator.
+    Galactic Empire victim traffic simulator.
     Runs as a domain user, generates periodic SMB/HTTP auth traffic every ~30 s.
 
     Attack surface produced:
@@ -37,11 +37,11 @@ $RealTargets = @(
 $FakeTargets = @(
     "\\EMPIRE-PRINT\Printers",        # plausible printer server typo → LLMNR
     "\\EMPIRESHARE\Documents",        # plausible share name → LLMNR
-    "\\SCRANTON-FS\PaperOrders",      # Scranton file server → LLMNR
+    "\\TATOOINE-FS\ImperialOrders",      # Imperial file server → LLMNR
     "\\EMPIRE-BACKUP\Archives",       # backup server → LLMNR
     "\\EMPIRE-FILE\Reports",          # file server variant → LLMNR
-    "\\MICHAELS-PC\Docs",             # Michael's computer → LLMNR
-    "\\RECEPTION\Scheduling"          # reception workstation → LLMNR
+    "\\PALPATINE-PC\Docs",             # Palpatine's computer → LLMNR
+    "\\CANTINA\Scheduling"          # reception workstation → LLMNR
 )
 
 $WpadUrls = @(
@@ -84,25 +84,25 @@ $ActivitySets = @{
     "leia.organa" = @{
         ShareComment = "Pam checking Accounting & HR shares"
         Real  = @("\\scarif.empire.local\Accounting", "\\scarif.empire.local\HR", "\\10.10.0.13\Accounting")
-        Fake  = @("\\EMPIRE-BACKUP\Archives", "\\SCRANTON-FS\Payroll", "\\RECEPTION\Scheduling")
+        Fake  = @("\\EMPIRE-BACKUP\Archives", "\\TATOOINE-FS\Payroll", "\\CANTINA\Scheduling")
         UseNet = $true
     }
     "luke.skywalker" = @{
         ShareComment = "Jim accessing Sales materials"
         Real  = @("\\scarif.empire.local\Sales", "\\10.10.0.13\Sales", "\\coruscant.empire.local\NETLOGON")
-        Fake  = @("\\MICHAELS-PC\Docs", "\\EMPIRE-FILE\Reports", "\\EMPIRESHARE\CustomerData")
+        Fake  = @("\\PALPATINE-PC\Docs", "\\EMPIRE-FILE\Reports", "\\EMPIRESHARE\CustomerData")
         UseNet = $true
     }
     "darth.maul" = @{
-        ShareComment = "Dwight doing security audit of shares"
+        ShareComment = "Vader doing security audit of shares"
         Real  = @("\\scarif.empire.local\Sales", "\\kamino.empire.local\Reports", "\\coruscant.empire.local\SYSVOL")
-        Fake  = @("\\EMPIRE-PRINT\Printers", "\\SCRANTON-FS\PaperOrders", "\\EMPIRE-FILE\BeetReports")
+        Fake  = @("\\EMPIRE-PRINT\Printers", "\\TATOOINE-FS\ImperialOrders", "\\EMPIRE-FILE\DeathStarReports")
         UseNet = $false
     }
     "sheev.palpatine" = @{
-        ShareComment = "Michael looking for party planning docs"
+        ShareComment = "Palpatine looking for party planning docs"
         Real  = @("\\scarif.empire.local\HR", "\\coruscant.empire.local\NETLOGON")
-        Fake  = @("\\MICHAELS-PC\Docs", "\\EMPIRESHARE\Documents", "\\EMPIRE-PRINT\Printers")
+        Fake  = @("\\PALPATINE-PC\Docs", "\\EMPIRESHARE\Documents", "\\EMPIRE-PRINT\Printers")
         UseNet = $true
     }
     "generic" = @{
@@ -121,7 +121,7 @@ $ActivitySet = if ($ActivitySets.ContainsKey($Identity)) {
 
 # ── Main loop — runs forever, 30 s between rounds ─────────────────────────────
 
-$LogFile = "C:\DunderLab\traffic-sim.log"
+$LogFile = "C:\EmpireLab\traffic-sim.log"
 $null = New-Item -ItemType Directory -Path (Split-Path $LogFile) -Force
 
 function Write-TrafficLog([string]$Msg) {

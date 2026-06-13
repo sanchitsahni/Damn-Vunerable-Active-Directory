@@ -12,13 +12,13 @@ attacker_ip: "10.10.0.1"
 # CRED-003: password-spray cohort — 7 low-priv users sharing one weak password.
 spray_password: "SithLord123!"
 spray_users:
-  - oscar.martinez
-  - angela.martin
+  - biggs.darklighter
+  - mon.mothma
   - greedo.tets
-  - stanley.hudson
+  - mace.windu
   - jabba.hutt
-  - creed.bratton
-  - meredith.palmer
+  - wilhuff.tarkin
+  - jyn.erso
 
 # CRED-030: GPP cpassword surface — well-known AES-encrypted value (decrypts with
 # the public Microsoft GPP key). Intentionally crackable.

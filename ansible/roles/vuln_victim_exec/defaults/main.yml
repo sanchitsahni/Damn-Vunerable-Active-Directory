@@ -9,9 +9,9 @@
 # the outbound WebDAV/SMB authentication for Responder / ntlmrelayx.
 
 victim_exec_interval: 30                         # seconds between victim rounds
-victim_exec_install_dir: 'C:\DunderLab'
-victim_exec_script: 'C:\DunderLab\victim-exec.ps1'
-victim_exec_log: 'C:\DunderLab\victim-exec.log'
+victim_exec_install_dir: 'C:\EmpireLab'
+victim_exec_script: 'C:\EmpireLab\victim-exec.ps1'
+victim_exec_log: 'C:\EmpireLab\victim-exec.log'
 
 ad_domain_netbios: "EMPIRE"
 
@@ -36,10 +36,10 @@ victim_exec_watch_paths:
 victim_exec_users:
   - username: "leia.organa"
     password: "Alice1234!"
-    task_name: "DunderVictim-Accounting"
+    task_name: "EmpireVictim-Accounting"
   - username: "luke.skywalker"
     password: "SithLord123!"
-    task_name: "DunderVictim-Sales"
+    task_name: "EmpireVictim-Sales"
   - username: "darth.maul"
-    password: "BeetFarm2024!"
-    task_name: "DunderVictim-Assistant"
+    password: "DeathStar2024!"
+    task_name: "EmpireVictim-Assistant"

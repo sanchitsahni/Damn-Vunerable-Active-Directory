@@ -7,18 +7,18 @@
 # IA-004/041 AXFR, IA-046 ADWS, IA-014 ZeroLogon, IA-040 WinRM-HTTPS run on all.
 # ==============================================================================
 
-- name: IA-dc - Ensure DunderLab dir exists
+- name: IA-dc - Ensure EmpireLab dir exists
   ansible.windows.win_file:
-    path: C:\DunderLab
+    path: C:\EmpireLab
     state: directory
 
 - name: IA-dc - Render batched DC surface script
   ansible.windows.win_template:
     src: dc_surface.ps1.j2
-    dest: C:\DunderLab\dc_surface.ps1
+    dest: C:\EmpireLab\dc_surface.ps1
 
 - name: IA-dc - Run batched DC surface script (IA-003/004/014/040/046 + REC-015)
-  ansible.windows.win_shell: powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\DunderLab\dc_surface.ps1
+  ansible.windows.win_shell: powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\EmpireLab\dc_surface.ps1
   register: ia_dc_run
   changed_when: "'CHANGED:' in ia_dc_run.stdout"
   failed_when: "'DONE' not in ia_dc_run.stdout"

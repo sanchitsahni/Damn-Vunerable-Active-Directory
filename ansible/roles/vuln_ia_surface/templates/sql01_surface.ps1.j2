@@ -11,7 +11,7 @@
 # Vars are Jinja-rendered; intentional weaknesses are the spec.
 # ==============================================================================
 $ErrorActionPreference = 'Continue'
-$log = 'C:\DunderLab\vuln_ia_sql01.log'
+$log = 'C:\EmpireLab\vuln_ia_sql01.log'
 New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
 

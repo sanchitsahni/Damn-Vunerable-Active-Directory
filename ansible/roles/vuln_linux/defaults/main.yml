@@ -38,8 +38,8 @@ vuln_linux_enable_nfs:        true
 vuln_linux_enable_webapp:     true
 
 # Weak local user (SSH password auth, GTFOBins, etc.)
-vuln_linux_weak_user:     "michael"
-vuln_linux_weak_password: "Scranton2024!"
+vuln_linux_weak_user:     "obiwan"
+vuln_linux_weak_password: "Mustafar2024!"
 
 # Plaintext domain creds left lying around (Linux→Windows lateral).
 vuln_linux_leaked_ad_user: "svc_r2d2"

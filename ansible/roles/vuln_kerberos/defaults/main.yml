@@ -7,14 +7,14 @@
 
 kerberoast_accounts:
   svc_trooper: "Summer2024"
-  svc_maul:  "BeetFarm1!"
-  svc_sidious:   "Creed123"
+  svc_maul:  "DeathStar1!"
+  svc_sidious:   "Tarkin123"
 
 asrep_account: "svc_palpatine"
 
 # SPNs to register (CRED-001)
 spn_printer: "HTTP/print.empire.local"
-spn_dwight:  "MSSQLSvc/kamino.empire.local:1433"
+spn_vader:  "MSSQLSvc/kamino.empire.local:1433"
 
 # Constrained delegation target (CRED-016)
 delegation_target: "HTTP/tatooine.empire.local"

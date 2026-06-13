@@ -14,7 +14,7 @@ ia_sysvol_script_path: 'C:\Windows\SYSVOL\sysvol\empire.local\scripts\setup.bat'
 ia_sysvol_script_content: |
   @echo off
   rem *** EMPIRE lab bootstrap — credentials intentionally exposed ***
-  net use \\coruscant\C$ /user:corp\svc_bobafett Darryl2024!
+  net use \\coruscant\C$ /user:corp\svc_bobafett Bossk2024!
   net use \\coruscant\C$ /user:EMPIRE\Administrator SithLord123!
 
 # Attacker-side IP used in the library-ms coercion file (IA-024)

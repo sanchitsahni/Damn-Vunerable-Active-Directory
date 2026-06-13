@@ -5,18 +5,18 @@
 # technique-reference notes (PE-101/110/115). Logic in templates/kernel.ps1.j2.
 # ==============================================================================
 
-- name: PE-kernel - Ensure DunderLab dir exists
+- name: PE-kernel - Ensure EmpireLab dir exists
   ansible.windows.win_file:
-    path: C:\DunderLab
+    path: C:\EmpireLab
     state: directory
 
 - name: PE-kernel - Render batched kernel-PE notes script
   ansible.windows.win_template:
     src: kernel.ps1.j2
-    dest: C:\DunderLab\kernel.ps1
+    dest: C:\EmpireLab\kernel.ps1
 
 - name: PE-kernel - Run batched kernel-PE notes script (PE-101/110/115)
-  ansible.windows.win_shell: powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\DunderLab\kernel.ps1
+  ansible.windows.win_shell: powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\EmpireLab\kernel.ps1
   register: pe_kernel_run
   changed_when: "'CHANGED:' in pe_kernel_run.stdout"
   failed_when: "'DONE' not in pe_kernel_run.stdout"

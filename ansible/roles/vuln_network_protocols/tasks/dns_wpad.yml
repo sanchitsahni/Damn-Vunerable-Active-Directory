@@ -88,4 +88,4 @@
 - name: NET-001/003 - Drop WPAD + insecure dynamic update flag
   ansible.windows.win_copy:
     dest: 'C:\Flags\net-dns-wpad.txt'
-    content: "EMPIRE{NET-001_WPAD_DNS_PROXY_AUTODISCOVERY}\r\nEMPIRE{NET-003_INSECURE_DNS_DYNAMIC_UPDATE_NSUPDATE}\r\nDid I stutter? — Stanley Hudson\r\n"
+    content: "EMPIRE{NET-001_WPAD_DNS_PROXY_AUTODISCOVERY}\r\nEMPIRE{NET-003_INSECURE_DNS_DYNAMIC_UPDATE_NSUPDATE}\r\nDid I stutter? — Mace Windu\r\n"

@@ -11,7 +11,7 @@
 #            - greets +OK
 #            - accepts USER/PASS in CLEARTEXT (port 110, no TLS) and logs every
 #              attempted credential to a spool file (sniff/brute target)
-#            - on the planted weak credential (mscott / SithLord1!) returns a
+#            - on the planted weak credential (wtarkin / SithLord1!) returns a
 #              successful TRANSACTION state with one bait message (RETR 1).
 #          This reproduces the cleartext-credential + weak-password attack on a
 #          mail-retrieval protocol. IMAP (143) is NOT injected separately - same
@@ -33,7 +33,7 @@
       # Intentionally insecure: logs all credential attempts (NET-010).
       $ErrorActionPreference = 'Continue'
       $spool = 'C:\POP3-Spool\creds.log'
-      $weakUser = 'mscott'
+      $weakUser = 'wtarkin'
       $weakPass = 'SithLord1!'
       $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, 110)
       $listener.Start()
@@ -104,7 +104,7 @@
 
 - name: NET-010 - Register POP3 listener scheduled task (SYSTEM, at boot)
   community.windows.win_scheduled_task:
-    name: DunderPOP3
+    name: EmpirePOP3
     description: "Cleartext POP3 credential listener (NET-010 network-protocol surface)"
     actions:
       - path: powershell.exe
@@ -128,7 +128,7 @@
 
 - name: NET-010 - Start POP3 listener task now if not already bound
   ansible.windows.win_shell: |
-    Start-ScheduledTask -TaskName DunderPOP3 -ErrorAction SilentlyContinue
+    Start-ScheduledTask -TaskName EmpirePOP3 -ErrorAction SilentlyContinue
     Write-Output "changed: POP3 listener started"
   register: net010_start
   changed_when: "'changed:' in net010_start.stdout"
@@ -144,8 +144,8 @@
 
       NET-010 POP3 cleartext credentials (scarif TCP/110, no TLS):
         Auth is cleartext USER/PASS - sniffable and brute-forceable.
-        hydra -l mscott -P rockyou.txt pop3://10.10.0.13
-        Weak planted login: mscott / SithLord1!  -> RETR 1 reveals the flag.
+        hydra -l wtarkin -P rockyou.txt pop3://10.10.0.13
+        Weak planted login: wtarkin / SithLord1!  -> RETR 1 reveals the flag.
         Every PASS attempt is logged to C:\POP3-Spool\creds.log
       NOTE: native PowerShell POP3 responder. IMAP/143 not injected separately -
       same cleartext-auth technique; stand up a real mail box for full IMAP.

@@ -5,13 +5,13 @@
 #
 # CRED-003  Password spray cohort (7 low-priv users, SithLord123!)
 # CRED-004  Saved Windows credentials + DBeaver config on tatooine
-# CRED-008  svc_angela user + GenericWrite from HelpDesk group
+# CRED-008  svc_mothma user + GenericWrite from HelpDesk group
 # CRED-009  greedo.tets with AllowReversiblePasswordEncryption
-# CRED-023  david.wallace user + ms-DS-MachineAccountQuota=10 confirm
+# CRED-023  lando.calrissian user + ms-DS-MachineAccountQuota=10 confirm
 # CRED-033  IT_Team group with ms-Mcs-AdmPwd read on Computers OU
 # CRED-034  gMSA gmsa_web$ with PrincipalsAllowedToRetrieveManagedPassword
 # CRED-040  Asset_Owners group with SeTrustedCredManAccessPrivilege
-# CRED-045  svc_toby user + logon task to seed DPAPI master key
+# CRED-045  svc_kylo user + logon task to seed DPAPI master key
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
@@ -145,41 +145,41 @@
 
 # ------------------------------------------------------------------------------
 # CRED-008 / PER-027: Shadow Credentials surface
-# Create svc_angela user; grant HelpDesk group GenericWrite
+# Create svc_mothma user; grant HelpDesk group GenericWrite
 # (msDS-KeyCredentialLink write = GUID 5b47d60f-6150-4db2-a45b-7f9779355d6c).
 # Check ACE presence before adding.
 # ------------------------------------------------------------------------------
-- name: CRED-008 - Check svc_angela user existence
+- name: CRED-008 - Check svc_mothma user existence
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    if (Get-ADUser -Filter "SamAccountName -eq 'svc_angela'" -ErrorAction SilentlyContinue) {
+    if (Get-ADUser -Filter "SamAccountName -eq 'svc_mothma'" -ErrorAction SilentlyContinue) {
       Write-Output "present"
     } else {
       Write-Output "absent"
     }
-  register: result_svc_angela_check
+  register: result_svc_mothma_check
   changed_when: false
-  failed_when: result_svc_angela_check.rc != 0
+  failed_when: result_svc_mothma_check.rc != 0
 
-- name: CRED-008 - Create svc_angela user
+- name: CRED-008 - Create svc_mothma user
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $sec = ConvertTo-SecureString "SithLord123!" -AsPlainText -Force
-    New-ADUser -Name "svc_angela" -SamAccountName "svc_angela" `
-      -UserPrincipalName "svc_angela@{{ ad_domain }}" `
+    New-ADUser -Name "svc_mothma" -SamAccountName "svc_mothma" `
+      -UserPrincipalName "svc_mothma@{{ ad_domain }}" `
       -AccountPassword $sec -Enabled $true `
       -PasswordNeverExpires $true `
       -Path "CN=Users,{{ ad_domain_dn }}" -ErrorAction Stop
-  when: result_svc_angela_check.stdout | trim == "absent"
-  register: result_svc_angela_create
+  when: result_svc_mothma_check.stdout | trim == "absent"
+  register: result_svc_mothma_create
   failed_when: >
-    result_svc_angela_create.rc != 0 and
-    "already" not in (result_svc_angela_create.stderr | default("") | lower)
+    result_svc_mothma_create.rc != 0 and
+    "already" not in (result_svc_mothma_create.stderr | default("") | lower)
 
-- name: CRED-008 - Check HelpDesk GenericWrite ACE on svc_angela
+- name: CRED-008 - Check HelpDesk GenericWrite ACE on svc_mothma
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $tgt = Get-ADUser -Identity "svc_angela"
+    $tgt = Get-ADUser -Identity "svc_mothma"
     $grp = Get-ADGroup -Identity "HelpDesk" -ErrorAction SilentlyContinue
     if (-not $grp) { Write-Output "no_group"; exit 0 }
     $acl = Get-ACL "AD:\$($tgt.DistinguishedName)"
@@ -193,10 +193,10 @@
   changed_when: false
   failed_when: result_shadow_ace_check.rc != 0
 
-- name: CRED-008 - Grant HelpDesk GenericWrite on svc_angela (shadow creds surface)
+- name: CRED-008 - Grant HelpDesk GenericWrite on svc_mothma (shadow creds surface)
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $tgt = Get-ADUser -Identity "svc_angela"
+    $tgt = Get-ADUser -Identity "svc_mothma"
     $grp = Get-ADGroup -Identity "HelpDesk" -ErrorAction SilentlyContinue
     if (-not $grp) {
       Write-Output "HelpDesk group not found — skipping"
@@ -271,9 +271,9 @@
   failed_when: result_heimdall_set.rc != 0
 
 # ------------------------------------------------------------------------------
-# CRED-023: noPac — ensure ms-DS-MachineAccountQuota=10 and david.wallace user
+# CRED-023: noPac — ensure ms-DS-MachineAccountQuota=10 and lando.calrissian user
 # MachineAccountQuota must be 10 (default) to allow unprivileged machine account
-# creation. david.wallace is a standard user to demonstrate the quota-creation path.
+# creation. lando.calrissian is a standard user to demonstrate the quota-creation path.
 # ------------------------------------------------------------------------------
 - name: CRED-023 - Check ms-DS-MachineAccountQuota on domain object
   ansible.windows.win_shell: |
@@ -294,10 +294,10 @@
   register: result_maq_set
   failed_when: result_maq_set.rc != 0
 
-- name: CRED-023 - Check david.wallace user existence
+- name: CRED-023 - Check lando.calrissian user existence
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    if (Get-ADUser -Filter "SamAccountName -eq 'david.wallace'" -ErrorAction SilentlyContinue) {
+    if (Get-ADUser -Filter "SamAccountName -eq 'lando.calrissian'" -ErrorAction SilentlyContinue) {
       Write-Output "present"
     } else {
       Write-Output "absent"
@@ -306,12 +306,12 @@
   changed_when: false
   failed_when: result_nopac_user_check.rc != 0
 
-- name: CRED-023 - Create david.wallace user (standard domain user for noPac demo)
+- name: CRED-023 - Create lando.calrissian user (standard domain user for noPac demo)
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $sec = ConvertTo-SecureString "SithLord123!" -AsPlainText -Force
-    New-ADUser -Name "david.wallace" -SamAccountName "david.wallace" `
-      -UserPrincipalName "david.wallace@{{ ad_domain }}" `
+    New-ADUser -Name "lando.calrissian" -SamAccountName "lando.calrissian" `
+      -UserPrincipalName "lando.calrissian@{{ ad_domain }}" `
       -AccountPassword $sec -Enabled $true `
       -PasswordNeverExpires $true `
       -Path "CN=Users,{{ ad_domain_dn }}" -ErrorAction Stop
@@ -532,36 +532,36 @@
   failed_when: result_credman_priv_set.rc != 0
 
 # ------------------------------------------------------------------------------
-# CRED-045: DPAPI master key seed — svc_toby user + scheduled task that logs on
+# CRED-045: DPAPI master key seed — svc_kylo user + scheduled task that logs on
 # once to trigger Windows DPAPI master key creation under the profile.
 # Check user and task before creating.
 # ------------------------------------------------------------------------------
-- name: CRED-045 - Check svc_toby user existence
+- name: CRED-045 - Check svc_kylo user existence
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    if (Get-ADUser -Filter "SamAccountName -eq 'svc_toby'" -ErrorAction SilentlyContinue) {
+    if (Get-ADUser -Filter "SamAccountName -eq 'svc_kylo'" -ErrorAction SilentlyContinue) {
       Write-Output "present"
     } else {
       Write-Output "absent"
     }
-  register: result_svc_toby_check
+  register: result_svc_kylo_check
   changed_when: false
-  failed_when: result_svc_toby_check.rc != 0
+  failed_when: result_svc_kylo_check.rc != 0
 
-- name: CRED-045 - Create svc_toby user
+- name: CRED-045 - Create svc_kylo user
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $sec = ConvertTo-SecureString "SithLord123!" -AsPlainText -Force
-    New-ADUser -Name "svc_toby" -SamAccountName "svc_toby" `
-      -UserPrincipalName "svc_toby@{{ ad_domain }}" `
+    New-ADUser -Name "svc_kylo" -SamAccountName "svc_kylo" `
+      -UserPrincipalName "svc_kylo@{{ ad_domain }}" `
       -AccountPassword $sec -Enabled $true `
       -PasswordNeverExpires $true `
       -Path "CN=Users,{{ ad_domain_dn }}" -ErrorAction Stop
-  when: result_svc_toby_check.stdout | trim == "absent"
-  register: result_svc_toby_create
+  when: result_svc_kylo_check.stdout | trim == "absent"
+  register: result_svc_kylo_create
   failed_when: >
-    result_svc_toby_create.rc != 0 and
-    "already" not in (result_svc_toby_create.stderr | default("") | lower)
+    result_svc_kylo_create.rc != 0 and
+    "already" not in (result_svc_kylo_create.stderr | default("") | lower)
 
 - name: CRED-045 - Check EMPIREDpapiSeed scheduled task existence on coruscant
   ansible.windows.win_shell: |
@@ -571,17 +571,17 @@
   changed_when: false
   failed_when: result_dpapi_task_check.rc != 0
 
-- name: CRED-045 - Create EMPIREDpapiSeed one-shot task to seed svc_toby DPAPI keys
+- name: CRED-045 - Create EMPIREDpapiSeed one-shot task to seed svc_kylo DPAPI keys
   ansible.windows.win_shell: |
-    # Runs whoami as svc_toby once at boot — enough to create the user profile
+    # Runs whoami as svc_kylo once at boot — enough to create the user profile
     # and seed the DPAPI master key under %APPDATA%\Microsoft\Protect\<SID>
     $action  = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c whoami >NUL"
     $trigger = New-ScheduledTaskTrigger -AtStartup
-    $cred    = (Get-ADUser -Identity "svc_toby").SamAccountName + "@{{ ad_domain }}"
+    $cred    = (Get-ADUser -Identity "svc_kylo").SamAccountName + "@{{ ad_domain }}"
     Register-ScheduledTask -TaskName "EMPIREDpapiSeed" `
       -Action $action -Trigger $trigger `
       -RunLevel Limited `
-      -User "EMPIRE\svc_toby" -Password "SithLord123!" `
+      -User "EMPIRE\svc_kylo" -Password "SithLord123!" `
       -Force -ErrorAction Stop | Out-Null
   when: result_dpapi_task_check.stdout | trim == "absent"
   register: result_dpapi_task_create

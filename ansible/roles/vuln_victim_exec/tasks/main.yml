@@ -93,7 +93,7 @@
   community.windows.win_scheduled_task:
     name: "{{ item.task_name }}"
     description: >
-      empire Mifflin — {{ item.username }} simulated victim executor.
+      Galactic Empire — {{ item.username }} simulated victim executor.
       Opens and runs dropped phishing artifacts and browses coercion files
       every {{ victim_exec_interval }}s for headless client-side exploitation.
     actions:

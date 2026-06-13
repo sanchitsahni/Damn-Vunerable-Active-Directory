@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ==============================================================================
-# attack_graph.py — GROUND-TRUTH attack graph for the EMPIRE / DVAD lab.
+# attack_graph.py — GROUND-TRUTH attack graph for the EMPIRE / EMPIRE lab.
 #
 # This module is *data*, not logic. Every node and edge below is derived from
 # what the ansible/roles/vuln_* roles ACTUALLY deploy (verified by reading the
@@ -46,10 +46,10 @@ FILE01_USER   = "shell:scarif"                   # code-exec on scarif (IIS/SSH/
 SQL01_SVC     = "shell:kamino-service"            # xp_cmdshell service context
 
 # captured-credential intermediate states:
-CREDS_KERBEROAST = "creds:kerberoast-svc"        # svc_trooper/dwight/creed hashes
+CREDS_KERBEROAST = "creds:kerberoast-svc"        # svc_trooper/vader/tarkin hashes
 CREDS_ASREP      = "creds:asrep-svc_palpatine"     # svc_palpatine AS-REP hash
-CREDS_DARRYL     = "creds:svc_bobafett"            # DCSync-capable account creds
-CREDS_MICHAEL    = "creds:sheev.palpatine"         # GenericAll-on-domain / Schema Admins
+CREDS_BOSSK     = "creds:svc_bobafett"            # DCSync-capable account creds
+CREDS_PALPATINE    = "creds:sheev.palpatine"         # GenericAll-on-domain / Schema Admins
 CREDS_DEVELOPER2 = "creds:developer2"            # ->Enterprise Admins GenericWrite
 CREDS_SCCM       = "creds:svc_sccm"              # member of Domain Admins
 CREDS_BACKUP     = "creds:svc_r2d2"            # leaked on mandalore -> valid corp user
@@ -115,7 +115,7 @@ EDGES = [
     # AS-REP foothold is itself a crackable hash -> the svc_palpatine identity
     ("crack", CREDS_ASREP, USER_ANY, "Crack svc_palpatine AS-REP hash (offline) -> domain user",
         None),
-    ("crack", CREDS_KERBEROAST, USER_ANY, "Crack kerberoast hashes (Summer2024/BeetFarm1!/Creed123)",
+    ("crack", CREDS_KERBEROAST, USER_ANY, "Crack kerberoast hashes (Summer2024/DeathStar1!/Tarkin123)",
         None),
 
     # ── local admin on each box ────────────────────────────────────────────────
@@ -135,8 +135,8 @@ EDGES = [
         "vuln_adcs/ca-flags.yml + vuln_forest/esc_ext.yml"),
 
     # ── paths to Domain Admin in empire.local ────────────────────────────────────
-    # ESC1: ANY domain user can enroll DVADUserESC1 (Domain Users enroll right)
-    ("DF-012/ESC1", USER_ANY, DA_CORP, "ADCS ESC1: enroll DVADUserESC1 w/ arbitrary SAN -> DA cert -> TGT",
+    # ESC1: ANY domain user can enroll EMPIREUserESC1 (Domain Users enroll right)
+    ("DF-012/ESC1", USER_ANY, DA_CORP, "ADCS ESC1: enroll EMPIREUserESC1 w/ arbitrary SAN -> DA cert -> TGT",
         "vuln_adcs/templates.yml (Domain Users enroll)"),
     ("DF-019/ESC8", USER_ANY, DA_CORP, "ADCS ESC8: coerce DC auth -> NTLM relay to CA web enrollment -> DC cert",
         "vuln_adcs/ca-flags.yml + vuln_lateral/coerce.yml"),
@@ -148,18 +148,18 @@ EDGES = [
         "vuln_exchange/sccm.yml"),
     # svc_bobafett creds are recoverable: plaintext net-use line in the world-readable
     # SYSVOL bootstrap script (REC-015), password matches the real account.
-    ("REC-015", USER_ANY, CREDS_DARRYL, "Read svc_bobafett plaintext creds from SYSVOL setup.bat",
+    ("REC-015", USER_ANY, CREDS_BOSSK, "Read svc_bobafett plaintext creds from SYSVOL setup.bat",
         "vuln_ia_surface/defaults (ia_sysvol_script_content)"),
     # DCSync: svc_bobafett holds Replicate-Directory-Changes(-All) on the domain NC.
-    ("CRED-013", CREDS_DARRYL, KRBTGT, "DCSync as svc_bobafett -> dump krbtgt + all hashes",
+    ("CRED-013", CREDS_BOSSK, KRBTGT, "DCSync as svc_bobafett -> dump krbtgt + all hashes",
         "vuln_cred_access/acl_rights.yml"),
-    # sheev.palpatine: Kerberoastable (SPN HTTP/mgmt.empire.local), pw WorldsBestBoss1!
+    # sheev.palpatine: Kerberoastable (SPN HTTP/mgmt.empire.local), pw DarkLord1!
     # is in the wordlist -> any sprayed domain user can roast + crack it.
-    ("CRED-001b", USER_ANY, CREDS_MICHAEL, "Kerberoast sheev.palpatine (SPN) -> crack WorldsBestBoss1!",
+    ("CRED-001b", USER_ANY, CREDS_PALPATINE, "Kerberoast sheev.palpatine (SPN) -> crack DarkLord1!",
         "ad_domain/users.yml ($spns sheev.palpatine) + wordlists"),
     # sheev.palpatine holds GenericAll on the domain NC (LAT-021) -> grant self
     # DCSync / DA, run DCShadow (CRED-015), or ExtraSID inject (DF-007).
-    ("LAT-021/CRED-015/DF-007", CREDS_MICHAEL, DA_CORP,
+    ("LAT-021/CRED-015/DF-007", CREDS_PALPATINE, DA_CORP,
         "sheev.palpatine GenericAll on domain NC -> DCSync/DCShadow/ExtraSID -> DA",
         "vuln_lateral/acl.yml + vuln_cred_access/services.yml + vuln_forest/main.yml"),
     # developer2 password (SithLord123!) is in the wordlist -> reachable by full
@@ -219,7 +219,7 @@ DANGLING = [
     # NOTE: sheev.palpatine IS created (ad_domain/users.yml loop). The earlier
     # "never created" finding was a false positive. Acquisition was the real gap
     # and is now fixed: sheev.palpatine has an SPN (Kerberoastable) and its password
-    # WorldsBestBoss1! is in the wordlist -> LAT-021/CRED-015/DF-007 reachable.
+    # DarkLord1! is in the wordlist -> LAT-021/CRED-015/DF-007 reachable.
     # svc_bobafett (CRED-013) reachable via the SYSVOL plaintext creds (REC-015,
     # password now matches). developer2 (PE-128) reachable via full-wordlist spray.
     ("SRV-*/IA-051..065/PE-081..130/LAT-036..095/CRED-066..130/WEB-*",

@@ -95,7 +95,7 @@
 
 - name: NET-004 - Register TFTP listener scheduled task (SYSTEM, at boot)
   community.windows.win_scheduled_task:
-    name: DunderTFTP
+    name: EmpireTFTP
     description: "Anonymous TFTP listener (NET-004 network-protocol surface)"
     actions:
       - path: powershell.exe
@@ -119,7 +119,7 @@
 
 - name: NET-004 - Start TFTP listener task now if not already bound
   ansible.windows.win_shell: |
-    Start-ScheduledTask -TaskName DunderTFTP -ErrorAction SilentlyContinue
+    Start-ScheduledTask -TaskName EmpireTFTP -ErrorAction SilentlyContinue
     Write-Output "changed: TFTP listener started"
   register: net004_start
   changed_when: "'changed:' in net004_start.stdout"

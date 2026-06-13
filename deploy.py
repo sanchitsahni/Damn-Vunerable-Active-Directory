@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""EMPIRE — empire Mifflin Vulnerable AD Lab — interactive menu."""
+"""EMPIRE — Vulnerable Multi-Forest Active Directory Lab — interactive menu."""
 import sys
 assert sys.version_info >= (3, 8), "Python 3.8+ required"
 
@@ -249,7 +249,7 @@ def _box_line(text: str) -> str:
 def print_banner():
     print(f"\n{C}{BLD}")
     print("╔" + "═" * _BANNER_W + "╗")
-    print(_box_line("   EMPIRE  ·  empire Mifflin Vulnerable Active Directory"))
+    print(_box_line("   EMPIRE  ·  Vulnerable Multi-Forest Active Directory Lab"))
     print(_box_line("   CTF / Red-Team Lab  ·  deploy.py"))
     print("╚" + "═" * _BANNER_W + "╝")
     print(NC, end="")
@@ -1233,14 +1233,13 @@ def action_resume_phase(cfg: dict):
 
 def print_logo():
     print(f"\n{C}{BLD}")
-    print(r"   ____  _    _ _   _ _____  ______ _____  ")
-    print(r"  |  _ \| |  | | \ | |  __ \|  ____|  __ \ ")
-    print(r"  | |  | | |  | |  \| | |  | | |__  | |__) |")
-    print(r"  | |  | | |  | | . ` | |  | |  __| |  _  / ")
-    print(r"  | |__| | |__| | |\  | |__| | |____| | \ \ ")
-    print(r"  |_____/ \____/|_| \_|_____/|______|_|  \_\\")
-    print(f"     {NC}{BLD}empire Mifflin Vulnerable Active Directory{NC}")
-    print(f"{C}{BLD}       {Y}pwning is the best policy{NC}")
+    print(r"   _____ __  __ ____ ___ ____  _____ ")
+    print(r"  | ____|  \/  |  _ \_ _|  _ \| ____|")
+    print(r"  |  _| | |\/| | |_) | || |_) |  _|  ")
+    print(r"  | |___| |  | |  __/| ||  _ <| |___ ")
+    print(r"  |_____|_|  |_|_|  |___|_| \_\_____|")
+    print(f"     {NC}{BLD}Vulnerable Multi-Forest Active Directory Lab{NC}")
+    print(f"{C}{BLD}       {Y}the dark side of Active Directory{NC}")
     print(f"\n{DIM}  management console — type {NC}{BLD}help{NC}{DIM} or {NC}{BLD}?{NC}{DIM} to list commands{NC}")
 
 
@@ -1307,7 +1306,7 @@ def print_menu():
 # GOAD-style interactive shell (cmd.Cmd REPL with settings-aware prompt)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class DunderShell(_cmd.Cmd):
+class EmpireShell(_cmd.Cmd):
     def __init__(self, cfg: dict, start_phase: int = 0):
         super().__init__()
         self.cfg = cfg
@@ -1493,7 +1492,7 @@ class DunderShell(_cmd.Cmd):
 
 
 def main_menu(cfg: dict, start_phase: int = 0):
-    DunderShell(cfg, start_phase).cmdloop()
+    EmpireShell(cfg, start_phase).cmdloop()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1503,7 +1502,7 @@ def main_menu(cfg: dict, start_phase: int = 0):
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="deploy.py",
-        description="EMPIRE — empire Mifflin Vulnerable AD Lab",
+        description="EMPIRE — Vulnerable Multi-Forest Active Directory Lab",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Interactive mode (default):

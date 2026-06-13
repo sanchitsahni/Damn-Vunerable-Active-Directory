@@ -12,8 +12,8 @@ iis_app_pool_user:     "svc_iis"
 iis_app_pool_password: "IIS2024!"
 
 # SQL connection string exposed in web config
-sql_conn_string: "Server=kamino.empire.local;Database=DunderMifflin;User Id=empire_web;Password=WebUser2024!;"
-sql_admin_conn:  "Server=kamino.empire.local;Database=DunderMifflin;User Id=sa;Password=DeathStar2025!;"
+sql_conn_string: "Server=kamino.empire.local;Database=ImperialArchive;User Id=empire_web;Password=WebUser2024!;"
+sql_admin_conn:  "Server=kamino.empire.local;Database=ImperialArchive;User Id=sa;Password=DeathStar2025!;"
 
 # Upload directory
 upload_dir: 'C:\inetpub\wwwroot\uploads'

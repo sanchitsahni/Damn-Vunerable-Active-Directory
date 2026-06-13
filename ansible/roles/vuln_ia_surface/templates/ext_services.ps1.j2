@@ -6,7 +6,7 @@
 # packer image; the install here is an idempotent fallback for non-baked images.
 # ==============================================================================
 $ErrorActionPreference = 'Continue'
-$log = 'C:\DunderLab\vuln_ia_services.log'
+$log = 'C:\EmpireLab\vuln_ia_services.log'
 New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
 

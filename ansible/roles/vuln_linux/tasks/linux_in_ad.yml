@@ -136,7 +136,7 @@
 - name: B8 — Create the weak-password local user
   ansible.builtin.user:
     name: "{{ vuln_linux_weak_user }}"
-    password: "{{ vuln_linux_weak_password | password_hash('sha512', 'dundersalt') }}"
+    password: "{{ vuln_linux_weak_password | password_hash('sha512', 'empiresalt') }}"
     shell: /bin/bash
     groups: sudo
     append: true

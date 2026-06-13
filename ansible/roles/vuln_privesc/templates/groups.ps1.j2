@@ -1,21 +1,21 @@
 #Requires -Version 5
 # ==============================================================================
 # vuln_privesc - group-membership PE surfaces (BATCHED, coruscant only).
-# PE-005/006/059 svc_darryl in Warehouse (SeBackup/SeRestore -> NTDS.dit),
+# PE-005/006/059 svc_bossk in Warehouse (SeBackup/SeRestore -> NTDS.dit),
 # PE-057 developer1 in Server Operators, PE-018 SYSVOL Scripts DACL loosen,
 # PE-019 SYSTEM-only flag (SeBackup read path). Replaces ~8 round-trips with 1.
 # ==============================================================================
 $ErrorActionPreference = 'Continue'
-$log = 'C:\DunderLab\vuln_pe_groups.log'
+$log = 'C:\EmpireLab\vuln_pe_groups.log'
 New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
 Import-Module ActiveDirectory -ErrorAction SilentlyContinue
 
-# -- PE-005/059: svc_darryl in Warehouse --------------------------------------
+# -- PE-005/059: svc_bossk in Warehouse --------------------------------------
 try {
   $m = Get-ADGroupMember -Identity "Warehouse" -ErrorAction Stop | Select-Object -ExpandProperty SamAccountName
-  if ($m -contains "svc_darryl") { Log "OK: PE-005 svc_darryl already in Warehouse" }
-  else { Add-ADGroupMember -Identity "Warehouse" -Members "svc_darryl" -ErrorAction Stop; Log "CHANGED: PE-005 svc_darryl added to Warehouse" }
+  if ($m -contains "svc_bossk") { Log "OK: PE-005 svc_bossk already in Warehouse" }
+  else { Add-ADGroupMember -Identity "Warehouse" -Members "svc_bossk" -ErrorAction Stop; Log "CHANGED: PE-005 svc_bossk added to Warehouse" }
 } catch { Log "ERROR: PE-005 $($_.Exception.Message)" }
 
 # -- PE-057: developer1 in Server Operators -----------------------------------
@@ -43,8 +43,8 @@ try {
 try {
   New-Item -ItemType Directory -Force -Path 'C:\Flags' | Out-Null
   $flag = @'
-DUNDER{PE-019_BACKUP_OPERATORS_READ_PATH}
-Nothing stresses me out. Except having to seek the approval of my inferiors. - Dwight Schrute
+EMPIRE{PE-019_BACKUP_OPERATORS_READ_PATH}
+Nothing stresses me out. Except having to seek the approval of my inferiors. - Darth Vader
 '@
   Set-Content -Path 'C:\Flags\dc-system-only.txt' -Value $flag -Encoding UTF8
   icacls "C:\Flags\dc-system-only.txt" /inheritance:r 2>$null | Out-Null

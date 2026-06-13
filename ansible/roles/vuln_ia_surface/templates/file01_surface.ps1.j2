@@ -7,7 +7,7 @@
 # idempotent fallbacks (most are pre-baked in the packer image). Spec, not bugs.
 # ==============================================================================
 $ErrorActionPreference = 'Continue'
-$log = 'C:\DunderLab\vuln_ia_file01.log'
+$log = 'C:\EmpireLab\vuln_ia_file01.log'
 New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
 function Ensure-Feature($name) {

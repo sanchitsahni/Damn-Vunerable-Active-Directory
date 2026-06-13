@@ -5,7 +5,7 @@
 # developer2 GenericWrite on Enterprise Admins. Replaces ~4 round-trips with 1.
 # ==============================================================================
 $ErrorActionPreference = 'Continue'
-$log = 'C:\DunderLab\vuln_pe_ad.log'
+$log = 'C:\EmpireLab\vuln_pe_ad.log'
 New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 New-Item -ItemType Directory -Force -Path 'C:\Flags' | Out-Null
 function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }

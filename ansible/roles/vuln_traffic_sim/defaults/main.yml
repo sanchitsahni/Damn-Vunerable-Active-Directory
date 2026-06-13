@@ -3,9 +3,9 @@
 # Victim simulation — generates NTLM auth traffic for Responder/ntlmrelayx practice.
 
 traffic_sim_interval: 30          # seconds between traffic rounds
-traffic_sim_install_dir: 'C:\DunderLab'
-traffic_sim_script: 'C:\DunderLab\empire-traffic.ps1'
-traffic_sim_log: 'C:\DunderLab\traffic-sim.log'
+traffic_sim_install_dir: 'C:\EmpireLab'
+traffic_sim_script: 'C:\EmpireLab\empire-traffic.ps1'
+traffic_sim_log: 'C:\EmpireLab\traffic-sim.log'
 
 ad_domain_netbios: "EMPIRE"
 
@@ -14,10 +14,10 @@ ad_domain_netbios: "EMPIRE"
 traffic_sim_users:
   - username: "leia.organa"
     password: "Alice1234!"
-    task_name: "DunderTraffic-Accounting"
+    task_name: "EmpireTraffic-Accounting"
   - username: "luke.skywalker"
     password: "SithLord123!"
-    task_name: "DunderTraffic-Sales"
+    task_name: "EmpireTraffic-Sales"
   - username: "darth.maul"
-    password: "BeetFarm2024!"
-    task_name: "DunderTraffic-Assistant"
+    password: "DeathStar2024!"
+    task_name: "EmpireTraffic-Assistant"

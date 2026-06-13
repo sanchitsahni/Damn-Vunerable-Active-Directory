@@ -6,7 +6,7 @@
 # IA-045 WebClient, IA-047 WSD/SSDP, IA-040 WinRM-HTTPS. Deliberately vulnerable.
 # ==============================================================================
 $ErrorActionPreference = 'Continue'
-$log = 'C:\DunderLab\vuln_ia_ws01.log'
+$log = 'C:\EmpireLab\vuln_ia_ws01.log'
 New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
 

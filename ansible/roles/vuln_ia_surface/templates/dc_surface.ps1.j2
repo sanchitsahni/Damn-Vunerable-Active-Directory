@@ -7,7 +7,7 @@
 # WinRM-HTTPS run on every DC. Deliberately vulnerable lab.
 # ==============================================================================
 $ErrorActionPreference = 'Continue'
-$log = 'C:\DunderLab\vuln_ia_dc.log'
+$log = 'C:\EmpireLab\vuln_ia_dc.log'
 New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 function Log($m) { Add-Content -Path $log -Value "$(Get-Date -Format o) $m"; Write-Output $m }
 Import-Module ActiveDirectory -ErrorAction SilentlyContinue

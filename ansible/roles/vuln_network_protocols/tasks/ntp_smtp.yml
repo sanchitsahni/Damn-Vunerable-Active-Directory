@@ -48,7 +48,7 @@
     dest: 'C:\Flags\net-ntp-smtp.txt'
     content: |
       EMPIRE{NET-007_NTP_SERVER_UDP123_ENUM}
-      Bears. Beets. Battlestar Galactica. — Luke Skywalker (as Dwight)
+      Fear is the path to the dark side. — Luke Skywalker 
 
       NET-007 NTP (informational):
         coruscant runs Windows Time (w32time) as an NTP server on UDP/123.

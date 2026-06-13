@@ -21,8 +21,8 @@
     dest: /root/flag-root.txt
     mode: "0600"
     content: |
-      EMPIRE{LINUX_ROOT_LPE_BEARS_BEETS_BATTLESTAR}
-      "Bears. Beets. Battlestar Galactica." — Luke Skywalker
+      EMPIRE{LINUX_ROOT_LPE_FEAR_LEADS_TO_DARK_SIDE}
+      "Fear is the path to the dark side." — Luke Skywalker
       You rooted mandalore — sudo/SUID/cron/NFS all led here.
 
 # ── per-attack flags, each placed where that attack yields access ─────────────
@@ -41,7 +41,7 @@
     mode: "0644"
     content: |
       EMPIRE{LINUX_TO_AD_LEAKED_CREDS_THATS_WHAT_SHE_SAID}
-      "That's what she said." — Sheev Palpatine
+      "I find your lack of faith disturbing." — Sheev Palpatine
       {{ vuln_linux_leaked_ad_user }} / {{ vuln_linux_leaked_ad_pass }}
       Pivot these AD creds from mandalore back into empire.local.
   failed_when: false
@@ -51,7 +51,7 @@
     dest: /opt/empire/flags/flag-redis.txt
     mode: "0644"
     content: |
-      EMPIRE{NET_REDIS_UNAUTH_RCE_WORLDS_BEST_BOSS}
+      EMPIRE{NET_REDIS_UNAUTH_RCE_DARK_LORD_OF_SITH}
       "World's Best Boss." — Sheev Palpatine
     when: vuln_linux_enable_redis | bool
   failed_when: false
@@ -71,8 +71,8 @@
     dest: /opt/empire/flags/flag-memcached.txt
     mode: "0644"
     content: |
-      EMPIRE{NET_MEMCACHED_EXPOSED_EMPIRE_MIFFLIN_THIS_IS_PAM}
-      "empire Mifflin, this is Pam." — Leia Organa
+      EMPIRE{NET_MEMCACHED_EXPOSED_EMPIRE_EMPIRE_THIS_IS_PADME}
+      "Galactic Empire, this is Pam." — Leia Organa
     when: vuln_linux_enable_memcached | bool
   failed_when: false
 

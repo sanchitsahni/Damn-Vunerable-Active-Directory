@@ -92,7 +92,7 @@
 
 - name: NET-009 - Register VNC listener scheduled task (SYSTEM, at boot)
   community.windows.win_scheduled_task:
-    name: DunderVNC
+    name: EmpireVNC
     description: "Unauthenticated VNC/RFB listener (NET-009 network-protocol surface)"
     actions:
       - path: powershell.exe
@@ -116,7 +116,7 @@
 
 - name: NET-009 - Start VNC listener task now if not already bound
   ansible.windows.win_shell: |
-    Start-ScheduledTask -TaskName DunderVNC -ErrorAction SilentlyContinue
+    Start-ScheduledTask -TaskName EmpireVNC -ErrorAction SilentlyContinue
     Write-Output "changed: VNC listener started"
   register: net009_start
   changed_when: "'changed:' in net009_start.stdout"
@@ -128,7 +128,7 @@
     dest: 'C:\Flags\net-vnc.txt'
     content: |
       EMPIRE{NET-009_VNC_RFB_SECURITYTYPE_NONE_UNAUTH}
-      I am dead inside. — Stanley Hudson
+      I am dead inside. — Mace Windu
 
       NET-009 VNC (RFB) unauthenticated:
         tatooine listens on TCP/5900 and advertises RFB SecurityType 1 = None.

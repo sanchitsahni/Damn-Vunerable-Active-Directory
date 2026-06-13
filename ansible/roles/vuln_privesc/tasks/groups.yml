@@ -5,20 +5,20 @@
 # Logic in templates/groups.ps1.j2 (PE-005/006/059, PE-057, PE-018, PE-019).
 # ==============================================================================
 
-- name: PE-groups - Ensure DunderLab dir exists
+- name: PE-groups - Ensure EmpireLab dir exists
   ansible.windows.win_file:
-    path: C:\DunderLab
+    path: C:\EmpireLab
     state: directory
   when: inventory_hostname == 'coruscant.empire.local'
 
 - name: PE-groups - Render batched group-PE script
   ansible.windows.win_template:
     src: groups.ps1.j2
-    dest: C:\DunderLab\groups_pe.ps1
+    dest: C:\EmpireLab\groups_pe.ps1
   when: inventory_hostname == 'coruscant.empire.local'
 
 - name: PE-groups - Run batched group-PE script (PE-005/057/018/019)
-  ansible.windows.win_shell: powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\DunderLab\groups_pe.ps1
+  ansible.windows.win_shell: powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\EmpireLab\groups_pe.ps1
   register: pe_groups_run
   changed_when: "'CHANGED:' in pe_groups_run.stdout"
   failed_when: "'DONE' not in pe_groups_run.stdout"

@@ -27,7 +27,7 @@
 - name: CRED-013 - Create svc_bobafett user
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $p = ConvertTo-SecureString 'Darryl2024!' -AsPlainText -Force
+    $p = ConvertTo-SecureString 'Bossk2024!' -AsPlainText -Force
     New-ADUser -Name 'svc_bobafett' -SamAccountName 'svc_bobafett' `
       -AccountPassword $p -Enabled $true -PasswordNeverExpires $true `
       -Path "CN=Users,{{ ad_domain_dn }}" `
@@ -91,7 +91,7 @@
 - name: CRED-014 - Create svc_bobafett2 user
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $p = ConvertTo-SecureString 'Darryl2024!' -AsPlainText -Force
+    $p = ConvertTo-SecureString 'Bossk2024!' -AsPlainText -Force
     New-ADUser -Name 'svc_bobafett2' -SamAccountName 'svc_bobafett2' `
       -AccountPassword $p -Enabled $true -PasswordNeverExpires $true `
       -Path "CN=Users,{{ ad_domain_dn }}" `

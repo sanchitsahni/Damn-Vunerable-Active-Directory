@@ -3,9 +3,9 @@
 # vuln_persistence/tasks/acl.yml
 # Target: coruscant.empire.local
 #
-# PER-015/033  stanley.hudson → GenericAll on AdminSDHolder
+# PER-015/033  mace.windu → GenericAll on AdminSDHolder
 #              SDProp re-propagates this ACE every 60 min to all protected objects,
-#              giving stanley.hudson persistent GenericAll across the entire
+#              giving mace.windu persistent GenericAll across the entire
 #              AdminSDHolder-protected group/user set.
 # PER-027      KeyCredentialLink write surface — svc_trooper has GenericWrite on
 #              its own object so the owner can add ms-DS-KeyCredentialLink
@@ -13,30 +13,30 @@
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# PER-015/033: stanley.hudson GenericAll on AdminSDHolder
+# PER-015/033: mace.windu GenericAll on AdminSDHolder
 # ------------------------------------------------------------------------------
-- name: PER-015 - Check GenericAll ACE for stanley.hudson on AdminSDHolder
+- name: PER-015 - Check GenericAll ACE for mace.windu on AdminSDHolder
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $domDn = (Get-ADDomain).DistinguishedName
     $dn    = "CN=AdminSDHolder,CN=System,$domDn"
     $acl   = Get-Acl "AD:\$dn"
     $exists = $acl.Access | Where-Object {
-      $_.IdentityReference -like "*stanley.hudson*" -and
+      $_.IdentityReference -like "*mace.windu*" -and
       $_.ActiveDirectoryRights -match "GenericAll"
     }
     if ($exists) { Write-Output "present" } else { Write-Output "absent" }
   register: result_adminsdholder_check
   changed_when: false
   failed_when: result_adminsdholder_check.rc != 0
-  # stanley.hudson + AdminSDHolder live in empire.local root — only coruscant has
+  # mace.windu + AdminSDHolder live in empire.local root — only coruscant has
   # the user + ADWS. On members/foreign DCs this throws (no module / no object).
   when: inventory_hostname == 'coruscant.empire.local'
 
-- name: PER-015/033 - Grant stanley.hudson GenericAll on AdminSDHolder
+- name: PER-015/033 - Grant mace.windu GenericAll on AdminSDHolder
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    $src   = Get-ADUser -Identity "stanley.hudson" -ErrorAction Stop
+    $src   = Get-ADUser -Identity "mace.windu" -ErrorAction Stop
     $sid   = New-Object System.Security.Principal.SecurityIdentifier ($src.SID)
     $domDn = (Get-ADDomain).DistinguishedName
     $dn    = "CN=AdminSDHolder,CN=System,$domDn"

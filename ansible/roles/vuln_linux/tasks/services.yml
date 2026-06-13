@@ -179,7 +179,7 @@
     mode: "0755"
   when: vuln_linux_enable_webapp | bool
 
-- name: WebApp — deploy the empire Mifflin Flask-style app (stdlib only)
+- name: WebApp — deploy the Galactic Empire Flask-style app (stdlib only)
   ansible.builtin.copy:
     src: empire_app.py
     dest: /opt/empire-app/empire_app.py
@@ -192,7 +192,7 @@
     mode: "0644"
     content: |
       [Unit]
-      Description=empire Mifflin Schrute Logistics portal (vulnerable)
+      Description=Galactic Empire Imperial Logistics portal (vulnerable)
       After=network.target
       [Service]
       ExecStart=/usr/bin/python3 /opt/empire-app/empire_app.py

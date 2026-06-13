@@ -35,8 +35,8 @@
       # VRFY/EXPN user enumeration enabled (NET-008). No authentication.
       $ErrorActionPreference = 'Continue'
       $spool = 'C:\SMTP-Spool\relayed.log'
-      $users = @('administrator','jhalpert','dschrute','mscott','kmalone','pbeesly','svc_sql')
-      $lists = @{ 'all' = 'administrator@empire.local, mscott@empire.local'; 'admins' = 'administrator@empire.local' }
+      $users = @('administrator','lskywalker','dvader','wtarkin','hsolo','lorgana','svc_sql')
+      $lists = @{ 'all' = 'administrator@empire.local, wtarkin@empire.local'; 'admins' = 'administrator@empire.local' }
       $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, 25)
       $listener.Start()
       while ($true) {
@@ -111,7 +111,7 @@
 
 - name: NET-008 - Register SMTP listener scheduled task (SYSTEM, at boot)
   community.windows.win_scheduled_task:
-    name: DunderSMTP
+    name: EmpireSMTP
     description: "Open-relay SMTP + VRFY/EXPN listener (NET-008 network-protocol surface)"
     actions:
       - path: powershell.exe
@@ -135,7 +135,7 @@
 
 - name: NET-008 - Start SMTP listener task now if not already bound
   ansible.windows.win_shell: |
-    Start-ScheduledTask -TaskName DunderSMTP -ErrorAction SilentlyContinue
+    Start-ScheduledTask -TaskName EmpireSMTP -ErrorAction SilentlyContinue
     Write-Output "changed: SMTP listener started"
   register: net008_start
   changed_when: "'changed:' in net008_start.stdout"

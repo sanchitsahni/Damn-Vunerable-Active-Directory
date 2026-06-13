@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    empire Mifflin victim-executor simulator.
+    Galactic Empire victim-executor simulator.
     Runs as a domain user via Task Scheduler.  Every ~30 s it behaves like a
     gullible employee: it enumerates the drop locations and OPENS / EXECUTES
     whatever an attacker has dropped, and BROWSES any folder containing an
@@ -41,7 +41,7 @@ $CoercionExt = @(".library-ms", ".search-ms", ".url")
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
-$LogFile = "C:\DunderLab\victim-exec.log"
+$LogFile = "C:\EmpireLab\victim-exec.log"
 try { $null = New-Item -ItemType Directory -Path (Split-Path $LogFile) -Force } catch {}
 
 function Write-VictimLog([string]$Msg) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-EMPIRE MIFFLIN Paper Company — "Schrute Logistics" portal.
+Galactic Empire — "Imperial Logistics" portal.
 Intentionally vulnerable Flask app for the EMPIRE lab (mandalore).
 
 Vulns (the spec):
@@ -17,11 +17,11 @@ from urllib.parse import urlparse, parse_qs
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-PAGE = b"""<html><head><title>Schrute Logistics - empire Mifflin</title></head>
+PAGE = b"""<html><head><title>Imperial Logistics - Galactic Empire</title></head>
 <body style="font-family:sans-serif;background:#f4f4e8">
-<h1>empire Mifflin :: Schrute Logistics Portal</h1>
+<h1>Galactic Empire :: Imperial Logistics Portal</h1>
 <p>"Whenever I'm about to do something, I think 'would an idiot do that?'
-and if they would, I do not do that thing." &mdash; Dwight</p>
+and if they would, I do not do that thing." &mdash; Vader</p>
 <h3>Network diagnostics</h3>
 <form action="/ping" method="get">
   Host: <input name="host" value="127.0.0.1"><input type="submit" value="Ping">

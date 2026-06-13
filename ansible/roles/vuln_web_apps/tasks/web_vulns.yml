@@ -64,7 +64,7 @@
           var pass = Request.Form["pass"] ?? "";
           var msg  = "";
           if (!string.IsNullOrEmpty(user)) {
-            var connStr = "Server=kamino.empire.local;Database=DunderMifflin;User Id=empire_web;Password=WebUser2024!;";
+            var connStr = "Server=kamino.empire.local;Database=ImperialArchive;User Id=empire_web;Password=WebUser2024!;";
             // VULNERABLE (WEB-021): string concatenation — no parameterized query
             var sql = "SELECT id,username,role FROM dbo.users WHERE username='" + user +
                       "' AND password='" + pass + "'";
@@ -100,7 +100,7 @@
       content: |
         <%@ Page Language="C#" %>
         <%@ Import Namespace="System.Data.SqlClient" %>
-        <!-- WEB-021: SQL Injection — search endpoint against DunderMifflin -->
+        <!-- WEB-021: SQL Injection — search endpoint against ImperialArchive -->
         <!DOCTYPE html>
         <html><body>
         <h2>WEB-021: Product Search (SQL Injection)</h2>
@@ -111,7 +111,7 @@
         <%
           var id = Request.QueryString["id"] ?? "";
           if (!string.IsNullOrEmpty(id)) {
-            var connStr = "Server=kamino.empire.local;Database=DunderMifflin;User Id=empire_web;Password=WebUser2024!;";
+            var connStr = "Server=kamino.empire.local;Database=ImperialArchive;User Id=empire_web;Password=WebUser2024!;";
             // VULNERABLE: direct string concat — union/blind/error SQLi
             var sql = "SELECT id,name,price,description FROM dbo.products WHERE id=" + id;
             try {

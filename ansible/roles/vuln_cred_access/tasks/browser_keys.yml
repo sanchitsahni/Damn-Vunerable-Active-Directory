@@ -20,7 +20,7 @@
   ansible.windows.win_shell: |
     # cmdkey stores credentials accessible via DPAPI
     cmdkey /add:coruscant.empire.local /user:EMPIRE\Administrator /pass:SithLord123! 2>&1
-    cmdkey /add:scarif.empire.local /user:EMPIRE\svc_bobafett /pass:Darryl2024! 2>&1
+    cmdkey /add:scarif.empire.local /user:EMPIRE\svc_bobafett /pass:Bossk2024! 2>&1
     cmdkey /add:kamino.empire.local /user:sa /pass:DeathStar2025! 2>&1
     Write-Output "changed: credentials stored in Credential Manager"
   register: cred124_set

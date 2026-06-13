@@ -569,26 +569,26 @@
 
 # ------------------------------------------------------------------------------
 # PE-020: SeChangeNotifyPrivilege traverse — hidden dir + restricted ACL.
-# C:\ProgramData\DunderHidden\ has a restrictive ACL that blocks LIST/READ but
+# C:\ProgramData\EmpireHidden\ has a restrictive ACL that blocks LIST/READ but
 # does NOT deny traverse (SeChangeNotify is held by all users by default),
 # so an attacker who knows the exact flag path can read it without being able
 # to enumerate the parent directory.
 # ------------------------------------------------------------------------------
-- name: PE-020 - Create C:\ProgramData\DunderHidden traversal directory
+- name: PE-020 - Create C:\ProgramData\EmpireHidden traversal directory
   ansible.windows.win_file:
-    path: 'C:\ProgramData\DunderHidden'
+    path: 'C:\ProgramData\EmpireHidden'
     state: directory
   when: inventory_hostname == 'scarif.empire.local'
 
-- name: PE-020 - Drop flag inside DunderHidden (direct-path read via SeChangeNotify)
+- name: PE-020 - Drop flag inside EmpireHidden (direct-path read via SeChangeNotify)
   ansible.windows.win_copy:
-    dest: 'C:\ProgramData\DunderHidden\flag.txt'
+    dest: 'C:\ProgramData\EmpireHidden\flag.txt'
     content: "EMPIRE{PE-020_SECHANGENOTIFY_TRAVERSE_BYPASS}\r\nI am ready to face any challenges that might be foolish enough to face me. — Darth Maul\r\n"
   when: inventory_hostname == 'scarif.empire.local'
 
-- name: PE-020 - Restrict DunderHidden ACL (block list, allow traverse)
+- name: PE-020 - Restrict EmpireHidden ACL (block list, allow traverse)
   ansible.windows.win_shell: |
-    $path = "C:\ProgramData\DunderHidden"
+    $path = "C:\ProgramData\EmpireHidden"
     # Remove inherited ACEs and replace with admin/SYSTEM full + Users traverse only
     icacls $path /inheritance:r 2>$null | Out-Null
     icacls $path /grant "NT AUTHORITY\SYSTEM:(OI)(CI)F" 2>$null | Out-Null
@@ -602,9 +602,9 @@
   when: inventory_hostname == 'scarif.empire.local'
   changed_when: false
 
-- name: PE-020 - Verify DunderHidden directory exists
+- name: PE-020 - Verify EmpireHidden directory exists
   ansible.windows.win_stat:
-    path: 'C:\ProgramData\DunderHidden'
+    path: 'C:\ProgramData\EmpireHidden'
   register: result_pe020_check
   changed_when: false
   failed_when: not result_pe020_check.stat.exists

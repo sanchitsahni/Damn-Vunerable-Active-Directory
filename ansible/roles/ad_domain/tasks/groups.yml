@@ -69,37 +69,37 @@
     }
 
     # IT Admins
-    Add-Member-Safe "IT Admins" "andy.bernard"
+    Add-Member-Safe "IT Admins" "wedge.antilles"
     Add-Member-Safe "IT Admins" "darth.maul"
     Add-Member-Safe "IT Admins" "svc_trooper"
     Add-Member-Safe "IT Admins" "svc_maul"
 
     # HelpDesk
     Add-Member-Safe "HelpDesk" "leia.organa"
-    Add-Member-Safe "HelpDesk" "kelly.kapoor"
+    Add-Member-Safe "HelpDesk" "ahsoka.tano"
     Add-Member-Safe "HelpDesk" "luke.skywalker"
 
     # Accounting
-    Add-Member-Safe "Accounting" "oscar.martinez"
-    Add-Member-Safe "Accounting" "meredith.palmer"
-    Add-Member-Safe "Accounting" "toby.flenderson"
+    Add-Member-Safe "Accounting" "biggs.darklighter"
+    Add-Member-Safe "Accounting" "jyn.erso"
+    Add-Member-Safe "Accounting" "kylo.ren"
 
     # Human Resources
-    Add-Member-Safe "Human Resources" "creed.bratton"
+    Add-Member-Safe "Human Resources" "wilhuff.tarkin"
     Add-Member-Safe "Human Resources" "jabba.hutt"
-    Add-Member-Safe "Human Resources" "angela.martin"
+    Add-Member-Safe "Human Resources" "mon.mothma"
 
     # Sales
-    Add-Member-Safe "Sales" "ryan.howard"
+    Add-Member-Safe "Sales" "poe.dameron"
     Add-Member-Safe "Sales" "sheev.palpatine"
-    Add-Member-Safe "Sales" "stanley.hudson"
+    Add-Member-Safe "Sales" "mace.windu"
 
     # Warehouse — svc_bobafett is intentionally privileged (DF-006)
     Add-Member-Safe "Warehouse" "svc_bobafett"
 
     # SQL Admins
     Add-Member-Safe "SQL Admins" "svc_greedo"
-    Add-Member-Safe "SQL Admins" "andy.bernard"
+    Add-Member-Safe "SQL Admins" "wedge.antilles"
 
     # Domain Admins — svc_bobafett membership is an intentional vuln (DF-006)
     Add-Member-Safe "Domain Admins" "svc_bobafett"

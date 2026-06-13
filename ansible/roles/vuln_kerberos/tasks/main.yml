@@ -75,26 +75,26 @@
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
     $u = Get-ADUser -Identity "svc_maul" -Properties ServicePrincipalName
-    if ($u.ServicePrincipalName -contains "{{ spn_dwight }}") {
+    if ($u.ServicePrincipalName -contains "{{ spn_vader }}") {
       Write-Output "present"
     } else {
       Write-Output "absent"
     }
-  register: result_spn_dwight
+  register: result_spn_vader
   changed_when: false
-  failed_when: result_spn_dwight.rc != 0
+  failed_when: result_spn_vader.rc != 0
 
 - name: CRED-001 - Add SPN MSSQLSvc/kamino.empire.local:1433 on svc_maul
   ansible.windows.win_shell: |
     Import-Module ActiveDirectory
-    Set-ADUser -Identity "svc_maul" -ServicePrincipalNames @{Add="{{ spn_dwight }}"}
-  when: "'absent' in result_spn_dwight.stdout"
+    Set-ADUser -Identity "svc_maul" -ServicePrincipalNames @{Add="{{ spn_vader }}"}
+  when: "'absent' in result_spn_vader.stdout"
   failed_when: >
-    result_spn_dwight_add.rc != 0 and
-    "already" not in (result_spn_dwight_add.stderr | default("") | lower) and
-    "duplicate" not in (result_spn_dwight_add.stderr | default("") | lower) and
-    "unique" not in (result_spn_dwight_add.stderr | default("") | lower)
-  register: result_spn_dwight_add
+    result_spn_vader_add.rc != 0 and
+    "already" not in (result_spn_vader_add.stderr | default("") | lower) and
+    "duplicate" not in (result_spn_vader_add.stderr | default("") | lower) and
+    "unique" not in (result_spn_vader_add.stderr | default("") | lower)
+  register: result_spn_vader_add
 
 # ------------------------------------------------------------------------------
 # CRED-002: DoNotRequirePreAuth on svc_palpatine (AS-REP Roasting)

@@ -37,7 +37,7 @@
   community.windows.win_scheduled_task:
     name: "{{ item.task_name }}"
     description: >
-      empire Mifflin — {{ item.username }} simulated workstation traffic.
+      Galactic Empire — {{ item.username }} simulated workstation traffic.
       Generates SMB NTLM auth every {{ traffic_sim_interval }}s for relay/capture practice.
     actions:
       - path: powershell.exe

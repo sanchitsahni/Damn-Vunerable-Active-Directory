@@ -89,6 +89,6 @@
     mode: "0644"
     content: |
       EMPIRE{NET_JENKINS_GROOVY_CONSOLE_RCE_I_AM_DEAD_INSIDE}
-      "I am dead inside." — Stanley Hudson
+      "I am dead inside." — Mace Windu
   when: jenkins_pkg is not failed
   failed_when: false
