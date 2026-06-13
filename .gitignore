@@ -142,3 +142,14 @@ vulnerability_report.csv
 missing_checks.json
 
 ansible/ansible.log
+
+# --- Offensive lab output (loot / tickets / collected data) — never commit ---
+study/loot/
+bh-empire/
+*_bloodhound.zip
+*.ccache
+*.kirbi
+*.ntds
+asrep*.txt
+kroast*.txt
+*.pfx
