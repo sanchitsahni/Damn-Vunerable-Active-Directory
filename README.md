@@ -361,7 +361,7 @@ graph TD
     classDef trade fill:#4a4a4a,stroke:#aaaaaa,stroke-width:2px,color:#fff;
     classDef highlight fill:#440000,stroke:#ff0000,stroke-width:3px,color:#fff;
 
-    subgraph The Galactic Empire (empire.local)
+    subgraph empire_forest["The Galactic Empire — empire.local"]
         Coruscant["Coruscant (Root DC)<br/>coruscant.empire.local"]:::empire
         DeathStar["The Death Star (Child DC)<br/>deathstar.eu.empire.local"]:::highlight
         Scarif["Scarif Citadel (File Server)<br/>scarif.empire.local"]:::empire
@@ -374,10 +374,10 @@ graph TD
         Coruscant --- Endor
         Coruscant --- Mandalore
     end
-    subgraph The Rebel Alliance (rebel.local)
+    subgraph rebel_forest["The Rebel Alliance — rebel.local"]
         Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
     end
-    subgraph The Trade Federation (trade.corp)
+    subgraph trade_forest["The Trade Federation — trade.corp"]
         Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
     end
     Coruscant <-->|Espionage / External Trust| Yavin4
