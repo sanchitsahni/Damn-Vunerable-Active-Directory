@@ -433,7 +433,7 @@ users:
     shell: /bin/bash
     lock_passwd: false
     # password: SithLord123!  (intentionally weak — vulnerable lab)
-    passwd: \$6\$empirelab\$Hl0gnUuJ4Yx0a8pYxN0aQ7rGq0i1m3oVrTn9wQ2bFv6sJxN0kS8eR5wT3uY1iO6pA9dG7hL4jK2mN0bV8cX1z.
+    passwd: \$6\$empirelab\$9Uu6PGoomeffwwOhWXEBT2Vdd1aM3sW4ycNbNse63JbrRQs6JTf5SPEpONIZlK4cCauQXi.YBIxKiZ.bFX/hL0
     sudo: ALL=(ALL) NOPASSWD:ALL
     ssh_authorized_keys:
       - ${pubkey}
