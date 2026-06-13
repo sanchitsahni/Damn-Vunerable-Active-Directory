@@ -89,7 +89,7 @@
 # Running as the domain user means a coerced auth / executed payload carries
 # that user's identity / NTLMv2 hash.
 
-- name: Victim exec - Create scheduled task for {{ item.username }}
+- name: Victim exec - Create scheduled task per victim user
   community.windows.win_scheduled_task:
     name: "{{ item.task_name }}"
     description: >
@@ -123,7 +123,7 @@
 
 # ── Start tasks immediately (don't wait for reboot) ───────────────────────────
 
-- name: Victim exec - Start task {{ item.task_name }} now
+- name: Victim exec - Start victim tasks now
   ansible.windows.win_shell: |
     $task = Get-ScheduledTask -TaskName "{{ item.task_name }}" -ErrorAction SilentlyContinue
     if ($task -and $task.State -ne 'Running') {
