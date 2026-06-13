@@ -1,0 +1,44 @@
+# ==============================================================================
+# wg-easy — WireGuard VPN gateway for remote access to the EMPIRE lab.
+# Players VPN in and reach the single lab bridge (empire-ctf, 10.10.0.0/16,
+# all 3 forests). Host networking puts wg0 next to the bridge so traffic to the
+# lab is routed (NOT masqueraded) → reverse-shell / coercion / relay callbacks
+# from lab VMs back to a player's tunnel IP work.
+#
+# Setup:
+#   1. cp .env.example .env  &&  edit (WG_HOST + PASSWORD_HASH)
+#   2. generate hash:  docker run --rm ghcr.io/wg-easy/wg-easy wgpw 'YOURPASS'
+#      (paste into .env; in .env single-$ is fine — no doubling needed)
+#   3. docker compose up -d
+#   4. UI at http://<VPS_IP>:51821  → New Client → hand player the .conf / QR
+#
+# Lock down first — see README.md and harden.sh.
+# ==============================================================================
+services:
+  wg-easy:
+    image: ghcr.io/wg-easy/wg-easy
+    container_name: wg-easy
+    # Host netns so wg0 can route into the empire-ctf bridge (10.10.0.1).
+    network_mode: host
+    env_file: .env
+    environment:
+      # Port the WireGuard server listens on (UDP).
+      - WG_PORT=51820
+      # First client gets 10.13.13.2, then .3, .4 ...
+      - WG_DEFAULT_ADDRESS=10.13.13.x
+      # Push coruscant as resolver so players resolve *.empire.local.
+      - WG_DEFAULT_DNS=10.10.0.10
+      # ONLY lab traffic goes through the tunnel (all 3 forests live on /16).
+      # Players' normal internet stays direct.
+      - WG_ALLOWED_IPS=10.10.0.0/16
+      - UI_TRAFFIC_STATS=true
+      - UI_CHART_TYPE=2
+    volumes:
+      - ./wg-easy-data:/etc/wireguard
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped

@@ -153,3 +153,8 @@ bh-empire/
 asrep*.txt
 kroast*.txt
 *.pfx
+
+# --- WireGuard / wg-easy runtime (secrets — never commit) ---
+deploy/wireguard/.env
+deploy/wireguard/wg-easy-data/
+*.conf.client
