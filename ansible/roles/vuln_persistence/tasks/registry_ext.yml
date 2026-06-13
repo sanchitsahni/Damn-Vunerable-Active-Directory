@@ -74,8 +74,14 @@
 
 - name: PER-007 - Register netsh helper DLL
   ansible.windows.win_shell: |
-    & netsh.exe add helper C:\Tools\empire_helper.dll 2>&1 | Out-Null
+    & netsh.exe add helper C:\Tools\empire_helper.dll 2>&1 | Out-String
   when: "'absent' in per007_check.stdout"
+  register: per007_register
+  changed_when: per007_register.rc == 0
+  # Placeholder DLL is not a valid netsh helper (no InitHelperDll export),
+  # so netsh returns rc=1. The registry artifact is what the detection lab
+  # cares about; tolerate the expected load failure rather than aborting.
+  failed_when: false
 
 # ------------------------------------------------------------------------------
 # PER-008: COM Hijacking — HKCU InprocServer32 for Performance Monitor CLSID
