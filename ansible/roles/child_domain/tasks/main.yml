@@ -37,13 +37,23 @@
     name: "coruscant-EU"
   register: hostname_result
 
+# Apply the rename with a reboot BEFORE the heavy AD DS work — a pending
+# hostname change is what severs WinRM mid-feature-install on a busy box.
+- name: Reboot to apply hostname change before AD DS install
+  ansible.windows.win_reboot:
+    reboot_timeout: 600
+    post_reboot_delay: 30
+  when: hostname_result.reboot_required | default(false)
+
 # --------------------------------------------------------------------------
 # Features
 # --------------------------------------------------------------------------
 
+# A mid-command WinRM drop surfaces as an UNREACHABLE read-timeout, which a
+# block/rescue does NOT catch. Tolerate it, reconnect, and retry.
 - name: Install AD DS features
   ansible.windows.win_feature:
-    name:
+    name: &ad_ds_features
       - AD-Domain-Services
       - DNS
       - GPMC
@@ -53,12 +63,30 @@
     state: present
     include_management_tools: yes
   register: ad_ds_install
+  ignore_unreachable: true
+  ignore_errors: true
 
-- name: Reboot if feature install or hostname change requires it
+- name: Recover WinRM and confirm AD DS features after a mid-command drop
+  when: ad_ds_install is unreachable or ad_ds_install is failed
+  block:
+    - name: Wait for WinRM to come back
+      ansible.builtin.wait_for_connection:
+        delay: 15
+        timeout: 600
+    - name: Reset stale WinRM connection
+      ansible.builtin.meta: reset_connection
+    - name: Install AD DS features (retry — confirms baked features)
+      ansible.windows.win_feature:
+        name: *ad_ds_features
+        state: present
+        include_management_tools: yes
+      register: ad_ds_install
+
+- name: Reboot if feature install requires it
   ansible.windows.win_reboot:
     reboot_timeout: 600
     post_reboot_delay: 30
-  when: ad_ds_install.reboot_required or hostname_result.reboot_required
+  when: ad_ds_install.reboot_required | default(false)
 
 - name: Wait for host to come back after feature reboot
   ansible.builtin.wait_for_connection:

@@ -49,33 +49,47 @@
     name: "{{ ad_hostname }}"
   register: hostname_result
 
+# Apply the rename with a reboot BEFORE the heavy AD DS work. Installing
+# AD-Domain-Services while a hostname change is still pending is what severs
+# WinRM mid-command on RAM-constrained, parallel-promoting DCs.
+- name: Reboot to apply hostname change before AD DS install
+  ansible.windows.win_reboot:
+    reboot_timeout: 600
+    post_reboot_delay: 30
+  when: hostname_result.reboot_required | default(false)
+
 # --------------------------------------------------------------------------
 # Feature installation
 # --------------------------------------------------------------------------
 
-# Features are already baked by the autounattend, so this is normally a quick
-# state check. But on a busy DC (3 promoting in parallel) WinRM can get severed
-# mid-command ("Bad HTTP response Code 400"). Catch that, reconnect, and retry —
-# the retry is a no-op confirm once the box settles.
-- name: Install AD DS features (resilient to mid-command WinRM drop)
+# Features are usually baked by the autounattend, so this is normally a quick
+# state check. On a busy DC (3 promoting in parallel, low RAM) WinRM can still
+# be severed mid-command — and that surfaces as an UNREACHABLE read-timeout,
+# which a block/rescue does NOT catch (rescue only fires on task *failure*).
+# So tolerate it explicitly, reconnect, and retry (the retry is a no-op confirm
+# once the box settles).
+- name: Install AD DS features
+  ansible.windows.win_feature:
+    name: &ad_ds_features
+      - AD-Domain-Services
+      - DNS
+      - GPMC
+      - RSAT-ADDS
+      - RSAT-DNS-Server
+      - RSAT-AD-PowerShell
+    state: present
+    include_management_tools: yes
+  register: ad_ds_install
+  ignore_unreachable: true
+  ignore_errors: true
+
+- name: Recover WinRM and confirm AD DS features after a mid-command drop
+  when: ad_ds_install is unreachable or ad_ds_install is failed
   block:
-    - name: Install AD DS features
-      ansible.windows.win_feature:
-        name: &ad_ds_features
-          - AD-Domain-Services
-          - DNS
-          - GPMC
-          - RSAT-ADDS
-          - RSAT-DNS-Server
-          - RSAT-AD-PowerShell
-        state: present
-        include_management_tools: yes
-      register: ad_ds_install
-  rescue:
-    - name: Reconnect after the feature-install WinRM disruption
+    - name: Wait for WinRM to come back
       ansible.builtin.wait_for_connection:
         delay: 15
-        timeout: 300
+        timeout: 600
     - name: Reset stale WinRM connection
       ansible.builtin.meta: reset_connection
     - name: Install AD DS features (retry — confirms baked features)
@@ -85,11 +99,11 @@
         include_management_tools: yes
       register: ad_ds_install
 
-- name: Reboot if feature install or hostname change requires it
+- name: Reboot if feature install requires it
   ansible.windows.win_reboot:
     reboot_timeout: 600
     post_reboot_delay: 30
-  when: ad_ds_install.reboot_required or hostname_result.reboot_required
+  when: ad_ds_install.reboot_required | default(false)
 
 # --------------------------------------------------------------------------
 # Idempotency gate — skip promotion if DC role already held
