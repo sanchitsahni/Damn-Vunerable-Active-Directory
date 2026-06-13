@@ -1112,16 +1112,16 @@ def generate_rules():
         {"id":"DF-011","name":"ADCS ESC8 — web enrollment HTTP+NTLM",
          "type":"http","url":f"http://{CA_IP}/certsrv/","eval":"status == 401"},
         {"id":"DF-012","name":"ADCS ESC1 — vulnerable template published",
-         "type":"ldap","filter":"(&(objectClass=pKICertificateTemplate)(name=ESC1))",
+         "type":"ldap","filter":"(&(objectClass=pKICertificateTemplate)(name=EMPIREUserESC1))",
          "attributes":["name"],"base":"CN=Configuration,DC=empire,DC=local","eval":"len(entries) > 0"},
         {"id":"DF-013","name":"ADCS ESC2 — EKU Any Purpose template",
-         "type":"ldap","filter":"(&(objectClass=pKICertificateTemplate)(name=ESC2))",
+         "type":"ldap","filter":"(&(objectClass=pKICertificateTemplate)(name=EMPIREMachineESC2))",
          "attributes":["name"],"base":"CN=Configuration,DC=empire,DC=local","eval":"len(entries) > 0"},
         {"id":"DF-014","name":"ADCS ESC3 — enrollment agent template",
-         "type":"ldap","filter":"(&(objectClass=pKICertificateTemplate)(name=ESC3))",
+         "type":"ldap","filter":"(&(objectClass=pKICertificateTemplate)(name=EMPIREAgentESC3))",
          "attributes":["name"],"base":"CN=Configuration,DC=empire,DC=local","eval":"len(entries) > 0"},
         {"id":"DF-015","name":"ADCS ESC4 — vulnerable ACL on template",
-         "type":"ldap","filter":"(&(objectClass=pKICertificateTemplate)(name=ESC4))",
+         "type":"ldap","filter":"(&(objectClass=pKICertificateTemplate)(name=EMPIREWriteESC4))",
          "attributes":["name"],"base":"CN=Configuration,DC=empire,DC=local","eval":"len(entries) > 0"},
         {"id":"DF-016","name":"ADCS ESC5 — writable PKI object ACL",
          "type":"ldap","filter":"(&(objectClass=pKICertificateTemplate)(name=ESC5))",
@@ -1175,16 +1175,162 @@ def generate_rules():
          "type":"ldap","filter":"(&(objectClass=pKICertificateTemplate)(name=ESC12))",
          "attributes":["name"],"base":"CN=Configuration,DC=empire,DC=local","eval":"len(entries) > 0"},
         {"id":"DF-037","name":"ADCS ESC13 — issuance policy OID group link",
-         "type":"ldap","filter":"(&(objectClass=pKICertificateTemplate)(name=ESC13))",
+         "type":"ldap","filter":"(&(objectClass=pKICertificateTemplate)(name=EMPIREIssuanceESC13))",
          "attributes":["name"],"base":"CN=Configuration,DC=empire,DC=local","eval":"len(entries) > 0"},
         {"id":"DF-038","name":"ADCS ESC14 — explicit mapping abuse",
          "type":"ldap","filter":"(&(objectClass=pKICertificateTemplate)(name=ESC14))",
          "attributes":["name"],"base":"CN=Configuration,DC=empire,DC=local","eval":"len(entries) > 0"},
         {"id":"DF-039","name":"ADCS ESC15 CVE-2024-49019 — vulnerable template",
-         "type":"ldap","filter":"(&(objectClass=pKICertificateTemplate)(name=ESC15))",
+         "type":"ldap","filter":"(&(objectClass=pKICertificateTemplate)(name=EMPIRENoSecExtESC15))",
          "attributes":["name"],"base":"CN=Configuration,DC=empire,DC=local","eval":"len(entries) > 0"},
         {"id":"DF-040","name":"Full forest compromise path — all DCs reachable",
          "type":"port","ip":ROOT_DC_IP,"port":445},
+    ]
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # EXTENDED COVERAGE — IDs injected by roles that the matrix above missed.
+    # Grounded in concrete artifacts (files / registry / AD objects / services)
+    # actually deployed by the vuln_* roles. Doc/comment-only IDs are NOT here.
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def winrm_path(eid, name, ip, path):
+        return {"id":eid,"name":name,"type":"winrm","ip":ip,
+                "cmd":f"Test-Path '{path}'","eval":"'True' in (output or '')"}
+
+    def winrm_regval(eid, name, ip, key, val):
+        return {"id":eid,"name":name,"type":"winrm","ip":ip,
+                "cmd":f"(Get-ItemProperty -Path '{key}' -Name '{val}' -ErrorAction SilentlyContinue).'{val}'",
+                "eval":"output is not None and (output or '').strip() != ''"}
+
+    def ldap_user(eid, name, sam):
+        return {"id":eid,"name":name,"type":"ldap",
+                "filter":f"(&(objectClass=user)(sAMAccountName={sam}))",
+                "attributes":["sAMAccountName"],"eval":"len(entries) > 0"}
+
+    # ── WEB (vuln_web_apps — scarif IIS @ FILE_IP, notes on coruscant @ DC_IP) ──
+    rules += [
+        winrm_path("WEB-000","Web app landing page default.aspx",FILE_IP,"C:\\inetpub\\wwwroot\\default.aspx"),
+        {"id":"WEB-001","name":"IIS (W3SVC) running on scarif",
+         "type":"winrm","ip":FILE_IP,"cmd":"(Get-Service W3SVC -ErrorAction SilentlyContinue).Status","eval":"'Running' in (output or '')"},
+        winrm_path("WEB-002","IIS login page (anonymous) login.aspx",FILE_IP,"C:\\inetpub\\wwwroot\\login.aspx"),
+        {"id":"WEB-003","name":"IIS directory browsing enabled (web.config)",
+         "type":"winrm","ip":FILE_IP,
+         "cmd":"(Select-String -Path 'C:\\inetpub\\wwwroot\\web.config' -Pattern 'directoryBrowse enabled=\"true\"' -ErrorAction SilentlyContinue).Count",
+         "eval":"output is not None and (output or '0').strip() not in ('','0')"},
+        winrm_path("WEB-008","World-writable IIS upload dir",FILE_IP,"C:\\inetpub\\wwwroot\\uploads"),
+        winrm_path("WEB-009","Insecure web.config with SQL creds",FILE_IP,"C:\\inetpub\\wwwroot\\web.config"),
+        winrm_path("WEB-012","ASPX webshell upload page",FILE_IP,"C:\\inetpub\\wwwroot\\upload.aspx"),
+        winrm_path("WEB-021","SQL injection page (sqli.aspx)",FILE_IP,"C:\\inetpub\\wwwroot\\sqli.aspx"),
+        winrm_path("WEB-022","Reflected XSS page (xss.aspx)",FILE_IP,"C:\\inetpub\\wwwroot\\xss.aspx"),
+        winrm_path("WEB-024","Path traversal page (path_traversal.aspx)",FILE_IP,"C:\\inetpub\\wwwroot\\path_traversal.aspx"),
+        winrm_path("WEB-026","SSRF page (ssrf.aspx)",FILE_IP,"C:\\inetpub\\wwwroot\\ssrf.aspx"),
+        winrm_path("WEB-061","Kerberos delegation web note",DC_IP,"C:\\Flags\\FLAG-WEB-061-Kerberos-Delegation.txt"),
+        winrm_path("WEB-065","NTLM web app note",DC_IP,"C:\\Flags\\FLAG-WEB-065-NTLM-WebApp.txt"),
+        winrm_path("WEB-070","Web shell to AD chain note",DC_IP,"C:\\Flags\\FLAG-WEB-070-WebShell-Chain.txt"),
+    ]
+
+    # ── SRV (vuln_exchange — SQL @ SQL_IP, AD objects @ DC_IP, notes spread) ────
+    rules += [
+        winrm_path("SRV-001","SQL Server surface note",SQL_IP,"C:\\Flags\\FLAG-SRV-001-SQLServer.txt"),
+        winrm_path("SRV-002","SQL attack-surface note",SQL_IP,"C:\\Flags\\FLAG-SRV-002-020-SQLSurfaces.txt"),
+        winrm_path("SRV-021","SCCM NAA surface note",FILE_IP,"C:\\Flags\\FLAG-SRV-021-SCCM-NAA.txt"),
+        ldap_user("SRV-030","svc_sccm over-privileged (Domain Admins)","svc_sccm"),
+        winrm_path("SRV-041","WSUS-over-HTTP note",FILE_IP,"C:\\Flags\\FLAG-SRV-041-WSUS-HTTP.txt"),
+        winrm_path("SRV-044","World-writable WSUSContent dir",FILE_IP,"C:\\WSUSContent"),
+        winrm_path("SRV-056","Exchange attack-surface note",DC_IP,"C:\\Flags\\FLAG-SRV-058-ProxyShell.txt"),
+        {"id":"SRV-057","name":"Organization Management group present",
+         "type":"ldap","filter":"(&(objectClass=group)(cn=Organization Management))",
+         "attributes":["cn"],"eval":"len(entries) > 0"},
+        ldap_user("SRV-063","svc_exchange mailbox-export account","svc_exchange"),
+    ]
+
+    # ── DEF (vuln_defense_evasion — coruscant @ DC_IP) ──────────────────────────
+    rules += [
+        {"id":"DEF-001","name":"Defender exclusion paths configured",
+         "type":"winrm","ip":FILE_IP,"cmd":"((Get-MpPreference).ExclusionPath -join ',')",
+         "eval":"output is not None and len((output or '').strip()) > 2"},
+        winrm_path("DEF-002","AMSI script-scanning disable key",DC_IP,"HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection"),
+        {"id":"DEF-005","name":"Defender real-time monitoring disabled",
+         "type":"winrm","ip":DC_IP,"cmd":"(Get-MpPreference).DisableRealtimeMonitoring",
+         "eval":"'True' in (output or '')"},
+        winrm_path("DEF-009","Windows Error Reporting disabled key",DC_IP,"HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Error Reporting"),
+        winrm_regval("DEF-021","PowerShell ScriptBlock logging policy",DC_IP,"HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging","EnableScriptBlockLogging"),
+        winrm_regval("DEF-022","PowerShell Module logging policy",DC_IP,"HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ModuleLogging","EnableModuleLogging"),
+        winrm_regval("DEF-023","PowerShell Transcription policy",DC_IP,"HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\Transcription","EnableTranscripting"),
+        winrm_path("DEF-024","Logging-evasion note (log size reduced)",DC_IP,"C:\\Flags\\FLAG-DEF-021-Logging-Disabled.txt"),
+        winrm_path("DEF-025","Logging-evasion note (audit disabled)",DC_IP,"C:\\Flags\\FLAG-DEF-021-Logging-Disabled.txt"),
+        winrm_regval("DEF-029","PSLockdownPolicy set (FullLanguage)",DC_IP,"HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment","__PSLockdownPolicy"),
+        {"id":"DEF-041","name":"C:\\Windows\\Temp world-writable (AppLocker bypass)",
+         "type":"winrm","ip":FILE_IP,"cmd":"icacls C:\\Windows\\Temp","eval":"'Everyone' in (output or '')"},
+        winrm_path("DEF-047","certutil LOLbin note",FILE_IP,"C:\\Flags\\FLAG-DEF-047-CertUtil-LOLbin.txt"),
+        winrm_path("DEF-048","bitsadmin LOLbin note",FILE_IP,"C:\\Flags\\FLAG-DEF-048-Bitsadmin.txt"),
+    ]
+
+    # ── DF extended (vuln_forest — DC_IP) ───────────────────────────────────────
+    rules += [
+        winrm_path("DF-041","RBCD technique note",DC_IP,"C:\\Flags\\FLAG-DF-041-RBCD.txt"),
+        winrm_path("DF-042","Unconstrained delegation note",DC_IP,"C:\\Flags\\FLAG-DF-042-UnconstrainedDel.txt"),
+        ldap_user("DF-049","svc_dns_admin in DnsAdmins","svc_dns_admin"),
+        {"id":"DF-050","name":"finance_sync in Account Operators",
+         "type":"ldap","filter":"(sAMAccountName=finance_sync)",
+         "attributes":["cn"],"eval":"len(entries) > 0"},
+        winrm_path("DF-081","ExtraSID / SID-history note",DC_IP,"C:\\Flags\\FLAG-DF-081-ExtraSID.txt"),
+        {"id":"DF-082","name":"Transitive trust(s) present",
+         "type":"ldap","filter":"(objectClass=trustedDomain)","attributes":["name"],
+         "base":"DC=empire,DC=local","eval":"len(entries) > 0"},
+        winrm_path("DF-083","svc_devops GPO-abuse note",DC_IP,"C:\\Flags\\FLAG-DF-083-GPOAbuse.txt"),
+    ]
+
+    # ── LAT extended (vuln_lateral — DC_IP; SMB/EPA on scarif @ FILE_IP) ────────
+    rules += [
+        {"id":"LAT-036","name":"Shadow-credentials surface — HelpDesk group present",
+         "type":"ldap","filter":"(&(objectClass=group)(sAMAccountName=HelpDesk))",
+         "attributes":["cn"],"eval":"len(entries) > 0"},
+        winrm_regval("LAT-041","EPA disabled on scarif (LanManServer)",FILE_IP,"HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters","ExtendedProtection"),
+        {"id":"LAT-042","name":"SMB signing not required on scarif (relay)",
+         "type":"winrm","ip":FILE_IP,"cmd":"(Get-SmbServerConfiguration).RequireSecuritySignature",
+         "eval":"'False' in (output or '')"},
+        winrm_regval("LAT-043","WDigest UseLogonCredential (cleartext LSASS)",DC_IP,"HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\WDigest","UseLogonCredential"),
+        winrm_path("LAT-044","Pass-the-Hash technique note",DC_IP,"C:\\Flags\\FLAG-LAT-045-PtH.txt"),
+        winrm_path("LAT-045","Pass-the-Hash technique note",DC_IP,"C:\\Flags\\FLAG-LAT-045-PtH.txt"),
+        winrm_path("LAT-071","DCOM lateral note",DC_IP,"C:\\Flags\\FLAG-LAT-071-DCOM.txt"),
+        {"id":"LAT-072","name":"WMI (Winmgmt) service running",
+         "type":"winrm","ip":DC_IP,"cmd":"(Get-Service Winmgmt).Status","eval":"'Running' in (output or '')"},
+        {"id":"LAT-073","name":"WinRM listener reachable (lateral exec)",
+         "type":"port","ip":DC_IP,"port":5985},
+        winrm_path("LAT-074","PSRemoting/RDP-hijack note",DC_IP,"C:\\Flags\\FLAG-LAT-076-RDPHijack.txt"),
+        winrm_path("LAT-075","SCM remote-exec note",DC_IP,"C:\\Flags\\FLAG-LAT-080-SCMExec.txt"),
+    ]
+
+    # ── PE extended (vuln_privesc — DC_IP) ──────────────────────────────────────
+    rules += [
+        winrm_regval("PE-061","Autorun Run-key to world-writable path",FILE_IP,"HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run","EMPIREAutorun"),
+        {"id":"PE-063","name":"Rogue LSA Notification Package (empire_notify)",
+         "type":"winrm","ip":FILE_IP,
+         "cmd":"(Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa' -Name 'Notification Packages' -ErrorAction SilentlyContinue).'Notification Packages' -join ','",
+         "eval":"'empire_notify' in (output or '')"},
+        winrm_regval("PE-067","Credential Guard disabled (DeviceGuard VBS=0)",FILE_IP,"HKLM:\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard","EnableVirtualizationBasedSecurity"),
+        winrm_path("PE-070","SAM/SYSTEM backup in world-readable path",FILE_IP,"C:\\Tools\\backup\\sam.hiv"),
+    ]
+
+    # ── CRED extended (vuln_cred_access — DC_IP) ────────────────────────────────
+    rules += [
+        ldap_user("CRED-066","Service accounts with credential surfaces","svc_devops"),
+        {"id":"CRED-067","name":"Cleartext creds in AD user description (svc_jabba2)",
+         "type":"ldap","filter":"(&(sAMAccountName=svc_jabba2)(description=*Legacy123*))",
+         "attributes":["description"],"eval":"len(entries) > 0"},
+        {"id":"CRED-068","name":"Cleartext creds in LDAP info field (svc_monitoring)",
+         "type":"ldap","filter":"(&(sAMAccountName=svc_monitoring)(info=*Monitor2024*))",
+         "attributes":["info"],"eval":"len(entries) > 0"},
+        winrm_path("CRED-070","Plaintext credential-store note",DC_IP,"C:\\Flags\\FLAG-CRED-066-090-CredStores.txt"),
+        winrm_path("CRED-091","Kerberoast-no-auth note",DC_IP,"C:\\Flags\\FLAG-CRED-091-Kerberoast-NoAuth.txt"),
+        winrm_path("CRED-121","Browser-creds note",DC_IP,"C:\\Flags\\FLAG-CRED-121-BrowserCreds.txt"),
+        {"id":"CRED-124","name":"Saved creds in Windows Credential Manager (cmdkey)",
+         "type":"winrm","ip":DC_IP,"cmd":"cmdkey /list","eval":"'coruscant' in (output or '').lower()"},
+        winrm_path("CRED-125","SSH private key stub in profile",DC_IP,"C:\\Users\\Administrator\\.ssh\\id_rsa"),
+        winrm_path("CRED-126","AWS credentials stub",DC_IP,"C:\\Users\\Administrator\\.aws\\credentials"),
+        winrm_path("CRED-128","Terraform tfstate with creds",DC_IP,"C:\\Tools\\terraform.tfstate"),
+        winrm_path("CRED-130","RDP file with saved creds",DC_IP,"C:\\Users\\Administrator\\Desktop\\Corporate Server.rdp"),
     ]
 
     return rules
