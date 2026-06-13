@@ -54,21 +54,26 @@
   # sides in one call given target-forest credentials.
   ansible.windows.win_shell: |
     $ErrorActionPreference = "Stop"
-    $srcCtx = New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext(
-      "Domain", "empire.local", "{{ corp_admin_user }}", "{{ corp_admin_password }}")
-    $tgtCtx = New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext(
-      "Domain", "rebel.local", "{{ finance_admin_user }}", "{{ finance_admin_password }}")
-    $src = [System.DirectoryServices.ActiveDirectory.Domain]::GetDomain($srcCtx)
-    $tgt = [System.DirectoryServices.ActiveDirectory.Domain]::GetDomain($tgtCtx)
-    $src.CreateTrustRelationship(
-      $tgt, [System.DirectoryServices.ActiveDirectory.TrustDirection]::Bidirectional)
-    Write-Output "TRUST_CREATED: empire.local <-> rebel.local"
+    try {
+      $srcCtx = New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext(
+        "Domain", "empire.local", "{{ corp_admin_user }}", "{{ corp_admin_password }}")
+      $tgtCtx = New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext(
+        "Domain", "rebel.local", "{{ finance_admin_user }}", "{{ finance_admin_password }}")
+      $src = [System.DirectoryServices.ActiveDirectory.Domain]::GetDomain($srcCtx)
+      $tgt = [System.DirectoryServices.ActiveDirectory.Domain]::GetDomain($tgtCtx)
+      $src.CreateTrustRelationship(
+        $tgt, [System.DirectoryServices.ActiveDirectory.TrustDirection]::Bidirectional)
+      Write-Output "TRUST_CREATED: empire.local <-> rebel.local"
+    } catch {
+      # PowerShell wraps the .NET method exception, so match on the message.
+      $msg = "$($_.Exception.Message) $($_.Exception.InnerException.Message)"
+      if ($msg -match 'trust relationship exists|already exists') {
+        Write-Output "TRUST_EXISTS: empire.local <-> rebel.local"
+      } else { Write-Error $_; exit 1 }
+    }
   register: finance_trust_create
   changed_when: "'TRUST_CREATED' in finance_trust_create.stdout"
-  # "already exists" errors are expected on re-run; other errors should surface
-  failed_when:
-    - finance_trust_create.rc != 0
-    - "'already exists' not in (finance_trust_create.stderr | default(''))"
+  failed_when: finance_trust_create.rc != 0
   when: finance_trust_check.stdout | trim == "MISSING"
 
 # DF-008: Disable SID filtering on the corp<->finance trust.
@@ -106,20 +111,25 @@
   # with the .NET Forest.CreateTrustRelationship API (builds both sides at once).
   ansible.windows.win_shell: |
     $ErrorActionPreference = "Stop"
-    $srcCtx = New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext(
-      "Forest", "empire.local", "{{ corp_admin_user }}", "{{ corp_admin_password }}")
-    $tgtCtx = New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext(
-      "Forest", "trade.corp", "{{ jedi_admin_user }}", "{{ jedi_admin_password }}")
-    $src = [System.DirectoryServices.ActiveDirectory.Forest]::GetForest($srcCtx)
-    $tgt = [System.DirectoryServices.ActiveDirectory.Forest]::GetForest($tgtCtx)
-    $src.CreateTrustRelationship(
-      $tgt, [System.DirectoryServices.ActiveDirectory.TrustDirection]::Bidirectional)
-    Write-Output "TRUST_CREATED: empire.local <-> trade.corp"
+    try {
+      $srcCtx = New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext(
+        "Forest", "empire.local", "{{ corp_admin_user }}", "{{ corp_admin_password }}")
+      $tgtCtx = New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext(
+        "Forest", "trade.corp", "{{ jedi_admin_user }}", "{{ jedi_admin_password }}")
+      $src = [System.DirectoryServices.ActiveDirectory.Forest]::GetForest($srcCtx)
+      $tgt = [System.DirectoryServices.ActiveDirectory.Forest]::GetForest($tgtCtx)
+      $src.CreateTrustRelationship(
+        $tgt, [System.DirectoryServices.ActiveDirectory.TrustDirection]::Bidirectional)
+      Write-Output "TRUST_CREATED: empire.local <-> trade.corp"
+    } catch {
+      $msg = "$($_.Exception.Message) $($_.Exception.InnerException.Message)"
+      if ($msg -match 'trust relationship exists|already exists') {
+        Write-Output "TRUST_EXISTS: empire.local <-> trade.corp"
+      } else { Write-Error $_; exit 1 }
+    }
   register: root_trust_create
   changed_when: "'TRUST_CREATED' in root_trust_create.stdout"
-  failed_when:
-    - root_trust_create.rc != 0
-    - "'already exists' not in (root_trust_create.stderr | default(''))"
+  failed_when: root_trust_create.rc != 0
   when: root_trust_check.stdout | trim == "MISSING"
 
 # DF-008: Disable SID filtering on the corp<->root trust.
