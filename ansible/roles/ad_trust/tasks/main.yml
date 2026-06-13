@@ -49,23 +49,19 @@
   changed_when: false
 
 - name: Create external trust empire.local <-> rebel.local
+  # NOTE: there is no New-ADTrust cmdlet. External (domain-to-domain) trusts are
+  # created with the .NET Domain.CreateTrustRelationship API, which builds BOTH
+  # sides in one call given target-forest credentials.
   ansible.windows.win_shell: |
-    Import-Module ActiveDirectory
-    $cred = New-Object System.Management.Automation.PSCredential(
-      "{{ finance_admin_user }}",
-      (ConvertTo-SecureString "{{ finance_admin_password }}" -AsPlainText -Force)
-    )
-    $params = @{
-      Name            = "rebel.local"
-      Target          = "rebel.local"
-      SourceDC        = "{{ corp_dc }}"
-      Credential      = $cred
-      Direction       = "{{ trust_direction }}"
-      TrustType       = "External"
-      EditAfterCreate = $false
-      Force           = $true
-    }
-    New-ADTrust @params
+    $ErrorActionPreference = "Stop"
+    $srcCtx = New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext(
+      "Domain", "empire.local", "{{ corp_admin_user }}", "{{ corp_admin_password }}")
+    $tgtCtx = New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext(
+      "Domain", "rebel.local", "{{ finance_admin_user }}", "{{ finance_admin_password }}")
+    $src = [System.DirectoryServices.ActiveDirectory.Domain]::GetDomain($srcCtx)
+    $tgt = [System.DirectoryServices.ActiveDirectory.Domain]::GetDomain($tgtCtx)
+    $src.CreateTrustRelationship(
+      $tgt, [System.DirectoryServices.ActiveDirectory.TrustDirection]::Bidirectional)
     Write-Output "TRUST_CREATED: empire.local <-> rebel.local"
   register: finance_trust_create
   changed_when: "'TRUST_CREATED' in finance_trust_create.stdout"
@@ -106,24 +102,18 @@
   changed_when: false
 
 - name: Create forest trust empire.local <-> trade.corp
+  # NOTE: there is no New-ADTrust cmdlet. A transitive forest trust is created
+  # with the .NET Forest.CreateTrustRelationship API (builds both sides at once).
   ansible.windows.win_shell: |
-    Import-Module ActiveDirectory
-    $cred = New-Object System.Management.Automation.PSCredential(
-      "{{ jedi_admin_user }}",
-      (ConvertTo-SecureString "{{ jedi_admin_password }}" -AsPlainText -Force)
-    )
-    $params = @{
-      Name            = "trade.corp"
-      Target          = "trade.corp"
-      SourceDC        = "{{ corp_dc }}"
-      Credential      = $cred
-      Direction       = "{{ trust_direction }}"
-      # Forest type creates a transitive forest trust (tree-root path)
-      TrustType       = "Forest"
-      EditAfterCreate = $false
-      Force           = $true
-    }
-    New-ADTrust @params
+    $ErrorActionPreference = "Stop"
+    $srcCtx = New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext(
+      "Forest", "empire.local", "{{ corp_admin_user }}", "{{ corp_admin_password }}")
+    $tgtCtx = New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext(
+      "Forest", "trade.corp", "{{ jedi_admin_user }}", "{{ jedi_admin_password }}")
+    $src = [System.DirectoryServices.ActiveDirectory.Forest]::GetForest($srcCtx)
+    $tgt = [System.DirectoryServices.ActiveDirectory.Forest]::GetForest($tgtCtx)
+    $src.CreateTrustRelationship(
+      $tgt, [System.DirectoryServices.ActiveDirectory.TrustDirection]::Bidirectional)
     Write-Output "TRUST_CREATED: empire.local <-> trade.corp"
   register: root_trust_create
   changed_when: "'TRUST_CREATED' in root_trust_create.stdout"
