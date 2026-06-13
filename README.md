@@ -1,260 +1,256 @@
-# EMPIRE — empire Mifflin Active Directory
+# EMPIRE — Vulnerable Multi-Forest Active Directory Lab
 
-A reproducible, multi-forest Windows Active Directory lab that is **intentionally misconfigured** for offensive-security training, CTFs, and red-team practice. EMPIRE spins up 1–9 VMs (8 Windows Server 2022, 1 Ubuntu 22.04) on QEMU/KVM with the full attack-matrix surface from `PLAN.md` already wired up: Kerberoasting, AS-REP roasting, ADCS ESC1–ESC16, ACL abuse, delegation chains, ZeroLogon, noPac, Certifried, Golden/Silver/Diamond/Sapphire tickets, SID-history injection, and more.
+A reproducible, **intentionally misconfigured** multi-forest Windows Active Directory lab for offensive-security training, CTFs, and red-team practice. One command (`python3 deploy.py`) downloads the Windows media, builds base images with Packer, wires up the networks, boots the VMs, and runs the full Ansible attack-surface injection from `PLAN.md`: Kerberoasting, AS-REP roasting, ADCS ESC1–ESC16, ACL abuse, delegation chains, RBCD, ZeroLogon/noPac/Certifried preconditions, Golden/Silver/Diamond tickets, SID-history injection, cross-forest trust abuse, and more.
 
-> **EMPIRE is the lab equivalent of [Damn Vulnerable Web App](https://github.com/digininja/DVWA) for the Windows enterprise.** Every "bug" is a feature. Do not deploy on a network you do not own.
+> Every "bug" here is a feature. The misconfigurations **are** the spec (`PLAN.md`). Do not deploy on a network you do not own — treat every VM as hostile.
 
-**Project:** <https://github.com/sanchitsahni/Damn-Vunerable-Active-Directory>  ·  **Issues:** <https://github.com/sanchitsahni/empire-Mifflin-Active-Directory/issues>  ·  **Use:** research / training only — treat every VM as hostile
+> **Acknowledgment:** EMPIRE owes a great deal to [**GOAD — Game of Active Directory**](https://github.com/Orange-Cyberdefense/GOAD), whose multi-forest lab design and attack-path philosophy were an enormous help in shaping this project.
 
 ---
 
 ## What it builds
 
-Three forests, nine VMs, three isolated L2 segments, full PLAN.md attack matrix across IA / REC / ENUM / CRED / LAT / PE / PER / DF categories (382 ID slots: IA-001..050, ENUM-001..080, REC-001..015, CRED-001..065, LAT-001..035, PE-001..060, PER-001..037, DF-001..040).
+Three forests, up to nine VMs, on a single Linux bridge:
 
-### Lab wire diagram
+- **`empire.local`** (root) + **`eu.empire.local`** (child) — the Galactic Empire forest
+- **`rebel.local`** — external trust (Rebel Alliance)
+- **`trade.corp`** — forest trust (Trade Federation)
 
-One Linux bridge (`empire-ctf`) hosts all 8 VMs on a single `10.10.0.0/16` network. All forests share the same L2 segment — routing between forests is done at the AD/DNS layer, not the network layer. An optional `empire-nat` bridge exists only during Windows install (ISO + activation fetch).
+Eight Windows Server VMs (2019/2022) + one Ubuntu 22.04 Linux member. All share the `empire-ctf` bridge on `10.10.0.0/16`; forests live in different /24 slices (`10.10.0.x`, `10.10.20.x`, `10.10.30.x`) so cross-forest traffic routes at the AD/DNS layer, not the network layer.
 
-**Network (L2 / IP):**
+### Network (L2 / IP)
 
 ```mermaid
 graph TD
     classDef host fill:#000,stroke:#0f0,stroke-width:2px,color:#0f0;
     classDef bridge fill:#333,stroke:#fff,stroke-width:1px,color:#fff;
     classDef vm fill:#1d2b38,stroke:#00d2ff,stroke-width:2px,color:#fff;
-    classDef nat fill:#4a1e1e,stroke:#ff5500,stroke-width:2px,color:#fff;
 
-    Host["Linux Host<br/>runs python3 deploy.py<br/>QEMU/KVM · Ansible · dnsmasq · nftables NAT"]:::host
-
+    Host["Linux Host<br/>python3 deploy.py<br/>QEMU/KVM · Packer · Ansible · dnsmasq"]:::host
     CTF{"empire-ctf<br/>10.10.0.1/16<br/>(ALL forests)"}:::bridge
-    NAT{"empire-nat<br/>10.0.2.1/24<br/>(install only)"}:::nat
-
     Host --> CTF
-    Host --> NAT
 
     CTF --- coruscant["coruscant.empire.local<br/>10.10.0.10"]:::vm
     CTF --- deathstar["deathstar.eu.empire.local<br/>10.10.0.11"]:::vm
     CTF --- endor["endor.empire.local<br/>10.10.0.12"]:::vm
     CTF --- scarif["scarif.empire.local<br/>10.10.0.13"]:::vm
     CTF --- kamino["kamino.empire.local<br/>10.10.0.14"]:::vm
-    CTF --- tatooine["tatooine.empire.local<br/>10.10.0.100"]:::vm
     CTF --- mandalore["mandalore.empire.local<br/>10.10.0.15"]:::vm
+    CTF --- tatooine["tatooine.empire.local<br/>10.10.0.100"]:::vm
     CTF --- yavin4["yavin4.rebel.local<br/>10.10.20.10"]:::vm
     CTF --- neimoidia["neimoidia.trade.corp<br/>10.10.30.10"]:::vm
 ```
 
-All VMs share `empire-ctf` — the host is the single dnsmasq/NAT gateway. Finance and trade.corp VMs sit in different /24 slices of the /16 (`10.10.20.x`, `10.10.30.x`) which keeps IPs unique and cross-forest reachable without extra routing.
-
-**Active Directory (forests + trusts):**
+### Active Directory (forests + trusts)
 
 ```mermaid
 graph TD
     classDef domain fill:#1d2b38,stroke:#00d2ff,stroke-width:2px,color:#fff;
-    
+
     subgraph EMPIRE Forest
         EMPIRE["empire.local<br/>(root domain)"]:::domain
         EU["eu.empire.local<br/>(child domain)"]:::domain
-        EMPIRE -- "Parent/Child" --> EU
+        EMPIRE -- "Parent / Child" --> EU
     end
-    
     subgraph REBEL Forest
         FIN["rebel.local"]:::domain
     end
-    
     subgraph TRADE Forest
         TRADE["trade.corp"]:::domain
     end
-    
-    EMPIRE <-->|External Trust<br/>BiDirectional<br/>SID Filter: OFF| FIN
-    EMPIRE <-->|Forest Trust<br/>BiDirectional<br/>SID Filter: OFF| TRADE
+
+    EMPIRE <-->|External Trust · BiDirectional · SID filter OFF| FIN
+    EMPIRE <-->|Forest Trust · BiDirectional · SID filter OFF| TRADE
 ```
 
-Trusts are created by `ansible/tasks/trust-setup.yml` (`TrustType=External` for EMPIRE↔REBEL, `TrustType=Forest` for EMPIRE↔TRADE, both `Direction=BiDirectional`). The TDO passwords are then reset to `TrustKey2024!` by `vuln-forest-compromise.yml` (DF-006) so trust-ticket forgery works without first DCSyncing. Cross-forest name resolution is via conditional forwarders on `coruscant.empire.local`.
+Trusts are created by the `ad_trust` role (`TrustType=External` for empire↔rebel, `Forest` for empire↔trade, both bidirectional) via the .NET `CreateTrustRelationship` API, with SID filtering disabled (DF-008) so SID-history injection works across the boundary. Cross-forest name resolution is via conditional forwarders on `coruscant.empire.local` (the `dns` role).
 
-| Domain | Forest | IP range | DC | Relationship to empire.local |
+| Domain | Forest | IP range | DC (inventory name) | Trust to empire.local |
 |---|---|---|---|---|
-| `empire.local` | EMPIRE (root) | `10.10.0.x` · `empire-ctf /16` | `coruscant.empire.local` | — |
-| `eu.empire.local` | EMPIRE (child) | `10.10.0.x` · `empire-ctf /16` | `deathstar.eu.empire.local` | Parent/child, same forest |
-| `rebel.local` | REBEL (root) | `10.10.20.x` · `empire-ctf /16` | `yavin4.rebel.local` | External, bidirectional |
-| `trade.corp` | TRADE (root) | `10.10.30.x` · `empire-ctf /16` | `neimoidia.trade.corp` | Forest, bidirectional |
-
-**Lab password (everywhere): `EmpireLab2024!`** — not a secret, intentionally weak.
+| `empire.local` | EMPIRE (root) | `10.10.0.x` | `coruscant.empire.local` | — |
+| `eu.empire.local` | EMPIRE (child) | `10.10.0.x` | `deathstar.eu.empire.local` | Parent/child, same forest |
+| `rebel.local` | REBEL (root) | `10.10.20.x` | `yavin4.rebel.local` | External, bidirectional |
+| `trade.corp` | TRADE (root) | `10.10.30.x` | `neimoidia.trade.corp` | Forest, bidirectional |
 
 ### VM manifest
 
-Per-VM sizing, MAC, and VNC port — all hardcoded in `qemu/vm-create.sh` (`VM_DEFS`) and `qemu/network/setup-network.sh` (static dnsmasq leases). When you add or rename a VM, **all four** of `vm-create.sh`, `setup-network.sh`, `ansible/inventory.yml`, and any role/task referencing the hostname must stay in sync.
+Specs are hardcoded in `providers/qemu/vm-create.sh` (`VM_DEFS`) and the static dnsmasq leases in `providers/qemu/network-setup.sh`. When you add or rename a VM, **all four** of `vm-create.sh`, `network-setup.sh`, `ansible/inventory.yml`, and any role/task referencing the hostname must stay in sync.
 
-| Host | IP | Bridge | RAM | vCPU | VNC |
-|---|---|---|---|---|---|
-| `coruscant.empire.local` | 10.10.0.10 | `empire-ctf` | 3 GB | 2 | :5901 |
-| `deathstar.eu.empire.local` | 10.10.0.11 | `empire-ctf` | 2 GB | 1 | :5902 |
-| `endor.empire.local` | 10.10.0.12 | `empire-ctf` | 2 GB | 1 | :5903 |
-| `scarif.empire.local` | 10.10.0.13 | `empire-ctf` | 1.5 GB | 1 | :5904 |
-| `kamino.empire.local` | 10.10.0.14 | `empire-ctf` | 2 GB | 1 | :5905 |
-| `tatooine.empire.local` | 10.10.0.100 | `empire-ctf` | 3 GB | 2 | :5906 |
-| `mandalore.empire.local` | 10.10.0.15 | `empire-ctf` | 1.2 GB | 2 | :5909 |
-| `yavin4.rebel.local` | 10.10.20.10 | `empire-ctf` | 2 GB | 1 | :5907 |
-| `neimoidia.trade.corp` | 10.10.30.10 | `empire-ctf` | 2 GB | 1 | :5908 |
+| Host | IP | RAM | vCPU | VNC | Base image | Role |
+|---|---|---|---|---|---|---|
+| `coruscant.empire.local` | 10.10.0.10 | 1792 MB | 2 | :5901 | server2022 | Root DC |
+| `deathstar.eu.empire.local` | 10.10.0.11 | 1280 MB | 2 | :5902 | server2022 | Child DC |
+| `endor.empire.local` | 10.10.0.12 | 1536 MB | 2 | :5903 | server2022 | ADCS / Enterprise CA |
+| `scarif.empire.local` | 10.10.0.13 | 1280 MB | 2 | :5904 | server2019 | File server (SMB) |
+| `kamino.empire.local` | 10.10.0.14 | 1792 MB | 2 | :5905 | server2022 | SQL Server |
+| `tatooine.empire.local` | 10.10.0.100 | 1024 MB | 2 | :5906 | server2022 (Core) | Victim "workstation" |
+| `mandalore.empire.local` | 10.10.0.15 | 1280 MB | 2 | :5909 | ubuntu 22.04 | Linux member |
+| `yavin4.rebel.local` | 10.10.20.10 | 1280 MB | 2 | :5907 | server2022 | rebel.local DC |
+| `neimoidia.trade.corp` | 10.10.30.10 | 1280 MB | 2 | :5908 | server2022 | trade.corp DC |
 
-`--minimal` drops the `rebel.local` and `trade.corp` DCs (5 corp VMs only). `--single-dc` brings up `coruscant.empire.local` alone. `--memory` / `--cpus` scale the table proportionally to fit a host budget.
+Profiles: **`full`** = all 9 VMs / 3 forests (~12.25 GB allocated). **`minimal`** = 7 VMs (empire.local + mandalore, no rebel/trade DCs, ~9.75 GB). **`single-dc`** = `coruscant` only (~1.5 GB smoke test).
 
-### Repository layout
+### Lab credentials (not secrets — intentionally weak)
 
-```
-EMPIRE
-├── deploy.py                   # Master deploy script (entry point)
-├── deploy.py                     # Interactive installer wizard
-├── qemu/
-│   ├── vm-create.sh            # VM definitions, autounattend generation, QCOW2 clone
-│   └── network/
-│       └── setup-network.sh    # Bridge + dnsmasq + NAT (single empire-ctf /16)
-├── ansible/                    # Canonical Ansible (used by deploy.py via profiles)
-│   ├── inventory.yml           # 8 hosts, groups: all_dcs, member_servers, …
-│   └── playbooks/
-│       └── site.yml            # 16-play master playbook (phases 1–16)
-├── ansible/roles/              # 19 Ansible roles
-│   ├── ad_domain               # Forest promotion
-│   ├── child_domain            # Child domain (eu.empire.local)
-│   ├── ad_trust                # Cross-forest trusts + SID-filter disable
-│   ├── dns                     # Conditional forwarders
-│   ├── domain_join             # Member server domain join
-│   ├── vuln_cred_access        # CRED-001..065: Kerberoast, ASREP, spray, DPAPI…
-│   ├── vuln_kerberos           # Delegation misconfigs, RC4, RBCD, shadow creds
-│   ├── vuln_adcs               # ESC1–15 cert templates + CA misconfigs
-│   ├── vuln_forest             # DCSync rights, ExtraSID, SID-filter off, FSP
-│   ├── vuln_ia_surface         # IA-001..119: RDP, WebDAV, LLMNR, null sessions…
-│   ├── vuln_lateral            # LAT-001..035: RBCD, relay, DCOM/WMI, coerce…
-│   ├── vuln_persistence        # PER-001..037: Registry, AdminSDHolder, GPO…
-│   ├── vuln_privesc            # PE-001..060: Token abuse, DLL hijack, CVEs…
-│   ├── vuln_recon              # REC-001..015: SMB signing, LDAP, DNS AXFR…
-│   ├── vuln_cve                # 2025/2026 CVEs: ZeroLogon, noPac, PrintNightmare…
-│   ├── vuln_exchange           # SRV: SQL (DunderMifflin DB), SCCM, WSUS…
-│   ├── vuln_cloud_entra        # CLO: Entra Connect sync, MSOL hash, AzureAD SSO…
-│   ├── vuln_defense_evasion    # DEF: ETW patch, AMSI bypass, CLM bypass…
-│   └── vuln_web_apps           # WEB: SQLi, file upload, path traversal, SSRF…
-├── scripts/
-│   ├── exploit_graph.py        # Graph-based attack chain validator (171 chains)
-│   ├── verify_exploits.sh      # Layer-2 attacker-side exploit verification
-│   └── verify_vulns.py         # Layer-1 passive config check
-├── wordlists/
-│   ├── empire_passwords.txt      # 34 unique lab passwords
-│   └── empire_usernames.txt      # 35 usernames
-├── ATTACK_PATTERNS.md          # 14 named kill chains + attack surface tables
-├── PLAN.md                     # Attack-vector spec (all IDs)
-└── WALKTHROUGH.md              # Full operator walkthrough
-```
+| Purpose | Value |
+|---|---|
+| Domain Administrator (every domain) | `SithLord123!` |
+| DSRM / safe-mode password | `SithLord123!` |
+| `krbtgt` (empire.local) | `KrbtgtEMPIRE2024!` |
+| `krbtgt` (eu.empire.local) | `KrbtgtEU2024!` |
+| Cross-forest trust keys | `TrustKey2024!` |
 
 ---
 
 ## Requirements
 
-- Linux host with **KVM** (Intel VT-x or AMD-V enabled in BIOS)
-- ~**18 GB free RAM** (full lab) / ~12 GB (minimal) / ~3 GB (single-dc)
-- ~**100 GB free disk** for QCOW2 images + Windows ISO + virtio-win
-- `sudo` access (bridge creation, dnsmasq, nftables rules need root)
-- Internet access on first run for Windows ISO + dependency install
+- Linux host with **KVM** (Intel VT-x / AMD-V enabled in BIOS)
+- ~**16 GB free RAM** (full) / ~10 GB (minimal) / ~2 GB (single-dc)
+- ~**100 GB free disk** for qcow2 images + Windows ISOs + virtio-win
+- `sudo` (bridge creation, dnsmasq, nftables need root)
+- Internet on first run (Windows ISOs + virtio + Ubuntu cloud image + packages)
+- Host packages: `qemu`/KVM, `libvirt`, `swtpm`, `ovmf`, `packer`, `ansible`, `dnsmasq`
 
-Distributions detected and supported by `deploy.py`:
-- Debian / Ubuntu / Linux Mint / Pop!_OS (`apt`)
-- Fedora / RHEL / CentOS Stream / Rocky / AlmaLinux (`dnf`)
-- Arch / Manjaro / EndeavourOS (`pacman`)
-- openSUSE / SLES (`zypper`)
+`scripts/setup-deps.sh` installs the host packages per distro: Debian/Ubuntu (`apt`), Fedora/RHEL/Rocky/Alma (`dnf`), Arch/Manjaro (`pacman`), openSUSE (`zypper`). After it adds you to the `kvm`/`libvirt` groups you must **log out and back in** before launching VMs without sudo.
 
 ---
 
 ## Quick start
 
-Before running the deployment script, you **must** supply the master Windows QCOW2 image. We no longer download Windows Evaluation ISOs or VHDs automatically.
-
 ```bash
-git clone git@github.com:sanchitsahni/Damn-Vunerable-Active-Directory.git EMPIRE
+git clone https://github.com/sanchitsahni/Damn-Vunerable-Active-Directory.git EMPIRE
 cd EMPIRE
 
-# 1. Prepare the media directory and base image:
-mkdir -p media
-# You must provide your own sysprepped 'win2k25.qcow2' base image and place it in the media/ folder.
-# Example download (replace with your actual image URL):
-# wget https://example.com/win2k25.qcow2 -O media/win2k25.qcow2
+sudo bash scripts/setup-deps.sh          # one-time host dependency install
+#   ... log out / log back in (kvm + libvirt group membership) ...
 
-# 2. Deploy the Lab
-# Full lab (8 VMs, ~18 GB RAM):
-python3 deploy.py
+python3 deploy.py                        # interactive wizard (recommended first run)
 
-# Smaller deployments:
-python3 deploy.py --profile minimal      # empire.local only (5 VMs, ~12 GB)
-python3 deploy.py --profile single-dc    # one DC for a smoke test (1 VM, ~3 GB)
-
-# Resource caps:
-python3 deploy.py --ram 24 --cpus 12 --disk-path /mnt/vms
-
-# Headless VPS profile (VNC on loopback, no GUI):
-python3 deploy.py --vps --vnc-bind 127.0.0.1
-
-# Lifecycle Management:
-python3 deploy.py suspend     # Stop all VMs
-python3 deploy.py restart tatooine  # Restart a specific VM
-python3 deploy.py destroy     # Tear down everything
+# Non-interactive:
+python3 deploy.py --profile full     --provider qemu --yes
+python3 deploy.py --profile minimal  --provider qemu --yes   # empire.local + mandalore
+python3 deploy.py --profile single-dc --yes                  # 1-VM smoke test
+python3 deploy.py --ram 24 --disk-path /mnt/vms --yes        # resource caps
 ```
 
-> The upstream repo URL has a typo (`Vunerable` instead of `Vulnerable`); that's the real name on GitHub. Clone-paste it as-is.
+You do **not** supply your own base image — `deploy.py` downloads the Windows Server ISOs + virtio-win + the Ubuntu cloud image, then builds the qcow2 base images with Packer automatically.
 
-`deploy.py` runs these phases end-to-end:
+### Pipeline phases
 
-1. OS detection + dependency install (`qemu`, `libvirt`, `swtpm`, `ovmf`, `ansible`, `dnsmasq`, …)
-2. Bridge + dnsmasq + nftables setup (`qemu/network/setup-network.sh`)
-3. Per-VM `autounattend.xml` + `post-install.ps1` generation, parallel QCOW2 disk cloning, and VM boot (`qemu/vm-create.sh`)
-4. Wait for VMs to finish Windows setup (`scripts/wait-vms.sh`)
-5. Massgrave activation on each VM
-6. Ansible provisioning: domain promotion, trusts, ADCS, then the full vulnerability injection matrix (`ansible/playbooks/site.yml`)
+`deploy.py` runs 7 phases end-to-end (`--phase N` / `--from-phase` restart from any of them):
 
-Expect **45–90 minutes** for a full first run (Windows install dominates; subsequent re-runs of Ansible alone are minutes).
+| # | Phase | What happens |
+|---|---|---|
+| 0 | media | Download Windows ISOs, virtio-win, Ubuntu cloud image into `media/` |
+| 1 | packer | Build server2019 / server2022 base qcow2 images |
+| 2 | network | Create the `empire-ctf` bridge + project-local dnsmasq + nftables |
+| 3 | VMs | Generate per-VM `autounattend.xml` + `post-install.ps1`, clone disks, boot |
+| 4 | WinRM | Wait for each VM to finish Windows setup (writes `vms/<name>.installed`) |
+| 5 | ansible | Domain promotion → trusts → ADCS → full vulnerability injection (`site.yml`) |
+| 6 | verify | Layer-1 passive config checks (`scripts/verify_vulns.py`) |
+
+Expect **45–90 minutes** on a full first run (Windows install + packer dominate). Re-running Ansible alone is minutes.
+
+---
+
+## Interactive console
+
+Running `python3 deploy.py` with no `--yes` drops into a settings-aware console. Type `help` (or `?`) for the menu:
+
+| Group | Commands |
+|---|---|
+| **Lab** | `check` · `install` · `build` · `network` · `vms` · `provision` · `resume <n>` |
+| **VMs** | `status` · `start` · `stop` · `destroy` · `snapshot` · `reset` · `vnc` |
+| **Provision** | `provision_tags <t>` (e.g. `kerberos,adcs`) · `verify` |
+| **Config** | `settings` · `set_profile` · `set_provider` · `set_ram` · `set_attacker` · `set_flag_mode` · `set_disk` |
+
+`snapshot` after a good provision, then `reset` to roll every VM back in seconds instead of re-provisioning.
+
+## CLI flags (`python3 deploy.py --help`)
+
+| Flag | Effect |
+|---|---|
+| `--yes`, `-y` | Skip all prompts (CI / cron) |
+| `--profile {full,minimal,single-dc}` | Lab size |
+| `--provider {qemu,virtualbox}` | Hypervisor (default qemu) |
+| `--phase N`, `-p N` | Start from phase N (0=media … 6=verify) |
+| `--from-phase PHASE` | Run Ansible from this phase to the end, then exit |
+| `--only-phase PHASE` | Run only this Ansible phase, then exit |
+| `--limit HOST` | Ansible `--limit` (e.g. `endor.empire.local`) |
+| `--ram GB` | Total RAM budget across all VMs |
+| `--disk-path PATH` | VM disk directory (default `./vms`) |
+| `--attacker-ip IP` | Attacker / listener IP baked into payloads |
+| `--flag-mode {ctf,training}` | `ctf` = flags require exploitation; `training` = visible at `C:\Flags\` |
+| `--base-action {build,skip}` | `build` = run packer; `skip` = images already exist |
+| `--destroy` | Tear down all VMs + networks |
+| `--install-cron` | Write crontab + sudoers drop-in and exit |
+| `--log-file PATH` | Append all output to a log file |
+
+Ansible sub-phases (for `--from-phase` / `--only-phase`): `1 2 5 6 7 8 8b 9 10 11 13 14 16 17 18 19 20`.
 
 ---
 
 ## After deployment
 
 ```bash
-# Re-run only the Ansible playbook (VMs already up):
-cd ansible
-ansible-playbook -i inventory.yml playbooks/site.yml -v
+# Re-run only Ansible (VMs already up):
+cd ansible && ansible-playbook -i inventory.yml playbooks/site.yml -v
 
 # Syntax / dry-run validation:
 ansible-playbook -i inventory.yml playbooks/site.yml --syntax-check
 ansible-playbook -i inventory.yml playbooks/site.yml --check
+
+# Re-run Ansible from a given phase (helper):
+scripts/run-from.sh 8b --limit endor.empire.local
 ```
 
 Connect to a VM:
 
 ```bash
-# VNC console (one port per VM — see the VM manifest table above):
-vncviewer 127.0.0.1:5901          # coruscant.empire.local
-
-# WinRM (Ansible uses this; ports 5985/5986 are open after post-install):
-evil-winrm -i 10.10.0.10 -u Administrator -p 'EmpireLab2024!'
-
-# RDP (some VMs have RDP enabled by post-install.ps1):
-xfreerdp /v:10.10.0.100 /u:Administrator /p:'EmpireLab2024!'
+vncviewer 127.0.0.1:5901                                        # coruscant console
+evil-winrm -i 10.10.0.10 -u Administrator -p 'SithLord123!'     # WinRM (5985 open)
+xfreerdp /v:10.10.0.100 /u:Administrator /p:'SithLord123!'      # RDP where enabled
 ```
 
-Victim workstation `tatooine.empire.local` (`10.10.0.100`) ships with tool path stubs (`C:\Tools\`) but **no binaries** — you don't run attacks from `tatooine`. Attacks run from **your own Kali / BlackArch** on the host bridge (the box that ran `deploy.py`). Bring your own `impacket`, `BloodHound`, `certipy`, `Rubeus`, `mimikatz`, `netexec`, `Responder`, `mitm6`, `ntlmrelayx`, etc. See [`docs/02a-initial-access.md`](docs/02a-initial-access.md) for Kali prep + zero-cred initial access vectors.
+Attacks run from **your own Kali / BlackArch** on the host bridge — the box that ran `deploy.py`. `tatooine` is a victim, not an attack box. Bring your own `impacket`, `BloodHound`, `certipy`, `Rubeus`, `mimikatz`, `netexec`, `Responder`, `mitm6`, `ntlmrelayx`.
+
+> BloodHound collection example (real DC names differ from inventory labels — use `coruscant-fin`/`coruscant-trade`/`coruscant-eu` for the other forests):
+> ```bash
+> bloodhound-python -u Administrator -p 'SithLord123!' -d empire.local \
+>   -dc coruscant.empire.local -ns 10.10.0.10 -c All --zip
+> ```
 
 ---
 
-## Deployment flags (`python3 deploy.py --help`)
+## What's intentionally broken
 
-| Flag | Effect |
-|---|---|
-| `--minimal` | Only `empire.local` (5 VMs, ~12 GB RAM) |
-| `--single-dc` | Single DC smoke test (1 VM, ~3 GB RAM) |
-| `--vps` | Headless VPS profile: bigger per-VM RAM, VNC on loopback only, host-capacity pre-flight, no display devices |
-| `--memory GB` | Total RAM budget across all VMs (default: 18 full / 28 vps) |
-| `--cpus N` | Total vCPU budget (default: 10 full / 14 vps) |
-| `--disk-path PATH` | Override VM disk storage directory (default: `./vms`) |
-| `--vnc-bind ADDR` | Bind VNC to `ADDR` (default `127.0.0.1`; `0.0.0.0` exposes all interfaces — only safe behind a firewall/VPN) |
-| `destroy` | Destroy and clean all VMs and networks, leaving the environment fresh |
-| `suspend` | Stop all running VMs without deleting virtual disks or networks |
-| `restart <id>` | Safely restart specific VMs (e.g. `python3 deploy.py restart coruscant-corp scarif`) |
+Short list — the full spec is `PLAN.md`:
+
+- Defender disabled, firewall off, UAC weakened on every host
+- `ms-DS-MachineAccountQuota = 10` (noPac / Certifried precondition)
+- `krbtgt` reset to known lab values for deterministic Golden Tickets
+- ADCS ESC1–ESC16 templates published (`EMPIREUserESC1`, `EMPIREMachineESC2`, …)
+- Kerberoastable service accounts (`svc_*`) with weak passwords
+- AS-REP roastable accounts (`DoNotRequirePreAuth`)
+- DCSync rights granted to non-admin users
+- SID filtering disabled on both cross-forest trusts; trust keys reset to `TrustKey2024!`
+- ZeroLogon precondition, unconstrained/constrained/RBCD delegation, gMSA backdoor
+- AdminSDHolder GenericAll backdoor, writable GPO (`EMPIREBackdoorGPO`, PER-034)
+- SMB signing not required, LDAP signing not required, LLMNR on, IPv6 enabled (mitm6)
+- …and ~370 more IDs across IA / REC / ENUM / CRED / LAT / PE / PER / DF — see `PLAN.md`
+
+**Do not "fix" any of these.** If something looks broken and is *not* in `PLAN.md`, that is a real bug — file it.
+
+---
+
+## Resetting / tearing down
+
+```bash
+python3 deploy.py --destroy --yes                    # VMs + networks (qcow2 deleted)
+# or, inside the console:  destroy
+```
+
+`vms/` and `media/` survive a network teardown; delete them manually to reclaim disk.
 
 ---
 
@@ -262,191 +258,29 @@ Victim workstation `tatooine.empire.local` (`10.10.0.100`) ships with tool path 
 
 ```
 EMPIRE/
-├── deploy.py                    # Entry point (the only script you run)
-├── PLAN.md                      # Authoritative attack-matrix spec (382 IDs)
-├── WALKTHROUGH.md               # End-to-end deploy → 25 attack paths → DA
-├── AGENTS.md / CLAUDE.md        # Orientation docs for AI coding agents
-│
-├── qemu/
-│   ├── vm-create.sh             # VM_DEFS (RAM/CPU/MAC/VNC/bridge), per-VM
-│   │                            #   autounattend.xml + post-install.ps1
-│   │                            #   generation, libvirt-less lifecycle
-│   └── network/setup-network.sh # Linux bridges (empire-ctf/finance/root/nat)
-│                                #   + project-local dnsmasq + nftables NAT
-│
+├── deploy.py                 # Entry point — the only script you run
+├── PLAN.md                   # Authoritative attack-matrix spec (all flag IDs)
+├── providers/
+│   ├── qemu/
+│   │   ├── vm-create.sh      # VM_DEFS (MAC/RAM/CPU/VNC/bridge), autounattend +
+│   │   │                     #   post-install generation, VM lifecycle
+│   │   └── network-setup.sh  # empire-ctf bridge + dnsmasq static leases + nftables
+│   └── virtualbox/
+│       └── vm-create.sh      # VirtualBox provider equivalent
+├── packer/                   # Packer templates (server2019 / server2022 base images)
 ├── ansible/
-│   ├── inventory.yml            # CANONICAL inventory: 8 hosts × 3 forests
-│   ├── inventory/hosts.yml      # ⚠ stale duplicate; ignored by deploy.py
-│   ├── group_vars/all.yml       # Lab-wide vars (password, domain SIDs, …)
-│   ├── host_vars/               # Per-host overrides
-│   ├── files/                   # Static payloads pushed to Windows
-│   ├── playbooks/site.yml       # Master playbook — 26 plays (see below)
-│   ├── tasks/                   # Imperative AD setup + vuln injection
-│   │   ├── ad-ds-setup.yml             # empire.local forest root promotion
-│   │   ├── child-domain-setup.yml      # eu.empire.local child domain
-│   │   ├── finance-domain-setup.yml    # rebel.local forest root
-│   │   ├── root-domain-setup.yml       # trade.corp forest root
-│   │   ├── domain-join.yml             # Member server domain join
-│   │   ├── trust-setup.yml             # Cross-forest trusts
-│   │   ├── adcs-setup.yml              # ADCS enterprise CA bootstrap
-│   │   ├── vuln-kerberos.yml           # krbtgt reset, MAQ, etc.
-│   │   ├── vuln-enum-surface.yml       # ENUM-001..080
-│   │   ├── vuln-recon.yml              # REC-001..015
-│   │   ├── vuln-cred-access.yml        # CRED-001..065
-│   │   ├── vuln-lateral.yml            # LAT-* DC-side
-│   │   ├── vuln-lateral-scarif.yml     # LAT-* SSH pivot on scarif
-│   │   ├── vuln-lateral-tatooine.yml       # LAT-* SMB signing, coercion drops
-│   │   ├── vuln-acl.yml                # ACL abuse vectors
-│   │   ├── vuln-adcs-esc.yml           # ADCS ESC1..16 template publishing
-│   │   ├── vuln-privesc-file.yml       # PE-* on scarif
-│   │   ├── vuln-privesc-sql.yml        # PE-* on kamino
-│   │   ├── vuln-privesc-tatooine.yml       # PE-* on tatooine
-│   │   ├── vuln-privesc-dc.yml         # Operators + GPO startup scripts
-│   │   ├── vuln-persistence.yml        # PER-001..037
-│   │   ├── vuln-forest-compromise.yml  # DF-001..040
-
-│   │   ├── flag-deployment.yml         # C:\Flags\*.txt placement
-│   │   ├── verify-lab.yml              # Post-deploy smoke checks
-│   │   └── generate-handout.yml        # Participant handout
-│   └── roles/                   # Reusable, cross-cutting role bundles
-│       ├── windows_base/        # Defender off, WinRM on, firewall off, …
-│       ├── ad_domain/           # OUs, users, groups, weak password policy
-│       ├── adcs_vulns/          # ESC1–ESC16 template definitions
-│       ├── network_setup/       # DNS, trust helpers
-│       ├── vuln_setup/          # Cross-cutting vuln injection
-│       ├── massgrave_activate/  # Windows activation via massgrave.dev
-│       └── flag_factory/        # 382-flag manifest → C:\Flags\*.txt
-│
-├── scripts/                     # Orchestration helpers invoked by deploy.py
-│   ├── setup-deps.sh            # Phase 0: package install per distro
-│   ├── download-windows.sh      # Phase 2: WS2022 + virtio-win → media/
-│   ├── wait-for-install.sh      # Per-VM install completion poller
-│   ├── wait-vms.sh              # Phase 4: waits on .installed markers
-│   ├── activate-windows.sh      # Phase 5: per-VM Massgrave activation
-│   ├── deploy-ansible.sh        # Phase 6: wraps ansible-playbook site.yml
-│   ├── finalize.sh              # Phase 7: summary, lab info, next steps
-│   └── vps-wg-gateway.sh        # Optional WireGuard gateway for VPS use
-│
-├── docs/                        # Operator walkthrough (per-phase + per-host)
-├── STUDY/                       # 14-chapter "zero to DA" curriculum
-├── vuln_config/                 # Declarative vuln config (acl/adcs/kerberos/pe)
-├── windows/
-│   └── autounattend/
-│       └── autounattend-core.xml   # Base unattend template (source)
-│
-├── tools/                       # Placeholder for host-side helper utilities (currently empty)
-├── flags/                       # Placeholder for generated flag manifests (gitignored output)
-├── autounattend/                # Per-VM unattend output (gitignored, generated by vm-create.sh)
-└── media/                       # Windows ISO + virtio-win (gitignored, ~5 GB)
+│   ├── inventory.yml         # Canonical inventory: 9 hosts × 3 forests
+│   └── playbooks/
+│       └── site.yml          # Master playbook — phased AD setup + vuln injection
+│   └── roles/                # 23 roles (5 setup + 18 vuln_*)
+├── chains/                   # Static attack-path graph + reachability validator
+├── scripts/                  # Helper scripts (see Scripts reference below)
+├── wordlists/                # Lab usernames + passwords
+├── vms/                      # Generated per-VM state (gitignored)
+└── media/                    # Windows ISOs + virtio + Ubuntu image (gitignored, ~5 GB)
 ```
 
-`site.yml` runs 27 plays in order — domain root promotion → child domain → finance/root forests → member join → ADCS → trusts → **vuln injection (plays 10–23: kerberos, enum, recon, cred, lateral×3, acl, ADCS ESC, PE×4, persistence, forest compromise)** → **mock injection (Phase 9.9)** → flag placement → verify → handout. The vuln-injection plays are the whole point of the lab; the AD setup plays are scaffolding.
-
----
-
-## What's intentionally broken
-
-Short list (the long list is `PLAN.md`):
-
-- Defender disabled, firewall off, UAC weakened on every host
-- `MachineAccountQuota = 10` (noPac/Certifried precondition)
-- `krbtgt` reset to a known value (`KrbtgtEmpire2024!`) for deterministic Golden Tickets
-- ADCS ESC1, ESC2, ESC3, ESC4, ESC6, ESC8, ESC9, ESC10, ESC11, ESC13, ESC14, ESC15, ESC16 templates published
-- Kerberoastable service accounts with weak passwords
-- AS-REP roastable accounts (`DoNotRequirePreAuth`)
-- DCSync rights granted to a non-admin (`doctor.strange`)
-- SID filtering disabled on all cross-forest trusts; trust keys reset to `TrustKey2024!`
-- `FullSecureChannelProtection = 0` (ZeroLogon precondition)
-- Backup Operators / Server Operators / Print Operators / Schema Admins populated with low-priv users
-- AdminSDHolder GenericAll backdoor on `tony.stark`
-- Unconstrained delegation on `svc_legacy`, gMSA backdoor, RBCD on `scarif$`
-- SMB signing not required, LDAP signing not required, LLMNR on, IPv6 enabled (mitm6)
-- And ~370 more IDs — see `PLAN.md`
-
-**Do not "fix" any of these unless you're explicitly working outside the lab spec.** If you find something that looks broken and isn't in `PLAN.md`, that is a bug; file it.
-
----
-
-## Resetting / tearing down
-
-```bash
-# Destroy all VMs (qcow2 disks deleted):
-bash qemu/vm-create.sh destroy
-
-# Tear down bridges + dnsmasq + nftables rules:
-bash qemu/network/setup-network.sh destroy
-
-# Re-run cleanly:
-python3 deploy.py
-```
-
-The `vms/` and `media/` directories survive a destroy of bridges; remove them manually if you want to reclaim disk.
-
----
-
-## Troubleshooting
-
-| Symptom | Cause / Fix |
-|---|---|
-| `Permission denied` on `/dev/kvm` after install | You were added to the `kvm`/`libvirt` groups but haven't re-logged in. Log out and back in. |
-| Ansible WinRM connection refused | VM hasn't finished `post-install.ps1` yet. `scripts/wait-vms.sh` waits on the `vms/<name>.installed` marker; if missing, watch the VM via VNC. |
-| `nltest /domain_trusts` fails after deploy | Trusts depend on DNS conditional forwarders being in place. Re-run the Ansible site playbook; it is idempotent. |
-| Massgrave activation hangs | The host has no internet, or outbound to `massgrave.dev` is blocked. Activation is best-effort; you can ignore failures for short-term lab use. |
-| VM kernel panics / triple-fault on boot | UEFI/OVMF firmware version mismatch — make sure `swtpm` and `ovmf` are installed from your distro's repos, not pinned to an older version. |
-
----
-
-## Contributing & reporting
-
-The EMPIRE repo lives at <https://github.com/sanchitsahni/Damn-Vunerable-Active-Directory> (note the `Vunerable` typo in the upstream name).
-
-**Open an issue if:**
-- A VM fails to boot, install, or join its forest on a supported distro
-- A flag listed in `PLAN.md` is missing or unreachable after a clean `python3 deploy.py`
-- A vulnerability you expected from the spec turns out to be unreachable or differently-scoped
-- A doc page in `docs/` or `STUDY/` contradicts the actual lab state
-
-**Don't open an issue for:**
-- "X is insecure" — that's the entire point; the lab spec is `PLAN.md`
-- A specific solve not working — try a different path, this is a CTF
-- "Defender / firewall / signing is off" — yes, that's by design
-
-When filing a bug, include: distro + `deploy.py --help`-relevant flags used, the failing phase (0–7), and the last ~50 lines from `vms/<name>.log` plus any Ansible failure.
-
-If you want to add an attack vector, open an issue first — `PLAN.md` is the spec, and new vectors should land there before the playbooks.
-
----
-
-## Disclaimer
-
-EMPIRE is a research and training tool. It deliberately produces a Windows AD environment that is trivially exploitable. **Do not deploy it on a network you do not control.** The authors accept no responsibility for misuse. The lab password and intentionally vulnerable configurations are public; treat the VMs as hostile.
-
----
-
-## Running on a VPS (remote access via WireGuard)
-
-The lab is happy on a VPS — you SSH in, run `python3 deploy.py --vps`, and your laptop's Kali joins the lab subnets over a WireGuard tunnel. No port-forwarding individual services; the attacker peer routes the whole `10.10.0.0/24 + 10.20.0.0/24 + 10.30.0.0/24` block.
-
-```bash
-# On the VPS (≥ 24 GB RAM recommended for full lab):
-python3 deploy.py --vps                              # builds the lab, headless
-sudo bash scripts/vps-wg-gateway.sh up         # spins up a WG server, prints client conf
-
-# On your Kali / BlackArch laptop:
-sudo wg-quick up ./empire-attacker.conf          # paste the printed conf here
-nxc smb 10.10.0.10 -u alice -p 'EmpireLab2024!'  # full lab is reachable
-```
-
-See [`docs/09-vps-deploy.md`](docs/09-vps-deploy.md) for the threat-model caveats (do NOT expose the lab directly to the internet — every VM is intentionally vulnerable; the WG gateway is the only safe ingress) and the firewall rules the script applies.
-
----
-
-## Documentation map
-
-| Doc | Purpose |
-|---|---|
-| `README.md` | This file — setup, lifecycle, repo layout |
-| `PLAN.md` | Authoritative attack-matrix spec — every flag ID, precondition, and intended technique |
+Ansible roles: setup (`ad_domain`, `child_domain`, `ad_trust`, `dns`, `domain_join`) + vulnerability injection (`vuln_adcs`, `vuln_cloud_entra`, `vuln_cred_access`, `vuln_cve`, `vuln_defense_evasion`, `vuln_exchange`, `vuln_forest`, `vuln_ia_surface`, `vuln_kerberos`, `vuln_lateral`, `vuln_linux`, `vuln_network_protocols`, `vuln_persistence`, `vuln_privesc`, `vuln_recon`, `vuln_traffic_sim`, `vuln_victim_exec`, `vuln_web_apps`). The `vuln_*` roles are the whole point of the lab; the rest is scaffolding.
 
 ## Scripts reference
 
@@ -487,29 +321,38 @@ See [`docs/09-vps-deploy.md`](docs/09-vps-deploy.md) for the threat-model caveat
 | Script | Role |
 |---|---|
 | `scripts/exploit_graph.py` | Superseded compatibility shim → `chains/validator.py` |
-| `scripts/check_docs.py`, `scripts/check_study_flags.py`, `scripts/generate_missing.py` | Doc/flag consistency helpers |
+| `scripts/check_docs.py`, `scripts/check_study_flags.py`, `scripts/generate_missing.py` | Doc / flag consistency helpers |
 
-## Vulnerability Coverage and Mock Injection
+## Documentation map
 
-The `verify_vulns.py` script validates the existence of 382 vulnerabilities across the full 8-VM enterprise environment. 
-
-If you deploy the lab in `--minimal` or `--single-dc` modes, or if certain heavy enterprise applications (like SCCM, LAPS, EDR agents) are skipped to save RAM/CPU, the lab will mathematically fall short of the 382 count because the underlying services physically do not exist.
-
-To bridge this gap and provide structural proof of coverage across all deployment models, we utilize a **Mock Injection Strategy** (Phase 9.9). 
-- A generation script (`scripts/generate_missing.py`) maps the verification logic directly into synthetic state changes.
-- It dynamically generates `tasks/vuln-missing.yml`, which forces the creation of fake registry keys, mock file paths (e.g., `C:\Windows\CCM\CcmExec.exe`), and Active Directory attributes.
-- This allows you to run `verify_vulns.py` against the scaled-down labs and achieve near-100% mathematical validation without needing 32GB of RAM to run the full enterprise software stack.
-- **Tip (100% Validation):** If you edit `verify_vulns.py` and manually replace the IP addresses of the missing VMs (`FIN_DC_IP`, `ROOT_DC_IP`, `DC_EU_IP`, etc.) with the main Domain Controller IP (`10.10.0.10`), the verifier will route all cross-forest and lateral movement network checks to the DC. Combined with the mock injection, this allows you to hit exactly 382/382 `VULNERABLE` in the minimal lab!
+| Doc | Purpose |
+|---|---|
+| `README.md` | This file — setup, lifecycle, repo layout |
+| `PLAN.md` | Authoritative attack-matrix spec — every flag ID, precondition, and intended technique |
 
 ---
 
-# The EMPIRE AD Lab: Star Wars Lore & Thematic Mapping
+## Troubleshooting
 
-Welcome to the **EMPIRE AD Lab**, where the intricacies of Active Directory align with the galactic struggle between the Galactic Empire, the Rebel Alliance, and the shadow syndicates. This section provides a conceptual thematic mapping between the AD concepts you are attacking and the Star Wars universe.
+| Symptom | Cause / Fix |
+|---|---|
+| `Permission denied` on `/dev/kvm` | Added to `kvm`/`libvirt` groups but not re-logged in. Log out and back in. |
+| Ansible WinRM connection refused | VM hasn't finished `post-install.ps1`. deploy.py waits on the `vms/<name>.installed` marker; watch the VM over VNC if it stalls. |
+| Cross-forest trusts missing | Trust creation needs DNS conditional forwarders first; the `dns` phase runs before `ad_trust`. Re-run `ansible-playbook … --tags dns,trusts` (idempotent). |
+| VM kernel panic / triple-fault on boot | OVMF/`swtpm` version mismatch — install both from your distro repos. |
+| Packer build fails | Check `packer-output/logs/`; ensure the Windows ISOs landed in `media/` (phase 0). |
 
-## The Galactic Topology
+---
 
-The lab topology represents the political structure of the galaxy. Just as trust relationships govern AD, diplomatic and military alliances govern the galaxy.
+## Disclaimer
+
+EMPIRE is a research and training tool that deliberately produces a trivially exploitable Windows AD environment. **Do not deploy it on a network you do not control.** The lab password and intentionally vulnerable configurations are public; treat every VM as hostile. The authors accept no responsibility for misuse.
+
+---
+
+# Star Wars Lore & Thematic Mapping
+
+The lab maps Active Directory concepts onto the galactic struggle between the Galactic Empire, the Rebel Alliance, and the Trade Federation.
 
 ```mermaid
 graph TD
@@ -531,54 +374,25 @@ graph TD
         Coruscant --- Endor
         Coruscant --- Mandalore
     end
-
     subgraph The Rebel Alliance (rebel.local)
         Yavin4["Yavin 4 Base<br/>yavin4.rebel.local"]:::rebel
     end
-
     subgraph The Trade Federation (trade.corp)
         Neimoidia["Cato Neimoidia<br/>neimoidia.trade.corp"]:::trade
     end
-
     Coruscant <-->|Espionage / External Trust| Yavin4
     Coruscant <-->|Treaty / Forest Trust| Neimoidia
 ```
 
-## Infrastructure Mapping
+- **`empire.local` (Galactic Empire):** root domain — the seat of the Emperor. Domain Admin here = keys to the galaxy.
+- **`eu.empire.local` (Death Star):** child domain. Escaping it to compromise the root is the Death Star plans.
+- **`rebel.local` (Rebel Alliance):** external forest, weak link across the trust.
+- **`trade.corp` (Trade Federation):** forest trust — forge inter-realm TGTs to cross the boundary.
+- **`endor` (Shield Generator / ADCS):** compromise the CA (ESC1/ESC8…) to forge certs for anyone.
+- **`scarif` (Citadel / File server):** SMB shares with passwords left in scripts and configs.
+- **`kamino` (Cloning Facility / SQL):** SQLi / `xp_cmdshell` foothold.
+- **`mandalore` (Mercenary Base / Linux):** local privesc + cross-OS pivot.
 
-Understanding the infrastructure is key to successfully executing your attack paths. Here is how the technical components of the EMPIRE AD lab map to the Star Wars universe:
+> "Your focus determines your reality." Focus on the attack paths in `PLAN.md`. If an exploit fails, check your syntax and targeting — the lab is intentionally vulnerable.
 
-### 1. The Core Domains
-* **`empire.local` (The Galactic Empire):** The central root domain. This is the seat of the Emperor and the Imperial Senate. Taking over this domain is equivalent to taking over Coruscant. It controls all the core infrastructure.
-* **`eu.empire.local` (The Death Star):** A child domain of `empire.local`. While it reports to the root domain, it holds immense power. Escaping the child domain to compromise the root domain is the equivalent of using the Death Star plans to destroy the Empire.
-* **`rebel.local` (The Rebel Alliance):** An external forest. It has an external trust with the Empire (perhaps through espionage or captured spies). Moving laterally across this trust requires finding a weak link in the Rebel defenses.
-* **`trade.corp` (The Trade Federation):** A separate forest with a bidirectional forest trust. The Empire uses them for resources, but you can forge trust tickets (Inter-Realm TGTs) to cross this boundary.
-
-### 2. High-Value Targets (Servers)
-* **`coruscant.empire.local` (Coruscant Root DC):** The ultimate prize. Achieving Domain Admin here gives you the keys to the galaxy.
-* **`endor.empire.local` (Endor Shield Generator / ADCS):** Active Directory Certificate Services. If you can compromise the CA (via ESC1, ESC8, etc.), you can forge certificates for any user in the Empire, effectively bringing down the deflector shields.
-* **`scarif.empire.local` (Scarif Citadel):** This file server hosts critical SMB shares. It is the repository of the Death Star plans. Look for exposed passwords in scripts or configuration files left by careless Imperial engineers.
-* **`kamino.empire.local` (Kamino Facility):** The SQL Server. SQL injection or xp_cmdshell here can lead to a foothold. It represents the cloning facilities—a hidden source of power.
-* **`mandalore.empire.local` (Mandalore Base):** The Linux-in-AD member. Contains local privilege escalations and cross-OS pivot opportunities. Represents the mercenary faction employed by the Empire.
-
-### 3. Attack Paths and Tactics
-* **Initial Access (The Smuggler's Route):** Finding an exposed SMB share or exploiting an LLMNR poisoning vulnerability (Responder) is like slipping past the Imperial blockade.
-* **Kerberoasting (Bounty Hunting):** Requesting TGS tickets for service accounts and cracking them offline is like putting a bounty on a high-value target and cracking their encryption.
-* **DCSync (The Force):** Using `secretsdump` to pull the `krbtgt` hash directly from the Domain Controller. It's an invisible, powerful attack that bypasses normal defenses.
-* **Golden Ticket (Order 66):** Once you have the `krbtgt` hash, you can forge a TGT for any user, granting you infinite access. It is the ultimate executive order, overriding all security protocols.
-* **Trust Abuse (Diplomatic Immunity):** Forging a trust ticket to cross from the Child Domain to the Root Domain.
-
-## The Hacker's Code (Sith vs Jedi)
-As you navigate the lab, remember that the tools you use define your path. Will you use noisy, aggressive tools (The Dark Side) that trigger every alarm, or will you use stealthy, precise tradecraft (The Light Side) to move undetected?
-
-* **The Dark Side (Noisy):** Running `BloodHound` with all collection methods, spraying passwords across the entire domain, and dropping standard Mimikatz binaries to disk. It is powerful and fast, but leaves a massive trail.
-* **The Light Side (Stealthy):** Targeted LDAP queries, memory-only execution via Covenant or Cobalt Strike, and careful evasion of logging (AMSI bypasses, ETW patching).
-
-## Flag Locations (Holocrons)
-Hidden throughout the EMPIRE AD lab are flags (Holocrons) that prove your mastery over the environment. Look for `FLAG-*.txt` files on desktops, hidden SMB shares, and within the SQL databases. 
-
-**Remember:** 
-* "Your focus determines your reality." - Qui-Gon Jinn. Focus on the attack paths mapped out in `PLAN.md`.
-* "I find your lack of faith disturbing." - Darth Vader. If an exploit fails, check your syntax, your targeting, and the underlying misconfiguration. The lab is intentionally vulnerable.
-
-May the Force be with you as you conquer the EMPIRE AD!
+May the Force be with you as you conquer the EMPIRE AD.
