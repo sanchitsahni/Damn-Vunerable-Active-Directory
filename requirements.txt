@@ -1,0 +1,22 @@
+# ==============================================================================
+# EMPIRE lab — Python dependencies for deploy.py and helper scripts
+# Python 3.8+ (deploy.py asserts sys.version_info >= (3, 8))
+#   pip install -r requirements.txt
+# ==============================================================================
+
+# --- Orchestration: deploy.py shells out to ansible-playbook and requires
+#     pywinrm to be importable by the SAME interpreter ansible uses. ----------
+ansible>=9.0                 # provides ansible-playbook (provisioning engine)
+pywinrm>=0.4.3               # WinRM connection (Windows hosts); pulls requests-ntlm
+
+# --- deploy.py / providers runtime ------------------------------------------
+PyYAML>=6.0                  # inventory + config parsing (import yaml)
+requests>=2.28               # HTTP calls (media/download, health checks)
+dnspython>=2.3               # DNS checks (import dns)
+
+# --- Verification / enumeration scripts (scripts/verify_vulns.py, validator) -
+ldap3>=2.9                   # LDAP enumeration + NTLM bind
+
+# --- Optional WinRM auth extras (only if you switch transports) --------------
+# pywinrm[kerberos]          # uncomment for Kerberos transport
+# pywinrm[credssp]           # uncomment for CredSSP transport
