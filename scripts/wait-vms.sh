@@ -18,7 +18,7 @@ log()  { echo -e "\033[0;32m[+]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[!]\033[0m $*"; }
 info() { echo -e "\033[0;34m[*]\033[0m $*"; }
 
-# Static IP map (mirrors AGENTS.md topology)
+# Static IP map (mirrors PLAN.md topology)
 declare -A VM_IPS=(
     ["coruscant-corp"]="10.10.0.10"
     ["coruscant-eu"]="10.10.0.11"

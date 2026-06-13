@@ -190,7 +190,7 @@ write_client_conf() {
 PrivateKey = ${cli_priv}
 Address    = ${WG_CLIENT_ADDR}
 # DNS not set on purpose — Windows VMs use the lab DNS; the attacker resolves
-# lab hostnames via /etc/hosts (see docs/01-setup.md).
+# lab hostnames via /etc/hosts (see README.md).
 
 [Peer]
 PublicKey  = ${srv_pub}

@@ -20,7 +20,7 @@
 # practically usable). The validator surfaces them.
 # ==============================================================================
 
-# ─── Lab topology (matches CLAUDE.md four-way invariant) ───────────────────────
+# ─── Lab topology (matches PLAN.md four-way invariant) ───────────────────────
 HOSTS = {
     "coruscant":    "10.10.0.10",     # empire.local PDC, forest root
     "deathstar":  "10.10.0.11",     # eu.empire.local child DC
