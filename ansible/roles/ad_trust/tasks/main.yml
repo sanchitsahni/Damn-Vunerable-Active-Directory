@@ -13,6 +13,17 @@
 # ==============================================================================
 
 # --------------------------------------------------------------------------
+# Guard: only the initiating DC (coruscant) builds the trusts. This role is
+# also pulled in as a meta-dependency by vuln_forest, which runs on ALL DCs —
+# without this guard the LDAP preconditions below execute on deathstar / yavin4
+# / neimoidia (which have no route/reason to reach the remote forests) and
+# retry-loop to failure. end_host cleanly skips the role on every other host.
+# --------------------------------------------------------------------------
+- name: Skip ad_trust on non-initiating DCs (only coruscant creates trusts)
+  ansible.builtin.meta: end_host
+  when: inventory_hostname != 'coruscant.empire.local'
+
+# --------------------------------------------------------------------------
 # Preconditions: remote DCs must answer LDAP before trust negotiation
 # --------------------------------------------------------------------------
 
